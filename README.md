@@ -36,6 +36,12 @@ pi update --extensions               # install packages listed in settings.json
 Then log in (`pi` → `/login`) to recreate `auth.json`, and re-add
 `BRAVE_API_KEY` to the shell env (ADR 2026-002).
 
+**Known caveat:** the `../bounded-dev/skills` pointer assumes pi resolves it
+against the repo's real path. Since `~/.pi/agent` is a symlink, if pi ever
+resolved relative to the symlink instead, the skills repo wouldn't be found.
+If `flight-status` (or any bounded skill) goes missing in a session, check
+this first.
+
 ## Conventions
 
 - **Global = harness.** Everything here applies to every project. Only add
