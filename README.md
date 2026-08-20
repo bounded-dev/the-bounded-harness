@@ -33,9 +33,18 @@ Then log in (`pi` → `/login`) to recreate `auth.json`.
   `pi install npm:<pkg>` (writes here automatically), never by editing `npm/`
   by hand.
 
+## Decisions
+
+- **Web search/fetch: custom `extensions/web.ts`, kept** (2026-08). Chosen over
+  the off-the-shelf `npm:pi-web-access` package: zero dependencies, fully
+  auditable, no third-party code with system access. Trade-off: we maintain the
+  Mojeek scrape fallback ourselves, and there's no GitHub cloning / PDF / video
+  support. Revisit if those become needs. Set `BRAVE_API_KEY` for the reliable
+  search backend.
+
 ## Layer 2 (future)
 
-Capabilities that projects may depend on (e.g. the web search/fetch tools in
-`extensions/web.ts`) should eventually be split into a separately published
-package (`npm:` or public `git:` source) so both this harness and individual
-projects can reference the same identifier. Until then they're global-only.
+If a project ever *depends* on a capability from this harness, that capability
+must move into a separately published package (`npm:` or public `git:` source)
+so both this harness and the project's committed `.pi/settings.json` can
+reference the same identifier. Until then everything here is global-only.
