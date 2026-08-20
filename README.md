@@ -69,6 +69,10 @@ this first.
   `test`, `build`, `lint`; any session in any project looks for these
   names first (ADR 2026-007). The harness itself stays language-agnostic —
   TS specifics live in the project template and its skills.
+- **Third-party reference clones** live in a `third-party/` sister
+  directory (`<owner>/<repo>`, e.g. `third-party/mattpocock/skills` —
+  upstream for the grill-me skills, ADR 2026-008). Reference only: read
+  them, never load them as packages or edit them.
 
 ## Decisions
 
