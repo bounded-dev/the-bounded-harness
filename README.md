@@ -8,16 +8,16 @@ pi config home: `~/.pi/agent` is a symlink to it.
 | Path           | Tracked? | Purpose                                          |
 | -------------- | -------- | ------------------------------------------------ |
 | `settings.json` | yes     | Model prefs, theme, and the (pinned) `packages` manifest — portable, no machine-specific paths |
-| `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-012) |
-| `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-009 |
+| `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-006) |
+| `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-003 |
 | `skills/`      | yes      | Harness-procedural skills (auto-discovered global location) |
-| `packs/`       | yes      | Language packs (pi packages, local-path loaded) — `packs/ts` (ADR 2026-013) |
+| `packs/`       | yes      | Language packs (pi packages, local-path loaded) — `packs/ts` (ADR 2026-007) |
 | `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
 | `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
 | `package.json` / `package-lock.json` / `tsconfig.json` | yes | Harness self-check tooling (`npm run check`) — ADR 2026-005 |
 | `.github/`     | yes      | CI: typecheck on push/PR                         |
 | `auth.json`    | **no**   | Provider credentials                             |
-| `web-search.json` | **no** | Brave Search API key for `web.ts` — ADR 2026-006 |
+| `web-search.json` | **no** | Brave Search API key for `web.ts` — ADR 2026-002 |
 | `sessions/`    | no       | Session transcripts                              |
 | `bin/`         | no       | Vendored arm64 `rg`/`fd` (macOS-only, machine-local; not restored by bootstrap) |
 | `npm/`, `git/` | no       | Packages installed by `pi install` (restorable)  |
@@ -25,7 +25,7 @@ pi config home: `~/.pi/agent` is a symlink to it.
 
 `extensions/orca-*.ts` are managed by Orca (marked
 `// @orca-managed-pi-extension`): tracked, but never hand-edit them —
-commit Orca's rewrites promptly (ADR 2026-010). They are excluded from the
+commit Orca's rewrites promptly (ADR 2026-006). They are excluded from the
 typecheck.
 
 ## Bootstrap a new machine
@@ -46,7 +46,7 @@ npm ci && npm run check              # self-check tooling (typechecks extensions
 
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
 Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in this
-directory (ADR 2026-006). A `BRAVE_API_KEY` env var overrides the file; the
+directory (ADR 2026-002). A `BRAVE_API_KEY` env var overrides the file; the
 file is what GUI-launched sessions (Orca) reliably see.
 
 **Known caveat:** the `../bounded-dev/skills` pointer assumes pi resolves it
@@ -64,10 +64,10 @@ this first.
 - `settings.json` is the manifest for third-party packages; add them with
   `pi install npm:<pkg>@<version>` (writes here automatically), never by
   editing `npm/` by hand. Packages are pinned and updated deliberately
-  (ADR 2026-008).
+  (ADR 2026-006).
 - **Canonical project commands (Layer 2).** Projects declare `check`,
   `test`, `build`, `lint`; any session in any project looks for these
-  names first (ADR 2026-011). The harness itself stays language-agnostic —
+  names first (ADR 2026-007). The harness itself stays language-agnostic —
   TS specifics live in the project template and its skills.
 
 ## Decisions

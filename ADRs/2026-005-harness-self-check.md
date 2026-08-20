@@ -23,6 +23,6 @@ immediately caught two latent type errors in `web.ts`.
 - `@earendil-works/pi-coding-agent` is a dev dependency pinned to the pi
   version in use — bump it deliberately when pi updates.
 - Orca-managed files (`extensions/orca-*`) are excluded from the check; they
-  are untyped by design (see 2026-010).
+  are untyped by design (see 2026-006).
 - A headless smoke test (`pi -p` exercising web_search and a subagent) after
   `pi update` remains a future addition.

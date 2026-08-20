@@ -5,9 +5,20 @@
 ## Decision
 
 Adopt `npm:pi-subagents` for subagent capability. Disable all bundled agents
-(scout, researcher, worker, reviewer, oracle, delegate) via
-`"subagents": { "disableBuiltins": true }` in `settings.json`. Custom agent
-definitions live as markdown in `agents/` (user scope), tracked in this repo.
+via `"subagents": { "disableBuiltins": true }` in `settings.json`. Custom
+agent definitions live as markdown in `agents/`, tracked in this repo.
+
+The roster is deliberately minimal, with tool allowlists matched to role:
+
+- **scout** — read-only (`read, grep, find, ls`) for parallel investigation;
+  fans out freely, zero collision risk, reports with `path:line` evidence.
+- **delegate** — write-capable worker (`read, grep, find, ls, bash, edit,
+  write`) for one-off background tasks.
+
+Both inherit the parent model until a second model tier is deliberately
+adopted (cheap scouts, strong reviewers via per-agent model overrides).
+Parallel write work uses worktree isolation rather than wider tool access.
+New roles are added reluctantly, when a workflow actually needs them.
 
 ## Why
 
@@ -21,8 +32,8 @@ definitions live as markdown in `agents/` (user scope), tracked in this repo.
 
 ## Consequences
 
-- We depend on a third-party package with system access; review on update
-  (`pi update --extensions`).
+- We depend on a third-party package with system access; pinned and reviewed
+  on deliberate update (ADR 2026-006).
 - Custom agents in `agents/` shadow builtins by name if ever re-enabled.
 - Selective re-enable per agent: `subagent({ action: "enable", agent })` or
   `subagents.agentOverrides`.
