@@ -5,6 +5,9 @@ auth.json
 sessions/
 models-store.json
 bin/
+missions/
+run-history.jsonl
+.worktrees/
 
 # Installed packages (restored by pi from settings.json "packages" list)
 npm/
