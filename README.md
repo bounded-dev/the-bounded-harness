@@ -10,7 +10,7 @@ pi config home: `~/.pi/agent` is a symlink to it.
 | `settings.json` | yes     | Model prefs, theme, and the (pinned) `packages` manifest — portable, no machine-specific paths |
 | `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-006) |
 | `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-003 |
-| `skills/`      | yes      | Working-method skills: `grill-me`, `grilling`, `domain-modeling` (auto-discovered global location) — ADR 2026-008 |
+| `skills/`      | yes      | Working-method skills: `expand`, `grill-me`, `grilling`, `domain-modeling`, `to-tn` (auto-discovered global location) — ADRs 2026-008/009 |
 | `packs/`       | yes      | Language packs (pi packages, local-path loaded) — `packs/ts` (ADR 2026-007) |
 | `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
 | `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |

@@ -35,6 +35,14 @@ _Avoid_: scripts (unqualified), tasks
 **Orca-managed**:
 Files (e.g. `extensions/orca-*.ts`) that Orca rewrites; tracked in git but never hand-edited.
 
+**Technical Note (TN)**:
+The single document primitive for project thinking — numbered, statused, kinded, ticket-linked. The working surface where ideas develop before ratification into ADRs. Conventions live per-repo in `docs/tn/README.md`.
+_Avoid_: spec doc, design doc, RFC
+
+**Expand**:
+The divergent first phase of feature work — research, cross-domain parallels, widened requirements, and experienced pushback — held entirely in conversation until synthesised into a TN by `to-tn`.
+_Avoid_: brainstorm, discovery phase
+
 **Trunk-based**:
 The git workflow: work happens in worktrees on local branches tracking `main`, and "push" means push to remote `main` unless told otherwise.
 _Avoid_: feature-branch workflow, gitflow

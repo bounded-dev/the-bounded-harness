@@ -15,7 +15,7 @@ Resolve each path against this skill's directory and read both files fully befor
 ## How they interlock
 
 - Grill and model **at the same time**. Every settled decision is also a chance to pin down the language it was expressed in; every fuzzy term the user uses is itself a frontier question ("you said 'account' — Customer or User?").
-- The moment a term is resolved, write it to `CONTEXT.md` — inline, not batched.
+- The moment a term is resolved, write it to `CONTEXT.md` — inline, not batched. Exception: when this grilling is part of the expand → to-tn flow, keep a running note of resolved terms instead; `to-tn` writes them at synthesis time.
 - The moment a decision meets all three ADR criteria (hard to reverse, surprising without context, real trade-off), offer the ADR.
 
 ## Cold-start repos are normal
