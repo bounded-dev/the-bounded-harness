@@ -1,0 +1,10 @@
+{
+  "name": "pi-harness",
+  "version": "0.1.0",
+  "description": "Personal pi coding agent harness — extensions, skills, prompts, themes",
+  "private": true,
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}

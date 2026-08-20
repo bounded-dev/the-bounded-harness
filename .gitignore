@@ -1,0 +1,18 @@
+# Secrets — never commit
+auth.json
+
+# Runtime state
+sessions/
+models-store.json
+bin/
+
+# Installed packages (restored by pi from settings.json "packages" list)
+npm/
+git/
+node_modules/
+
+# Local config overrides (API keys for third-party extensions)
+web-search.json
+
+*.log
+.DS_Store

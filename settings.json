@@ -1,0 +1,10 @@
+{
+  "lastChangelogVersion": "0.84.2",
+  "theme": "dark",
+  "defaultProvider": "fireworks",
+  "defaultModel": "accounts/fireworks/models/kimi-k3",
+  "defaultThinkingLevel": "medium",
+  "extensions": [
+    "/Applications/Zentty.app/Contents/Resources/pi/extensions/zentty-pi-zentty.js"
+  ]
+}
