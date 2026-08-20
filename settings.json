@@ -9,7 +9,7 @@
   ],
   "packages": [
     "npm:pi-subagents",
-    "../../dev/bounded-dev/skills"
+    "../bounded-dev/skills"
   ],
   "subagents": {
     "disableBuiltins": true

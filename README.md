@@ -9,19 +9,32 @@ pi config home: `~/.pi/agent` is a symlink to it.
 | -------------- | -------- | ------------------------------------------------ |
 | `settings.json` | yes     | Model prefs, theme, and the `packages` manifest  |
 | `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …)  |
+| `agents/`      | yes      | Custom subagent definitions (pi-subagents; builtins disabled) |
+| `skills/`      | yes      | Harness-only skills (auto-discovered global location) |
+| `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
+| `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
+| `package.json` | yes      | pi package manifest                              |
 | `auth.json`    | **no**   | Provider credentials                             |
 | `sessions/`    | no       | Session transcripts                              |
 | `npm/`, `git/` | no       | Packages installed by `pi install` (restorable)  |
 
 ## Bootstrap a new machine
 
+Clone this repo and [`bounded-dev/skills`](https://github.com/bounded-dev/skills)
+as sister directories under any shared parent — `settings.json` references the
+skills repo as `../bounded-dev/skills`, so the two must sit alongside each
+other (the parent dir's name doesn't matter):
+
 ```bash
-git clone <this-repo> ~/dev/pi-harness
-ln -s ~/dev/pi-harness ~/.pi/agent   # create ~/.pi first if needed
+cd <parent-dir>
+git clone git@github.com:bounded-dev/pi-harness.git
+git clone git@github.com:bounded-dev/skills.git bounded-dev/skills
+ln -s "$PWD/pi-harness" ~/.pi/agent   # create ~/.pi first if needed
 pi update --extensions               # install packages listed in settings.json
 ```
 
-Then log in (`pi` → `/login`) to recreate `auth.json`.
+Then log in (`pi` → `/login`) to recreate `auth.json`, and re-add
+`BRAVE_API_KEY` to the shell env (ADR 2026-002).
 
 ## Conventions
 
