@@ -7,6 +7,8 @@ models-store.json
 bin/
 missions/
 run-history.jsonl
+
+# Git worktrees of this repo (live harness checkouts)
 .worktrees/
 
 # Installed packages (restored by pi from settings.json "packages" list)

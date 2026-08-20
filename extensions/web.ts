@@ -2,16 +2,23 @@
  * Web Extension — web_search + web_fetch
  *
  * Tools:
- *   web_search(query, count?)  — Brave Search API if BRAVE_API_KEY is set,
+ *   web_search(query, count?)  — Brave Search API if a Brave key is configured,
  *                                otherwise Mojeek HTML scrape (no key needed).
  *   web_fetch(url, maxChars?)  — Fetch a URL and return readable text
  *                                (HTML stripped, truncated).
  *
- * Optional: add BRAVE_API_KEY to your shell env for higher-quality search
- * (free tier: https://brave.com/search/api/ — 2,000 queries/month).
+ * Brave key resolution (first hit wins):
+ *   1. BRAVE_API_KEY in the process env (shell override).
+ *   2. ../web-search.json relative to this file — gitignored, lives in the
+ *      harness root: {"BRAVE_API_KEY": "..."}. This is the reliable path for
+ *      GUI-launched sessions, which don't inherit shell env (ADR 2026-006).
+ *
+ * Free tier: https://brave.com/search/api/ — 2,000 queries/month.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 
 const UA =
@@ -105,6 +112,19 @@ async function searchBrave(query: string, count: number, apiKey: string, signal?
 	}));
 }
 
+function braveApiKey(): string | undefined {
+	if (process.env.BRAVE_API_KEY) return process.env.BRAVE_API_KEY;
+	try {
+		const configPath = fileURLToPath(new URL("../web-search.json", import.meta.url));
+		const config = JSON.parse(readFileSync(configPath, "utf8")) as { BRAVE_API_KEY?: unknown };
+		return typeof config.BRAVE_API_KEY === "string" && config.BRAVE_API_KEY.length > 0
+			? config.BRAVE_API_KEY
+			: undefined;
+	} catch {
+		return undefined; // no config file, or malformed — fall back to Mojeek
+	}
+}
+
 async function searchMojeek(query: string, count: number, signal?: AbortSignal): Promise<SearchResult[]> {
 	// Mojeek expects form-style encoding (spaces as '+'); %20 returns an empty page.
 	const q = encodeURIComponent(query).replace(/%20/g, "+");
@@ -136,6 +156,13 @@ async function searchMojeek(query: string, count: number, signal?: AbortSignal):
 // Extension
 // ---------------------------------------------------------------------------
 
+/** web_fetch result details — one consistent shape across all return paths. */
+interface FetchDetails {
+	status?: number;
+	contentType?: string;
+	truncated?: boolean;
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "web_search",
@@ -148,7 +175,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params, signal) {
 			const count = Math.min(Math.max(params.count ?? 8, 1), 20);
-			const braveKey = process.env.BRAVE_API_KEY;
+			const braveKey = braveApiKey();
 			const backend = braveKey ? "brave" : "mojeek";
 			const results = braveKey
 				? await searchBrave(params.query, count, braveKey, signal)
@@ -177,7 +204,7 @@ export default function (pi: ExtensionAPI) {
 			if (!/^https?:\/\//i.test(params.url)) {
 				return {
 					content: [{ type: "text", text: `Error: only http/https URLs are supported, got: ${params.url}` }],
-					details: {},
+					details: {} as FetchDetails,
 					isError: true,
 				};
 			}
@@ -189,7 +216,7 @@ export default function (pi: ExtensionAPI) {
 				if (status >= 400) {
 					return {
 						content: [{ type: "text", text: `HTTP ${status} fetching ${params.url}\n\n${body.slice(0, 1000)}` }],
-						details: { status },
+						details: { status } as FetchDetails,
 						isError: true,
 					};
 				}
@@ -202,7 +229,7 @@ export default function (pi: ExtensionAPI) {
 				} else {
 					return {
 						content: [{ type: "text", text: `Unsupported content type "${contentType}" at ${params.url}` }],
-						details: { status, contentType },
+						details: { status, contentType } as FetchDetails,
 						isError: true,
 					};
 				}
@@ -217,13 +244,13 @@ export default function (pi: ExtensionAPI) {
 							text: `Fetched ${params.url} (${contentType}, HTTP ${status}${truncated ? `, truncated to ${maxChars} chars` : ""})\n\n${text}`,
 						},
 					],
-					details: { status, contentType, truncated },
+					details: { status, contentType, truncated } as FetchDetails,
 				};
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return {
 					content: [{ type: "text", text: `Error fetching ${params.url}: ${msg}` }],
-					details: {},
+					details: {} as FetchDetails,
 					isError: true,
 				};
 			}
@@ -231,8 +258,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		if (!process.env.BRAVE_API_KEY) {
-			ctx.ui.setStatus("web", "web: mojeek (no BRAVE_API_KEY)");
+		if (!braveApiKey()) {
+			ctx.ui.setStatus("web", "web: mojeek (no Brave key)");
 		}
 	});
 }

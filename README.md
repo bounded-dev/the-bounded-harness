@@ -7,16 +7,25 @@ pi config home: `~/.pi/agent` is a symlink to it.
 
 | Path           | Tracked? | Purpose                                          |
 | -------------- | -------- | ------------------------------------------------ |
-| `settings.json` | yes     | Model prefs, theme, and the `packages` manifest  |
-| `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …)  |
-| `agents/`      | yes      | Custom subagent definitions (pi-subagents; builtins disabled) |
-| `skills/`      | yes      | Harness-only skills (auto-discovered global location) |
+| `settings.json` | yes     | Model prefs, theme, and the (pinned) `packages` manifest — portable, no machine-specific paths |
+| `extensions/`  | yes      | Custom tools (web search/fetch, zentty loader, orca status, …) |
+| `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-009 |
+| `skills/`      | yes      | Harness-procedural skills (auto-discovered global location) |
 | `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
 | `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
-| `package.json` | yes      | pi package manifest                              |
+| `package.json` / `package-lock.json` / `tsconfig.json` | yes | Harness self-check tooling (`npm run check`) — ADR 2026-005 |
+| `.github/`     | yes      | CI: typecheck on push/PR                         |
 | `auth.json`    | **no**   | Provider credentials                             |
+| `web-search.json` | **no** | Brave Search API key for `web.ts` — ADR 2026-006 |
 | `sessions/`    | no       | Session transcripts                              |
+| `bin/`         | no       | Vendored arm64 `rg`/`fd` (macOS-only, machine-local; not restored by bootstrap) |
 | `npm/`, `git/` | no       | Packages installed by `pi install` (restorable)  |
+| `.worktrees/`  | no       | Git worktrees of this repo                       |
+
+`extensions/orca-*.ts` are managed by Orca (marked
+`// @orca-managed-pi-extension`): tracked, but never hand-edit them —
+commit Orca's rewrites promptly (ADR 2026-010). They are excluded from the
+typecheck.
 
 ## Bootstrap a new machine
 
@@ -31,10 +40,16 @@ git clone git@github.com:bounded-dev/pi-harness.git
 git clone git@github.com:bounded-dev/skills.git bounded-dev/skills
 ln -s "$PWD/pi-harness" ~/.pi/agent   # create ~/.pi first if needed
 pi update --extensions               # install packages listed in settings.json
+npm ci && npm run check              # self-check tooling (typechecks extensions/)
 ```
 
-Then log in (`pi` → `/login`) to recreate `auth.json`, and re-add
-`BRAVE_API_KEY` to the shell env (ADR 2026-002).
+Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
+Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in this
+directory (ADR 2026-006). A `BRAVE_API_KEY` env var overrides the file; the
+file is what GUI-launched sessions (Zentty/Orca) reliably see.
+
+The Zentty terminal integration needs no setup: `extensions/zentty.ts`
+loads it when the app is installed and is a no-op elsewhere (ADR 2026-007).
 
 **Known caveat:** the `../bounded-dev/skills` pointer assumes pi resolves it
 against the repo's real path. Since `~/.pi/agent` is a symlink, if pi ever
@@ -49,8 +64,13 @@ this first.
 - **Project dependencies don't live here.** If a project *needs* a capability,
   it declares it in its own committed `.pi/settings.json`. See "Layer 2" below.
 - `settings.json` is the manifest for third-party packages; add them with
-  `pi install npm:<pkg>` (writes here automatically), never by editing `npm/`
-  by hand.
+  `pi install npm:<pkg>@<version>` (writes here automatically), never by
+  editing `npm/` by hand. Packages are pinned and updated deliberately
+  (ADR 2026-008).
+- **Canonical project commands (Layer 2).** Projects declare `check`,
+  `test`, `build`, `lint`; any session in any project looks for these
+  names first (ADR 2026-011). The harness itself stays language-agnostic —
+  TS specifics live in the project template and its skills.
 
 ## Decisions
 

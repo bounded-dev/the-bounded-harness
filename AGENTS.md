@@ -18,7 +18,14 @@ Every change takes effect immediately for all pi sessions on this machine.
   number resets yearly, very concise).
 - Extensions live in `extensions/` and auto-load on session start; no install
   step. TypeScript, `import type { ExtensionAPI } from
-  "@earendil-works/pi-coding-agent"`.
+  "@earendil-works/pi-coding-agent"`. Run `npm run check` (tsc) after editing
+  any hand-written extension; `extensions/orca-*.ts` are Orca-managed — never
+  hand-edit them (ADR 2026-010).
+- **Canonical project commands.** Projects declare `check` / `test` / `build`
+  / `lint`; look for these names first in any project before inventing
+  alternatives (ADR 2026-011).
+- **Subagent roster** is deliberately minimal: `scout` (read-only) and
+  `delegate` (write-capable worker). Don't add roles ad hoc — ADR 2026-009.
 
 ## Current state
 

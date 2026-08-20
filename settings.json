@@ -4,13 +4,10 @@
   "defaultProvider": "fireworks",
   "defaultModel": "accounts/fireworks/models/kimi-k3",
   "defaultThinkingLevel": "medium",
-  "extensions": [
-    "/Applications/Zentty.app/Contents/Resources/pi/extensions/zentty-pi-zentty.js"
-  ],
   "packages": [
-    "npm:pi-subagents",
-    "../bounded-dev/skills",
-    "npm:betterwright"
+    "npm:pi-subagents@0.52.1",
+    "npm:betterwright@1.10.0",
+    "../bounded-dev/skills"
   ],
   "subagents": {
     "disableBuiltins": true
