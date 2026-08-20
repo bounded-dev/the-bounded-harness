@@ -11,7 +11,7 @@ harness root, with the process env as an override. Established pattern via
 
 ## Why
 
-GUI launchers (Zentty, Orca) don't inherit shell env, so a key that only
+GUI launchers (Orca) don't inherit shell env, so a key that only
 lives in `~/.zshrc` silently goes missing in GUI-launched sessions — web
 search was already falling back to Mojeek unnoticed. A file inside the
 harness travels with the config home regardless of launch context, and is

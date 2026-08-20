@@ -1,6 +1,6 @@
 # 2026-007: settings.json stays portable; machine-specific extensions are guarded
 
-**Status:** accepted
+**Status:** superseded by 2026-012 (guarded loader removed with Zentty; the portability principle stands — settings.json contains no machine-specific paths)
 
 ## Decision
 

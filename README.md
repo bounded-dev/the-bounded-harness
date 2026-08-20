@@ -8,7 +8,7 @@ pi config home: `~/.pi/agent` is a symlink to it.
 | Path           | Tracked? | Purpose                                          |
 | -------------- | -------- | ------------------------------------------------ |
 | `settings.json` | yes     | Model prefs, theme, and the (pinned) `packages` manifest — portable, no machine-specific paths |
-| `extensions/`  | yes      | Custom tools (web search/fetch, zentty loader, orca status, …) |
+| `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-012) |
 | `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-009 |
 | `skills/`      | yes      | Harness-procedural skills (auto-discovered global location) |
 | `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
@@ -46,10 +46,7 @@ npm ci && npm run check              # self-check tooling (typechecks extensions
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
 Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in this
 directory (ADR 2026-006). A `BRAVE_API_KEY` env var overrides the file; the
-file is what GUI-launched sessions (Zentty/Orca) reliably see.
-
-The Zentty terminal integration needs no setup: `extensions/zentty.ts`
-loads it when the app is installed and is a no-op elsewhere (ADR 2026-007).
+file is what GUI-launched sessions (Orca) reliably see.
 
 **Known caveat:** the `../bounded-dev/skills` pointer assumes pi resolves it
 against the repo's real path. Since `~/.pi/agent` is a symlink, if pi ever
