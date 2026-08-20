@@ -1,27 +1,39 @@
 # pi-harness
 
-My personal [pi](https://pi.dev) coding agent harness. This directory **is** my
-pi config home: `~/.pi/agent` is a symlink to it.
+My personal [pi](https://pi.dev) coding agent harness. The **`agent/`
+subdirectory** is my pi config home: `~/.pi/agent` is a symlink to it. The repo
+root is the harness *project* (docs, ADRs, CI); `agent/` is the pi config
+*home* (ADR 2026-011).
 
 ## Layout
 
+**Repo root — the harness project (loaded only when working on pi-harness):**
+
 | Path           | Tracked? | Purpose                                          |
 | -------------- | -------- | ------------------------------------------------ |
+| `AGENTS.md`    | yes      | Harness-maintenance rules — *not* injected into other projects |
+| `README.md`    | yes      | This file                                        |
+| `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
+| `CONTEXT.md`   | yes      | Harness domain glossary                          |
+| `.github/`     | yes      | CI: typecheck on push/PR (runs in `agent/`)      |
+| `.worktrees/`  | no       | Git worktrees of this repo                       |
+
+**`agent/` — the pi config home (`~/.pi/agent`, global, every project):**
+
+| Path           | Tracked? | Purpose                                          |
+| -------------- | -------- | ------------------------------------------------ |
+| `AGENTS.md`    | yes      | Global default instructions — injected into every session |
 | `settings.json` | yes     | Model prefs, theme, and the (pinned) `packages` manifest — portable, no machine-specific paths |
 | `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-006) |
 | `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker), `product-expert` / "the PM" (read-only + web) — ADR 2026-003 |
 | `skills/`      | yes      | Working-method skills: `expand`, `grill-me`, `grilling`, `domain-modeling`, `to-tn`, `product-expert` (auto-discovered global location) — ADRs 2026-008/009 |
 | `packs/`       | yes      | Language packs (pi packages, local-path loaded) — `packs/ts` (ADR 2026-007) |
-| `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
-| `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
 | `package.json` / `package-lock.json` / `tsconfig.json` | yes | Harness self-check tooling (`npm run check`) — ADR 2026-005 |
-| `.github/`     | yes      | CI: typecheck on push/PR                         |
 | `auth.json`    | **no**   | Provider credentials                             |
 | `web-search.json` | **no** | Brave Search API key for `web.ts` — ADR 2026-002 |
 | `sessions/`    | no       | Session transcripts                              |
 | `bin/`         | no       | Vendored arm64 `rg`/`fd` (macOS-only, machine-local; not restored by bootstrap) |
 | `npm/`, `git/` | no       | Packages installed by `pi install` (restorable)  |
-| `.worktrees/`  | no       | Git worktrees of this repo                       |
 
 `extensions/orca-*.ts` are managed by Orca (marked
 `// @orca-managed-pi-extension`): tracked, but never hand-edit them —
@@ -31,17 +43,17 @@ typecheck.
 ## Bootstrap a new machine
 
 Clone this repo and [`bounded-dev/skills`](https://github.com/bounded-dev/skills)
-as sister directories under any shared parent — `settings.json` references the
-skills repo as `../bounded-dev/skills`, so the two must sit alongside each
-other (the parent dir's name doesn't matter):
+as sister directories under any shared parent — `agent/settings.json` references
+the skills repo as `../../bounded-dev/skills`, so the two must sit alongside
+each other (the parent dir's name doesn't matter):
 
 ```bash
 cd <parent-dir>
 git clone git@github.com:bounded-dev/pi-harness.git
 git clone git@github.com:bounded-dev/skills.git bounded-dev/skills
-ln -s "$PWD/pi-harness" ~/.pi/agent   # create ~/.pi first if needed
-pi update --extensions               # install packages listed in settings.json
-npm ci && npm run check              # self-check tooling (typechecks extensions/)
+ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
+pi update --extensions                     # install packages listed in settings.json
+cd pi-harness/agent && npm ci && npm run check   # self-check tooling
 ```
 
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
@@ -49,8 +61,8 @@ Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in this
 directory (ADR 2026-002). A `BRAVE_API_KEY` env var overrides the file; the
 file is what GUI-launched sessions (Orca) reliably see.
 
-**Known caveat:** the `../bounded-dev/skills` pointer assumes pi resolves it
-against the repo's real path. Since `~/.pi/agent` is a symlink, if pi ever
+**Known caveat:** the `../../bounded-dev/skills` pointer assumes pi resolves it
+against the real path. Since `~/.pi/agent` is a symlink, if pi ever
 resolved relative to the symlink instead, the skills repo wouldn't be found.
 If `flight-status` (or any bounded skill) goes missing in a session, check
 this first.
