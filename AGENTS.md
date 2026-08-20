@@ -25,6 +25,14 @@ Every change takes effect immediately for all pi sessions on this machine.
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
   (write-capable worker). Don't add roles ad hoc (ADR 2026-003).
 
+## Git workflow — trunk-based
+
+- Work happens in worktrees, each on a local branch (created automatically).
+- Local branches always track `main`; **"push" means push to remote `main`**
+  unless explicitly told otherwise.
+- Long-running work pushes to a named remote feature branch only when the
+  user explicitly says so.
+
 ## Current state
 
 See `README.md` for layout and bootstrap, `ADRs/` for decisions to date.
