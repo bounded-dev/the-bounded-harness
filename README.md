@@ -35,16 +35,4 @@ Then log in (`pi` → `/login`) to recreate `auth.json`.
 
 ## Decisions
 
-- **Web search/fetch: custom `extensions/web.ts`, kept** (2026-08). Chosen over
-  the off-the-shelf `npm:pi-web-access` package: zero dependencies, fully
-  auditable, no third-party code with system access. Trade-off: we maintain the
-  Mojeek scrape fallback ourselves, and there's no GitHub cloning / PDF / video
-  support. Revisit if those become needs. Set `BRAVE_API_KEY` for the reliable
-  search backend.
-
-## Layer 2 (future)
-
-If a project ever *depends* on a capability from this harness, that capability
-must move into a separately published package (`npm:` or public `git:` source)
-so both this harness and the project's committed `.pi/settings.json` can
-reference the same identifier. Until then everything here is global-only.
+Recorded as ADRs in [`ADRs/`](ADRs/) (scheme documented there).
