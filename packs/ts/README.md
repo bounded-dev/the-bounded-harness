@@ -14,6 +14,24 @@ form: skills are on-demand, so presence in a non-TS session costs nothing.
 | Project template (committed `.pi/settings.json`, AGENTS.md, canonical commands) | template repo | ADR 2026-011 — the vehicle projects are created from |
 | Anything language-agnostic | **no** — harness root | Root stays portable and stock-pi compatible |
 
+## Layering: activation scope, not taxonomy (ADR 2026-014)
+
+Packs stay flat (`packs/ts`, later maybe `packs/ts-react`) — no
+language/framework/app-type directory tree. Skill names carry the domain
+prefix (`ts-new-value-object`). Where a piece of knowledge lives is decided
+by *when it should fire*:
+
+- **Always-on app-type constraints** → vendored into the project's
+  `AGENTS.md` + lint config from the template (not loaded globally).
+- **Task-scoped procedures** → description-triggered skills here.
+- **File-scoped rules** → lint / architecture tests (pi has no glob
+  triggers; deterministic is better anyway).
+- **Heavyweight playbooks** → manual `/skill:name`
+  (`disable-model-invocation: true`).
+
+Skills are self-contained: never reference across packs with
+`../../<pack>/` paths — duplicate the lines instead.
+
 ## Rules as code, not prose
 
 Architecture rules (hexagonal layering, validated routes, value-object
