@@ -6,5 +6,11 @@
   "defaultThinkingLevel": "medium",
   "extensions": [
     "/Applications/Zentty.app/Contents/Resources/pi/extensions/zentty-pi-zentty.js"
-  ]
+  ],
+  "packages": [
+    "npm:pi-subagents"
+  ],
+  "subagents": {
+    "disableBuiltins": true
+  }
 }
