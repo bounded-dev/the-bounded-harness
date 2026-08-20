@@ -26,6 +26,16 @@ Every change takes effect immediately for all pi sessions on this machine.
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
   product judgment). Don't add roles ad hoc (ADR 2026-003).
 
+## Issue tracking
+
+All work is tracked in GitHub Issues plus a per-repo board (GitHub Projects
+v2). Use the `issue-tracking` skill for anything involving issues, boards, or
+work status. Temporary agent working files live in the repo's `.agent-state/`
+(gitignored).
+
+> Revisit the issue-tracking skill as the development-workflow (do-work-style)
+> port lands — enforcement and worktree conventions belong there, not here.
+
 ## Git workflow — trunk-based
 
 - Work happens in worktrees, each on a local branch (created automatically).

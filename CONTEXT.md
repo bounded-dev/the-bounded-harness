@@ -50,3 +50,29 @@ _Avoid_: brainstorm, discovery phase
 **Trunk-based**:
 The git workflow: work happens in worktrees on local branches tracking `main`, and "push" means push to remote `main` unless told otherwise.
 _Avoid_: feature-branch workflow, gitflow
+
+**Agent state**:
+The per-repo, gitignored `.agent-state/` folder holding temporary agent working files — snapshots, workflow state, scratch. Never committed; every capability that writes transient files puts them here.
+_Avoid_: .git/ stash, tmp dirs, hidden tool folders
+
+### Issue tracking
+
+**Board**:
+The GitHub Projects v2 board linked to a repo — one per repo, named after the repo.
+_Avoid_: project (unqualified), github project
+
+**Status**:
+The board's single-select field an issue sits in (Backlog … Done). Distinct from the issue's GitHub state (open/closed).
+_Avoid_: column, state
+
+**Epic**:
+A board single-select field grouping issues by theme.
+_Avoid_: milestone, label
+
+**Capture**:
+Creating an issue fast — title, Status Backlog, no assignee. Everything else waits for triage.
+_Avoid_: quick-add, jot
+
+**Triage**:
+The deliberate act of moving issues out of Backlog — deciding Status, Epic, and Priority.
+_Avoid_: grooming, refinement
