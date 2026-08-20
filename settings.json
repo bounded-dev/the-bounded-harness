@@ -8,7 +8,8 @@
     "/Applications/Zentty.app/Contents/Resources/pi/extensions/zentty-pi-zentty.js"
   ],
   "packages": [
-    "npm:pi-subagents"
+    "npm:pi-subagents",
+    "../../dev/bounded-dev/skills"
   ],
   "subagents": {
     "disableBuiltins": true
