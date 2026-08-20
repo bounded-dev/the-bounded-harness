@@ -11,6 +11,7 @@ pi config home: `~/.pi/agent` is a symlink to it.
 | `extensions/`  | yes      | Custom tools (web search/fetch, orca status, …) — no IDE/terminal-specific integrations (ADR 2026-012) |
 | `agents/`      | yes      | Subagent roster: `scout` (read-only), `delegate` (worker) — ADR 2026-009 |
 | `skills/`      | yes      | Harness-procedural skills (auto-discovered global location) |
+| `packs/`       | yes      | Language packs (pi packages, local-path loaded) — `packs/ts` (ADR 2026-013) |
 | `prompts/`     | yes      | Prompt templates (`/name` snippets), if added    |
 | `ADRs/`        | yes      | Decision records (scheme in `ADRs/README.md`)    |
 | `package.json` / `package-lock.json` / `tsconfig.json` | yes | Harness self-check tooling (`npm run check`) — ADR 2026-005 |

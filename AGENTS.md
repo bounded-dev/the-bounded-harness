@@ -8,6 +8,9 @@ Every change takes effect immediately for all pi sessions on this machine.
 - **Global scope only.** Everything here applies to every project. Never add
   project-specific config; project dependencies belong in that project's
   `.pi/settings.json`.
+- **Root stays language-agnostic.** Language-specific capability lives in
+  `packs/<lang>/` (pi packages, local-path loaded) as on-demand skills and
+  scaffolders — never in `extensions/` or this file (ADR 2026-013).
 - **Packages via `pi install`.** Add third-party packages with
   `pi install npm:<pkg>` (or `git:`), which records them in `settings.json`.
   Don't hand-edit `settings.json`'s `packages` list or touch `npm/`/`git/`.
