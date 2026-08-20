@@ -23,7 +23,8 @@ Every change takes effect immediately for all pi sessions on this machine.
 - **Canonical project commands.** Projects declare `check` / `test` /
   `build` / `lint`; look for these first in any project (ADR 2026-007).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
-  (write-capable worker). Don't add roles ad hoc (ADR 2026-003).
+  (write-capable worker), `product-expert` — "the PM" (read-only + web,
+  product judgment). Don't add roles ad hoc (ADR 2026-003).
 
 ## Git workflow — trunk-based
 

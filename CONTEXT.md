@@ -25,8 +25,12 @@ _Avoid_: plugin, hook
 ### Working method
 
 **Subagent roster**:
-The deliberately minimal set of subagents in `agents/`: `scout` (read-only) and `delegate` (write-capable worker). No ad-hoc roles.
+The deliberately minimal set of subagents in `agents/`: `scout` (read-only), `delegate` (write-capable worker), and `product-expert` — "the PM" (read-only + web, product judgment). No ad-hoc roles.
 _Avoid_: agents (unqualified), roles, personas
+
+**PM**:
+The `product-expert` subagent — a product-domain expert instantiated for the current repo's domain, consulted during `expand` for independent product judgment.
+_Avoid_: product manager agent, product persona
 
 **Canonical commands**:
 The script names every project declares — `check`, `test`, `build`, `lint` — which any agent session looks for first.

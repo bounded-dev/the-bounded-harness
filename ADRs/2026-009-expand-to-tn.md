@@ -17,8 +17,9 @@ Two more working-method skills in `skills/`:
 Flow: **expand → grill-me → to-tn**. Steps 1–2 write no files; everything
 lands at to-tn. This deliberately deviates from upstream domain-modeling's
 inline-update rule (noted in both affected skills). Ticket decomposition
-(`tn-decompose`) and persona subagents (product/architect reviewers in
-expand) are parked, not rejected. TN conventions stay per-repo
+(`tn-decompose`) is parked, not rejected. The product-review persona landed
+as the `product-expert` roster agent (ADR 2026-003); an architect reviewer
+remains parked. TN conventions stay per-repo
 (`docs/tn/README.md`); skills follow "repo conventions win", matching
 ADR 2026-008.
 

@@ -14,8 +14,14 @@ The roster is deliberately minimal, with tool allowlists matched to role:
   fans out freely, zero collision risk, reports with `path:line` evidence.
 - **delegate** — write-capable worker (`read, grep, find, ls, bash, edit,
   write`) for one-off background tasks.
+- **product-expert** ("the PM") — read-only + web (`read, grep, find, ls,
+  web_search, web_fetch`) for independent product judgment during `expand`.
+  Expertise lives in the `product-expert` skill (domain-instantiated per
+  repo); the agent carries only permissions. Added 2026-07 for the
+  expand → grill-me → to-tn flow (ADR 2026-009) — the first role to earn
+  its place past the original pair.
 
-Both inherit the parent model until a second model tier is deliberately
+All inherit the parent model until a second model tier is deliberately
 adopted (cheap scouts, strong reviewers via per-agent model overrides).
 Parallel write work uses worktree isolation rather than wider tool access.
 New roles are added reluctantly, when a workflow actually needs them.
