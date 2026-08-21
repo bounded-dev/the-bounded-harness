@@ -33,8 +33,8 @@ Three policies for everything tracked in this repo:
 
 ## Consequences
 
-- New-machine bootstrap needs no settings edits (only the
-  `../bounded-dev/skills` sibling layout, documented in the README).
+- New-machine bootstrap needs no settings edits and no sibling-repo layout
+  — third-party skills are vendored into `agent/skills/` (ADR 2026-012).
 - `pi update --extensions` no longer moves npm packages; check for new
   versions periodically and bump by choice.
 - Occasional noise diffs when Orca updates — commit and move on.

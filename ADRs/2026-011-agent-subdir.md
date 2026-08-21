@@ -23,11 +23,16 @@ The repo root is no longer the pi config home. Everything pi-facing moves into
 
 Path fixes forced by the extra level:
 
-1. `settings.json`: `../bounded-dev/skills` → `../../bounded-dev/skills`
-   (resolved against the real path, now one level deeper).
-2. CI (`.github/workflows/check.yml`): `run` steps use
+1. CI (`.github/workflows/check.yml`): `run` steps use
    `working-directory: agent`; npm cache keyed on `agent/package-lock.json`.
-3. Bootstrap symlink target becomes `pi-harness/agent`.
+2. Bootstrap symlink target becomes `pi-harness/agent`.
+
+The `../bounded-dev/skills` package pointer did **not** survive the move: pi
+resolves local package paths lexically against the `~/.pi/agent` symlink (via
+`path.resolve`, which collapses `..` textually and never follows the symlink),
+not against the repo's real path. No relative pointer to a sister repo can be
+both correct under that resolution and layout-independent, so the skill was
+vendored into `agent/skills/` instead (ADR 2026-012).
 
 ## Why
 

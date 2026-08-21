@@ -42,15 +42,9 @@ typecheck.
 
 ## Bootstrap a new machine
 
-Clone this repo and [`bounded-dev/skills`](https://github.com/bounded-dev/skills)
-as sister directories under any shared parent — `agent/settings.json` references
-the skills repo as `../../bounded-dev/skills`, so the two must sit alongside
-each other (the parent dir's name doesn't matter):
-
 ```bash
 cd <parent-dir>
 git clone git@github.com:bounded-dev/pi-harness.git
-git clone git@github.com:bounded-dev/skills.git bounded-dev/skills
 ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
 pi update --extensions                     # install packages listed in settings.json
 cd pi-harness/agent && npm ci && npm run check   # self-check tooling
@@ -61,11 +55,12 @@ Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in this
 directory (ADR 2026-002). A `BRAVE_API_KEY` env var overrides the file; the
 file is what GUI-launched sessions (Orca) reliably see.
 
-**Known caveat:** the `../../bounded-dev/skills` pointer assumes pi resolves it
-against the real path. Since `~/.pi/agent` is a symlink, if pi ever
-resolved relative to the symlink instead, the skills repo wouldn't be found.
-If `flight-status` (or any bounded skill) goes missing in a session, check
-this first.
+**Vendored skills:** skills from [`bounded-dev/skills`](https://github.com/bounded-dev/skills)
+(e.g. `flight-status`) are **copied** into `agent/skills/`, not referenced as a
+package. pi resolves local package paths lexically against the `~/.pi/agent`
+symlink (not its real target), so a relative `../` pointer to a sister repo
+can't be found — vendoring sidesteps that. Keep the copies in sync with
+upstream by hand.
 
 ## Conventions
 
