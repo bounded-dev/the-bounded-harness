@@ -7,8 +7,7 @@
   "packages": [
     "npm:pi-subagents@0.52.1",
     "npm:betterwright@1.10.0",
-    "./packs/ts",
-    "../../bounded-dev/skills"
+    "./packs/ts"
   ],
   "subagents": {
     "disableBuiltins": true
