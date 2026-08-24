@@ -21,3 +21,4 @@ web-search.json
 
 *.log
 .DS_Store
+.agent-state/
