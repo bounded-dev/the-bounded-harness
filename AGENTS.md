@@ -15,6 +15,12 @@ Every change takes effect immediately for all pi sessions on this machine.
   `npm/`/`git/` (ADR 2026-006).
 - **Never commit secrets or state.** `auth.json`, `sessions/`,
   `web-search.json` are gitignored — keep them that way.
+- **Determinism over minimalism.** The harness is deliberately built so
+  agent output has near-zero chance of deviation: prefer compiler, lint,
+  tool-allowlist, and gate-script enforcement over prompt instructions,
+  and stack enforcement layers even when one looks over-engineered for
+  the present workload. Deterministic guardrails are the product, not a
+  cost to be justified per-task.
 - **Record decisions as ADRs** in `ADRs/` — `YYYY-NNN-slug.md`, very
   concise, scheme in `ADRs/README.md`. Rewrite/compact freely while young.
 - **Extensions** in `extensions/` auto-load on session start. Run

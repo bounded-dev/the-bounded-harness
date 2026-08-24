@@ -55,6 +55,44 @@ _Avoid_: feature-branch workflow, gitflow
 The per-repo, gitignored `.agent-state/` folder holding temporary agent working files — snapshots, workflow state, scratch. Never committed; every capability that writes transient files puts them here.
 _Avoid_: .git/ stash, tmp dirs, hidden tool folders
 
+### Developer stage
+
+**Developer stage**:
+The pipeline stage that turns a task into tested code via three write-capable subagents with disjoint authority: architect, test-writer, builder (TN-26-001).
+_Avoid_: dev phase, coding step
+
+**Architect**:
+The developer-stage subagent that writes the spec and contract — never implementation. Fresh context per task; re-derives structure from the plan rather than transcribing it.
+_Avoid_: designer, planner
+
+**Test-writer**:
+The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes.
+_Avoid_: tester, QA agent
+
+**Builder**:
+The developer-stage subagent that implements to the contract. Blind to test source (no `bash`; sanitized `run_tests` tool); never edits tests or contract files.
+_Avoid_: developer (that's the stage), worker, coder
+
+**Plan**:
+The orchestrator's per-task document: intent, approach, sequence, risks, scope, and a structural *sketch*. Disposable once the contract exists — it proposes, the architect decides.
+_Avoid_: spec, design (those are the architect's)
+
+**Contract**:
+The `*.contract.ts` files colocated with a component — exported interfaces, types, and ports; declaration-only by lint; implemented by the sibling module (`foo.contract.ts` → `foo.ts`). The load-bearing artifact both blind agents code against.
+_Avoid_: stubs (that's the generated skeleton), interface file, API doc
+
+**Team lead**:
+An orchestrator that is itself a subagent — fans out multiple tasks to per-task orchestrators. v2; interactive v1 has no team lead.
+_Avoid_: manager agent, supervisor
+
+**Dispute**:
+The builder's formal objection to a test (`DISPUTE`) or contract (`CONTRACT-DISPUTE`) — voice without a pen. Routes builder → test-writer → architect → user.
+_Avoid_: complaint, override
+
+**Zone**:
+A glob-defined region of the repo one role may write to, with a zone lint rule defining what content is legal there.
+_Avoid_: folder, boundary
+
 ### Issue tracking
 
 **Board**:

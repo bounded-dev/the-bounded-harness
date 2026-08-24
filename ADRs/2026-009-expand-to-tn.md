@@ -29,11 +29,20 @@ ADR 2026-008.
   is the storage layer; these skills are the process layer on top.
 - Deferring writes avoids half-formed docs and Q&A-shaped notes: the TN is
   written once, as synthesis, not accumulated as transcript.
-- Field research (spec-kit, Kiro, OpenSpec, Böckeler's SDD analysis) shows
-  heavyweight phase-gated pipelines fail; small description-triggered
-  skills compose.
 
 ## Consequences
 
 - `grill-me` and `domain-modeling` carry flow-aware deferral exceptions.
 - Repos without a TN system get one lazily via the default in `to-tn`.
+
+## Change log
+
+- 2026-08-21 — removed the "heavyweight phase-gated pipelines fail; small
+  description-triggered skills compose" bullet from **Why** (approved by
+  user). It was being read as a general caution against gated multi-stage
+  pipelines, conflicting with the determinism-over-minimalism principle
+  (AGENTS.md) behind the developer-stage pipeline work (architect /
+  test-writer / developer with deterministic enforcement layers). The
+  original research observation about *skill composition* vs monolithic
+  phase gates still stands as orchestration guidance; it is not a verdict
+  on enforcement depth.

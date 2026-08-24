@@ -5,6 +5,21 @@ subdirectory** is my pi config home: `~/.pi/agent` is a symlink to it. The repo
 root is the harness *project* (docs, ADRs, CI); `agent/` is the pi config
 *home* (ADR 2026-011).
 
+## In flight: the developer stage
+
+The current build is a pipeline that turns a task into tested code using
+three subagents that can't step on each other: an **architect** writes the
+spec and type contract (never code), a **test-writer** writes tests from that
+contract (never sees the implementation), and a **builder** writes the
+implementation (never sees the tests). A pi session orchestrates them, and
+every hand-off is guarded by something mechanical — tool allowlists, a
+path-gate extension, lint rules per zone, and red/green test gates — so the
+design can't quietly drift. The point: an agent that writes both the tests
+and the code grades its own exam; here, no agent can. Design:
+[TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
+[ADR 2026-013](ADRs/2026-013-developer-stage-pipeline.md),
+[issue #1](https://github.com/bounded-dev/pi-harness/issues/1).
+
 ## Layout
 
 **Repo root — the harness project (loaded only when working on pi-harness):**
