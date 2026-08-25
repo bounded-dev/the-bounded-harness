@@ -44,6 +44,47 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
+### Run 5 — Opus · subscription-billing · THREE ARMS · PLANNED
+
+Pre-registered before any arm runs. Run 4 validated the *bundle*; this run
+decomposes it. Same domain and prompt as Run 4 (`docs/dogfood/run4-prompt.md`),
+so arm-to-arm and run-to-run comparison both work, but on **Opus** throughout.
+
+- **A · harness** — `~/dev/dogfood-r5-harness`. Full `developer-stage`
+  pipeline: three blind roles, deterministic gates, scaffolder, path gate.
+- **B · skill only** — `~/dev/dogfood-r5-skill`. One agent, ordinary tools.
+  Gets `CONTRACT-GUIDE.md` (the design guidance from `ts-contract-authoring`
+  with every reference to gates, scaffolder and guard log stripped) and
+  nothing else. **No gates, no blindness, no role separation.**
+- **C · bare** — `~/dev/dogfood-r5-bare`. Prompt only, as Run 4's control.
+
+**The question:** Run 4 showed arm A produced branded value objects, errors as
+values, and an adversarial test suite, where the bare control shipped
+`CalendarDate = Date` and a tautological invariant test. But arm A had four
+advantages at once — contract-first design, the authoring skill, deterministic
+gates, and blindness. Arm B isolates the cheap half. Expected discriminations:
+
+- If **B matches A's contract quality** → the value-object win came from the
+  *skill*, and costs ~5% of the machinery. Blindness narrows to test quality.
+- If **B's tests self-confirm like C's** (tautological invariants, tests named
+  after the implementation) → blindness is doing work nothing cheaper does,
+  and the 3× is buying it.
+- If **B is type-dirty where A is clean** → the gates are load-bearing
+  independently of blindness (issue #7's territory).
+
+Scored on Run 4's criteria, unchanged: per-rule coverage, adversarial probes
+run against all three arms, naked primitives at the boundary, invariants in
+types vs prose, ports vs ambient time, `npm run check`, whether the tests
+graded their own exam, and cost.
+
+**Fixes in the harness since Run 4** (so arm A is not re-running known bugs):
+verified gate invocations and a `sleep` ban in the orchestration skill;
+`run_tests` non-convergence nudge; a builder dispute budget; orientation
+guidance so no role opens with a blocked `ls .`; `no-naked-primitives` live
+from the start this time rather than landing mid-run.
+
+**Result:** _pending._
+
 ### Run 4 — Sonnet · subscription-billing · A/B: harness vs. no harness · PLANNED
 
 **Pre-registered before either arm runs.** The first test of whether the
