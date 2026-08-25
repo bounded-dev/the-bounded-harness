@@ -136,6 +136,61 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
   return { ok: summary.failed === 0, ...summary, results };
 }
 
+// --- convergence detection (dogfood Run 4) -----------------------------------
+// Blindness has one failure mode the builder cannot escape from the inside:
+// when it disagrees with a test it cannot read, it will re-derive the same
+// wrong answer forever. In Run 4 the builder ran the suite three times on the
+// same two failures and burned ~15 minutes inferring expectations from
+// spec.md before deciding to dispute. The dispute protocol existed; nothing
+// invoked it.
+//
+// run_tests is the builder's only channel, so the nudge belongs here. It
+// reveals nothing about test source — only that convergence has stopped, and
+// which protocol to follow. One retry is normal, so the third identical run
+// is the first that trips it.
+
+const STUCK_THRESHOLD = 3;
+
+/** Failing test names, in reporter order. */
+export function failureNames(result: RunTestsResult): string[] {
+  return result.results.filter((r) => r.status === "failed").map((r) => r.name);
+}
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && [...a].sort().join("\u0000") === [...b].sort().join("\u0000");
+
+function ordinal(n: number): string {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
+/**
+ * Warn when the same failure set has recurred `threshold` times running.
+ *
+ * `previousFailureSets` is oldest-to-newest. A green run, a changed failure
+ * set, or partial progress all reset the streak — the builder is converging
+ * and should be left alone. Returns the nudge text, or undefined.
+ */
+export function repeatedFailureNudge(
+  previousFailureSets: readonly (readonly string[])[],
+  current: readonly string[],
+  threshold: number = STUCK_THRESHOLD,
+): string | undefined {
+  if (current.length === 0) return undefined; // green: never stuck
+  let streak = 1;
+  for (let i = previousFailureSets.length - 1; i >= 0; i--) {
+    if (!sameSet(previousFailureSets[i]!, current)) break;
+    streak++;
+  }
+  if (streak < threshold) return undefined;
+  const n = current.length;
+  return [
+    `run_tests: this is the ${ordinal(streak)} consecutive run with the same ${n} failing test${n === 1 ? "" : "s"} — you are not converging.`,
+    "You are blind to test source by design and cannot read tests/ (the path gate will refuse it), so re-reading the spec again is unlikely to break the tie.",
+    "Follow the dispute protocol now: return DISPUTE naming the failing tests, the spec clause you implemented and your reading of it, and your best-guess fix.",
+  ].join("\n");
+}
+
 /** Human-readable, blind-safe rendering of a run for the tool's text output. */
 export function formatRunTests(result: RunTestsResult): string {
   if (result.blocked !== undefined) {

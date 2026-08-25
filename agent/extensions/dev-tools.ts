@@ -23,9 +23,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
-import { formatRunTests, runTests } from "../packs/ts/scripts/run-tests.ts";
+import { formatRunTests, runTests,
+  failureNames,
+  repeatedFailureNudge,
+} from "../packs/ts/scripts/run-tests.ts";
 import { formatTypecheck, typecheck } from "../packs/ts/scripts/typecheck.ts";
-import { logGuardEvent } from "../src/guard-log.ts";
+import { logGuardEvent, readGuardLog } from "../src/guard-log.ts";
 
 const PARAMS = Type.Object({
   cwd: Type.Optional(
@@ -39,6 +42,20 @@ const PARAMS = Type.Object({
 function targetCwd(sessionCwd: string, param?: string): string {
   if (!param) return sessionCwd;
   return isAbsolute(param) ? param : resolve(sessionCwd, param);
+}
+
+/** Failing-test-name sets from this project's prior run_tests events, oldest→newest. */
+function priorFailureSets(cwd: string): string[][] {
+  try {
+    return readGuardLog(cwd)
+      .filter((e) => e.guard === "run_tests")
+      .map((e) => {
+        const names = (e.detail as { names?: unknown } | undefined)?.names;
+        return Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
+      });
+  } catch {
+    return []; // an unreadable log must never break the builder's only channel
+  }
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -56,15 +73,22 @@ export default function (pi: ExtensionAPI): void {
       const cwd = targetCwd(ctx.cwd, params.cwd);
       const result = await runTests(cwd);
       if (signal?.aborted) return { content: [{ type: "text", text: "run_tests: cancelled" }], details: {} };
+      const names = failureNames(result);
+      // The guard log is the only run history that survives between tool calls,
+      // and it is already written on every run — so convergence is measured
+      // from the same audit trail the orchestrator reads (dogfood Run 4).
+      const nudge = repeatedFailureNudge(priorFailureSets(cwd), names);
       logGuardEvent(cwd, {
         guard: "run_tests",
         verdict: result.blocked !== undefined ? "error" : result.failed === 0 ? "pass" : "block",
         summary: result.blocked !== undefined
           ? "suite could not run"
           : `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped`,
+        detail: { names, ...(nudge !== undefined ? { stuck: true } : {}) },
       });
+      const text = nudge === undefined ? formatRunTests(result) : `${formatRunTests(result)}\n\n${nudge}`;
       return {
-        content: [{ type: "text", text: formatRunTests(result) }],
+        content: [{ type: "text", text }],
         details: {
           ok: result.ok,
           total: result.total,
@@ -72,6 +96,7 @@ export default function (pi: ExtensionAPI): void {
           failed: result.failed,
           skipped: result.skipped,
           blocked: result.blocked !== undefined,
+          stuck: nudge !== undefined,
         },
       };
     },

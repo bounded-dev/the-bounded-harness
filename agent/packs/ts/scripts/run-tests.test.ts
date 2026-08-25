@@ -4,7 +4,10 @@ import { describe, expect, test } from "vitest";
 import {
   type CommandRunner,
   extractReporterJson,
+  failureNames,
   formatRunTests,
+  repeatedFailureNudge,
+  type RunTestsResult,
   runTests,
   summarizeResults,
 } from "./run-tests.ts";
@@ -104,5 +107,74 @@ describe("formatRunTests", () => {
     const r = await runTests("/proj", { run: fakeRunner("nope", "boom", 1) });
     const text = formatRunTests(r);
     expect(text.toLowerCase()).toContain("could not");
+  });
+});
+
+// --- repeated-failure detection (dogfood Run 4) -------------------------------
+// Run 4's builder ran the suite three times against the same two failures,
+// spent ~15 minutes trying to infer the tests' expectations from spec.md, and
+// only then decided to dispute. It is blind by design and could never have
+// read the tests, so the loop had to be broken from the outside. run_tests is
+// the builder's only channel, so run_tests is where the nudge belongs — and
+// it says nothing about test SOURCE, only that convergence has stopped.
+
+describe("repeatedFailureNudge", () => {
+  const A = ["idempotency reuse", "failed call does not consume id"];
+
+  test("first sighting of a failure set is not stuck", () => {
+    expect(repeatedFailureNudge([], A)).toBeUndefined();
+  });
+
+  test("second identical run is still allowed (one retry is normal)", () => {
+    expect(repeatedFailureNudge([A], A)).toBeUndefined();
+  });
+
+  test("third identical run trips the nudge", () => {
+    const n = repeatedFailureNudge([A, A], A);
+    expect(n).toBeDefined();
+    expect(n).toContain("3rd consecutive run");
+    expect(n).toContain("DISPUTE");
+  });
+
+  test("order within the failure set does not matter", () => {
+    const n = repeatedFailureNudge([[...A].reverse(), A], A);
+    expect(n).toBeDefined();
+  });
+
+  test("progress resets the count — a different failure set is not stuck", () => {
+    expect(repeatedFailureNudge([A, A], ["something else"])).toBeUndefined();
+  });
+
+  test("partial progress resets: fixing one of two failures is converging", () => {
+    expect(repeatedFailureNudge([A, A], [A[0]!])).toBeUndefined();
+  });
+
+  test("an intervening different run breaks the streak", () => {
+    expect(repeatedFailureNudge([A, ["other"], A], A)).toBeUndefined();
+  });
+
+  test("a green run is never stuck, whatever the history", () => {
+    expect(repeatedFailureNudge([A, A], [])).toBeUndefined();
+  });
+
+  test("the nudge never names test source, only the count and the protocol", () => {
+    const n = repeatedFailureNudge([A, A, A], A)!;
+    expect(n).toContain("4th consecutive run");
+    // It must not invite the builder into a zone the path gate will refuse.
+    expect(n).toMatch(/path gate|will refuse|cannot read/i);
+  });
+});
+
+describe("failureNames", () => {
+  test("extracts only failing test names, in reporter order", () => {
+    const r = {
+      ok: false, total: 3, passed: 1, failed: 2, skipped: 0,
+      results: [
+        { name: "a", status: "passed" },
+        { name: "b", status: "failed", message: "AssertionError" },
+        { name: "c", status: "failed", message: "AssertionError" },
+      ],
+    } as RunTestsResult;
+    expect(failureNames(r)).toEqual(["b", "c"]);
   });
 });
