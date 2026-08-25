@@ -2,8 +2,10 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import { spawnSync } from "node:child_process";
 import { build } from "esbuild";
 import ts from "typescript";
+import { readGuardLog } from "../../../src/guard-log.ts";
 import {
   ERRORS_MODULE_SOURCE,
   ScaffoldError,
@@ -290,4 +292,47 @@ describe("unsupported or non-declaration constructs → ScaffoldError", () => {
       expect(() => scaffoldContract(source, "x.contract.ts")).toThrowError(pattern);
     });
   }
+});
+
+// --- CLI: thin wiring + guard-log events --------------------------------------
+
+const SCRIPT = join(import.meta.dirname, "scaffold-contract.ts");
+
+describe("scaffold-contract CLI", () => {
+  test("success: writes skeleton, creates shared errors module, logs pass", () => {
+    const dir = writeTmp({ "src/orders/orders.contract.ts": contractOf("functions") });
+    const r = spawnSync(process.execPath, [SCRIPT, "src/orders/orders.contract.ts"], {
+      cwd: dir,
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/scaffold: created src\/shared\/errors\.ts/);
+    expect(r.stdout).toMatch(/scaffold: wrote src\/orders\/orders\.ts/);
+    const events = readGuardLog(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      guard: "scaffold",
+      verdict: "pass",
+      summary: "wrote src/orders/orders.ts",
+    });
+    expect(events[0].detail).toMatchObject({
+      contract: "src/orders/orders.contract.ts",
+      skeleton: "src/orders/orders.ts",
+      createdErrorsModule: true,
+    });
+  });
+
+  test("failure: ScaffoldError exits 1 with the reason and logs a block", () => {
+    const dir = writeTmp({ "src/bad/bad.contract.ts": "export enum Level { Low, High }\n" });
+    const r = spawnSync(process.execPath, [SCRIPT, "src/bad/bad.contract.ts"], {
+      cwd: dir,
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/enum 'Level' is not scaffoldable/);
+    const events = readGuardLog(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ guard: "scaffold", verdict: "block" });
+    expect(events[0].summary).toMatch(/enum 'Level' is not scaffoldable/);
+  });
 });

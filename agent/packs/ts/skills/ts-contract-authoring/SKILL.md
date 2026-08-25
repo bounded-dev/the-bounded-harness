@@ -75,23 +75,28 @@ export declare function findOrder(id: OrderId): Order | undefined;
 
 ## After writing: gate, then scaffold
 
-Run the deterministic checks yourself before handing off; both fail with
-greppable one-line reasons, and iteration is expected:
+The tools ship next to this skill, under `packs/ts/scripts/` — resolve them
+from **this skill file's own directory** (shown in your session context):
+`<skill-dir>/../../scripts/`. Run the deterministic checks yourself before
+handing off; both fail with greppable one-line reasons, and iteration is
+expected (the messages are instructions — read them):
 
 ```bash
-node "$PI_HARNESS/agent/packs/ts/scripts/contract-purity.ts" "src/**/*.contract.ts"
-node "$PI_HARNESS/agent/packs/ts/scripts/scaffold-contract.ts" src/orders/orders.contract.ts
-```
-
-(`$PI_HARNESS` = the harness repo root; use the absolute path if unset.)
-
-`contract-purity` exit codes: 0 clean · 1 problems listed · 2 no files matched
-(treat 2 as an error — the gate must see the files). The scaffolder writes the
-skeleton and auto-creates `src/shared/errors.ts` if missing. Then typecheck:
-
-```bash
+SCRIPTS="<skill-dir>/../../scripts"   # e.g. .../packs/ts/scripts
+node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"
+node "$SCRIPTS/scaffold-contract.ts" src/orders/orders.contract.ts   # once per contract
 npx tsc --noEmit
 ```
 
+`contract-purity` exit codes: 0 clean · 1 problems listed · 2 no files matched
+(treat 2 as an error — the gate must see the files). The scaffolder writes the
+skeleton and auto-creates `src/shared/errors.ts` if missing.
+
 A contract that lints clean, scaffolds, and typechecks is ready for the
 test-writer.
+
+## The guard log
+
+Every gate and the scaffolder append to `.pi/guard-log.jsonl` in the project —
+blocks (where a guard caught drift) and passes (proof it ran). Don't edit it;
+it's the after-the-fact record of where determinism did its job.

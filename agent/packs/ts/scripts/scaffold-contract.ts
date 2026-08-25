@@ -25,6 +25,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, posix } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
+// Harness-core guard log (NOTE: this relative import only resolves when the
+// pack runs inside the harness checkout; pack distribution is issue #4).
+import { logGuardEvent } from "../../../src/guard-log.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -541,17 +544,31 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   try {
     const errorsPath = errorsModuleFor(contractPath) + ".ts";
+    let createdErrorsModule = false;
     if (!existsSync(errorsPath)) {
       mkdirSync(dirname(errorsPath), { recursive: true });
       writeFileSync(errorsPath, ERRORS_MODULE_SOURCE);
+      createdErrorsModule = true;
       console.log(`scaffold: created ${errorsPath} (template shared errors module)`);
     }
     const out = skeletonPathFor(contractPath);
     writeFileSync(out, scaffoldContract(readFileSync(contractPath, "utf8"), contractPath));
     console.log(`scaffold: wrote ${out}`);
+    logGuardEvent(process.cwd(), {
+      guard: "scaffold",
+      verdict: "pass",
+      summary: `wrote ${out}`,
+      detail: { contract: contractPath, skeleton: out, createdErrorsModule },
+    });
   } catch (e) {
     if (e instanceof ScaffoldError) {
       console.error(e.message);
+      logGuardEvent(process.cwd(), {
+        guard: "scaffold",
+        verdict: "block",
+        summary: e.message,
+        detail: { contract: contractPath },
+      });
       process.exit(1);
     }
     throw e;

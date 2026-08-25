@@ -93,6 +93,22 @@ _Avoid_: complaint, override
 A glob-defined region of the repo one role may write to, with a zone lint rule defining what content is legal there.
 _Avoid_: folder, boundary
 
+**Scaffolder**:
+The machine step that generates the throwing skeleton from a contract (`packs/ts/scripts/scaffold-contract.ts`). Never an agent; drift becomes a compile error, not an assertion.
+_Avoid_: generator (unqualified), codegen
+
+**Skeleton**:
+The generated sibling implementation (`foo.ts`) whose every export throws `NotImplementedError` (from the shared errors module) until the builder replaces it. The red phase runs against it.
+_Avoid_: stub (use for a single throwing member), contract
+
+**Gate**:
+A deterministic command that passes or fails a phase transition — e.g. contract-purity, red-with-right-reason, green. Orchestrator judgment routes; gates decide pass/fail.
+_Avoid_: check (unqualified), lint (that's one gate's mechanism)
+
+**Guard log**:
+The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `PI_GUARD_LOG=off` opts out.
+_Avoid_: audit log, telemetry (unqualified)
+
 ### Issue tracking
 
 **Board**:

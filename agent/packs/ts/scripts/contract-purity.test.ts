@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
 import { createContractLinter, formatProblems, lintContractSource } from "./contract-purity.ts";
+import { readGuardLog } from "../../../src/guard-log.ts";
 
 // --- programmatic core --------------------------------------------------------
 
@@ -64,6 +65,10 @@ describe("contract-purity CLI", () => {
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
+    // …and the pass is logged (a silent log must never masquerade as a clean run)
+    const events = readGuardLog(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ guard: "contract-purity", verdict: "pass", summary: "OK (1 file)" });
   });
 
   test("exit 1 with greppable problem lines for impure contracts", () => {
@@ -76,6 +81,12 @@ describe("contract-purity CLI", () => {
       /bad\.contract\.ts:1:1\s+pi-harness-ts\/declaration-only\s+.*'pg' is imported as a value/,
     );
     expect(r.stdout).toMatch(/contract-purity: 1 problem/);
+    const events = readGuardLog(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ guard: "contract-purity", verdict: "block" });
+    const problems = events[0].detail?.["problems"] as { ruleId: string; message: string }[];
+    expect(problems[0].ruleId).toBe("pi-harness-ts/declaration-only");
+    expect(problems[0].message).toMatch(/'pg' is imported as a value/);
   });
 
   test("exit 2 when no contract files match (silence is not success)", () => {
@@ -84,5 +95,6 @@ describe("contract-purity CLI", () => {
     const r = runCli(dir, ["src/**/*.contract.ts"]);
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/contract-purity: no files matched/);
+    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
   });
 });

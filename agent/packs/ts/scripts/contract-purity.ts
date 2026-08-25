@@ -13,6 +13,9 @@ import { relative } from "node:path";
 import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
+// Harness-core guard log (NOTE: this relative import only resolves when the
+// pack runs inside the harness checkout; pack distribution is issue #4).
+import { logGuardEvent } from "../../../src/guard-log.ts";
 
 export function createContractLinter(): ESLint {
   return new ESLint({
@@ -77,6 +80,11 @@ async function main(argv: string[]): Promise<number> {
   } catch (e) {
     if (e instanceof Error && /No files matching/.test(e.message)) {
       console.error(`contract-purity: no files matched [${patterns.join(", ")}] — a gate that matches nothing is a broken gate`);
+      logGuardEvent(process.cwd(), {
+        guard: "contract-purity",
+        verdict: "error",
+        summary: `no files matched [${patterns.join(", ")}]`,
+      });
       return 2;
     }
     throw e;
@@ -84,15 +92,31 @@ async function main(argv: string[]): Promise<number> {
   const fileCount = results.length;
   if (fileCount === 0) {
     console.error(`contract-purity: no files matched [${patterns.join(", ")}] — a gate that matches nothing is a broken gate`);
+    logGuardEvent(process.cwd(), {
+      guard: "contract-purity",
+      verdict: "error",
+      summary: `no files matched [${patterns.join(", ")}]`,
+    });
     return 2;
   }
   const lines = formatProblems(results, process.cwd());
   for (const line of lines) console.log(line);
   if (lines.length > 0) {
     console.log(`contract-purity: ${lines.length} problem${lines.length === 1 ? "" : "s"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`);
+    logGuardEvent(process.cwd(), {
+      guard: "contract-purity",
+      verdict: "block",
+      summary: `${lines.length} problem${lines.length === 1 ? "" : "s"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`,
+      detail: { problems: toProblems(results) },
+    });
     return 1;
   }
   console.log(`contract-purity: OK (${fileCount} file${fileCount === 1 ? "" : "s"})`);
+  logGuardEvent(process.cwd(), {
+    guard: "contract-purity",
+    verdict: "pass",
+    summary: `OK (${fileCount} file${fileCount === 1 ? "" : "s"})`,
+  });
   return 0;
 }
 
