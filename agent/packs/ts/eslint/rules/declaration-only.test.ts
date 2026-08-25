@@ -1,6 +1,6 @@
 import { afterAll, describe, it } from "vitest";
 import { RuleTester } from "@typescript-eslint/rule-tester";
-import { declarationOnly } from "./declaration-only.js";
+import { declarationOnly } from "./declaration-only.ts";
 
 // TN-26-001 architect zone rule: contracts are declaration-only —
 // "no function bodies; no concrete infra imports".

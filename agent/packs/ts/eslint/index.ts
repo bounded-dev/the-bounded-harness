@@ -1,4 +1,4 @@
-import { declarationOnly } from "./rules/declaration-only.js";
+import { declarationOnly } from "./rules/declaration-only.ts";
 
 // pi-harness-ts ESLint plugin (TN-26-001 zone lint rules, ADR 2026-007).
 // Loaded programmatically by the gate scripts — target projects never

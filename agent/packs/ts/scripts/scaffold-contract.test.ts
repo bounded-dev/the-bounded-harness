@@ -10,7 +10,7 @@ import {
   errorsModuleFor,
   scaffoldContract,
   skeletonPathFor,
-} from "./scaffold-contract.js";
+} from "./scaffold-contract.ts";
 
 const TESTDATA = join(import.meta.dirname, "testdata");
 const fixture = (name: string) => readFileSync(join(TESTDATA, name), "utf8");
