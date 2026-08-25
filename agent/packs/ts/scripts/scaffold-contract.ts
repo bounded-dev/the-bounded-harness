@@ -154,6 +154,9 @@ function memberNameText(member: NamedClassMember): string {
 
 function renderClass(node: ClassDeclaration): ValueExport & { kind: "class" } {
   const name = node.getName()!;
+  if (node.getExtends()) {
+    fail(`class '${name}' extends a base class — not scaffoldable in v1 (the throwing skeleton constructor cannot call super); model the error as data (a string-literal union or interface) or drop 'extends'`);
+  }
   const ctors = node.getMembers().filter(Node.isConstructorDeclaration);
   if (ctors.length > 1) {
     fail(`overloaded constructor in '${name}' is not scaffoldable in v1 — use a single signature or a static factory`);

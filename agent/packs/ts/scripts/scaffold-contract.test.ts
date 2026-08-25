@@ -285,6 +285,7 @@ describe("unsupported or non-declaration constructs → ScaffoldError", () => {
       "export declare const X;",
       /needs an explicit type/,
     ],
+    ["extends heritage", "export declare class E extends Error {}", /extends a base class/],
   ];
   for (const [label, source, pattern] of cases) {
     test(label, () => {
@@ -292,6 +293,11 @@ describe("unsupported or non-declaration constructs → ScaffoldError", () => {
       expect(() => scaffoldContract(source, "x.contract.ts")).toThrowError(pattern);
     });
   }
+
+  test("implements still scaffolds (no super needed)", () => {
+    const source = "export interface Foo { m(): void }\nexport declare class C implements Foo { m(): void; }";
+    expect(() => scaffoldContract(source, "x.contract.ts")).not.toThrow();
+  });
 });
 
 // --- CLI: thin wiring + guard-log events --------------------------------------
