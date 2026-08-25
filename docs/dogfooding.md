@@ -17,9 +17,13 @@ Not yet exercised (pending):
   it lands, nothing *stops* an agent doing anything; clean runs mean the model
   behaved, not that the harness enforced.
 - **Test-writer / builder roles, red/green gates** — Phases 2–3.
-- **Design-quality guard** — no rule yet checks value objects / invariants at
-  the contract boundary (issue #3). Contract-purity only checks
-  *declaration-only* purity, not richness.
+- **Design-quality guard** — landed (issue #3): contract-purity now also runs
+  `no-naked-primitives`, so `isbn: string` / `authors: string[]` /
+  `pagesRead: number` are blocks, not silent passes, and
+  `scripts/new-value-object.ts` writes the fix. Verified against the run-2/3
+  contracts (8 blocks) and the run-1 contract (clean). **Not yet exercised in
+  a live run** — the next dogfood run is the real test of whether the messages
+  bounce a weak model into value objects rather than into confusion.
 
 Read the guard log (`<project>/.pi/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
@@ -30,8 +34,11 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
   followed `ts-contract-authoring` (ports, branded ids, declaration-only) from
   a purely domain prompt.
 - **Zero blocks in either run — but that's not a clean bill of health.** The
-  only design-quality guard is contract-purity (declaration-only). Semantic
-  gaps (naked primitives, dropped invariants) pass silently. → evidence for #3.
+  only design-quality guard was contract-purity (declaration-only). Semantic
+  gaps (naked primitives, dropped invariants) passed silently. → became the
+  evidence for #3, now enforced by `no-naked-primitives`. Cardinality
+  (`authors: string[]` allowing empty) is still prose-only: undecidable from
+  the contract alone, so the rule prompts for it instead of enforcing it.
 - **Dogfooding finds real bugs.** Run 1 surfaced a silent-bad-output defect in
   the scaffolder (#6), now fixed.
 
