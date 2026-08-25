@@ -35,3 +35,11 @@ green by implementing the component against the spec and contract.
     from its own run; your say-so is not the gate.
 - **Bounces are bounded.** Raise a dispute with concrete evidence; don't loop.
   Exhaustion escalates to the user with the dispute log.
+- **Two failed attempts at the same failure is your budget.** If `run_tests`
+  returns the *same* failing tests a third time, stop. You are blind by design
+  and cannot read `tests/` — the path gate will refuse it, and re-reading the
+  spec once more will not break the tie. Raise `DISPUTE` naming the failing
+  tests, the spec clause you implemented and how you read it, and your
+  best-guess fix. `run_tests` will tell you when you have hit this; believe it.
+  Guessing longer is not diligence, it is a stalled loop (dogfood Run 4: ~15
+  minutes lost to exactly this).

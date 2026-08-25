@@ -82,16 +82,27 @@ of them again mid-run. Every invocation you need is here; the exit code is the
 verdict (`0` pass, `1` block, `2` misuse).
 
 ```bash
-SCRIPTS="$HOME/.pi/agent/packs/ts/scripts"     # resolve once, reuse
-cd <project-root>
+SCRIPTS="$HOME/.pi/agent/packs/ts/scripts"      # resolve once, reuse
+cd <project-root>                               # every gate runs from here
 
-node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"   # after DESIGN
-node "$SCRIPTS/scaffold-contract.ts" "src/**/*.contract.ts" # then scaffold
-node "$SCRIPTS/checksum-gate.ts" --write                    # freeze the contract
-node "$SCRIPTS/checksum-gate.ts"                            # check for drift
-node "$SCRIPTS/red-gate.ts"                                 # after TEST
-node "$SCRIPTS/green-gate.ts"                               # after BUILD
+# after DESIGN — purity takes a GLOB (quote it; the gate expands it)
+node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"
+
+# then scaffold — ONE CONTRACT PATH PER CALL, not a glob. Loop over the
+# contracts. It also creates src/shared/errors.ts on first use.
+node "$SCRIPTS/scaffold-contract.ts" src/billing/billing.contract.ts
+
+# freeze the contract, then verify drift any time mid-loop
+node "$SCRIPTS/checksum-gate.ts" --write
+node "$SCRIPTS/checksum-gate.ts"
+
+# phase gates — default to cwd, or pass a target dir
+node "$SCRIPTS/red-gate.ts"      # after TEST
+node "$SCRIPTS/green-gate.ts"    # after BUILD
 ```
+
+Both `red-gate` and `green-gate` also run `tsc` (issue #7): green means the
+suite passes *and* the project compiles.
 
 If a gate blocks for a reason you do not recognise, read its **output**, not its
 source — the block line names the sin and the responsible role.
