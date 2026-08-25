@@ -56,6 +56,27 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 //   A heuristic here would make the rule unpredictable, and an agent cannot
 //   comply with a rule it cannot predict.
 //
+// --- The parse boundary (the escape hatch) ------------------------------------
+//
+// A value object needs somewhere for a raw primitive to become one, and that
+// somewhere is a function that RETURNS the value object:
+//
+//   export type Isbn = string & { readonly __brand: "Isbn" };
+//   export declare function parseIsbn(raw: string): Isbn;   // not flagged
+//
+// So: naked primitives in a signature's PARAMETERS are exempt when the
+// signature returns a value object declared in this contract (a branded alias
+// or a literal union), unwrapping Promise and `| undefined`. The return
+// position itself is never exempt. This is deliberately the rule's only way
+// out — it channels every primitive in the design to one named, testable
+// place instead of suppressing the complaint.
+//
+// Known limit, accepted: the value object must be declared in THIS file. The
+// rule is syntactic (no type information), so it cannot see through an import
+// to tell a branded alias from a DTO — and exempting every imported return
+// type would gut the rule. The fix reads as good advice anyway: a brand and
+// its only legal constructor belong in the same contract.
+//
 // --- NOT in scope: cardinality ------------------------------------------------
 //
 // The dogfood evidence pairs two defects in `authors: string[]`: the element is
@@ -158,6 +179,51 @@ export const noNakedPrimitives = createRule<[], MessageId>({
       });
     }
 
+    // --- value objects declared in this contract --------------------------------
+
+    /** Names of local type aliases that ARE value objects: a primitive-based
+     *  brand (`string & { … }`) or a literal union (`"open" | "paid"`). */
+    const valueObjects = new Set<string>();
+
+    function isValueObjectDefinition(node: TSESTree.TypeNode): boolean {
+      switch (node.type) {
+        case TSESTree.AST_NODE_TYPES.TSIntersectionType:
+          // A brand: a primitive base intersected with a marker object.
+          return node.types.some((t) => PRIMITIVE_OF[t.type] !== undefined);
+        case TSESTree.AST_NODE_TYPES.TSUnionType:
+          return node.types.every(
+            (t) => t.type === TSESTree.AST_NODE_TYPES.TSLiteralType,
+          );
+        case TSESTree.AST_NODE_TYPES.TSLiteralType:
+        case TSESTree.AST_NODE_TYPES.TSTemplateLiteralType:
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    /** Does this return type hand back a value object declared here? Unwraps
+     *  Promise/Awaited and `| undefined` — the two shapes a parse takes. */
+    function returnsValueObject(node: TSESTree.TypeNode | undefined): boolean {
+      if (!node) return false;
+      switch (node.type) {
+        case TSESTree.AST_NODE_TYPES.TSTypeReference: {
+          const name =
+            node.typeName.type === TSESTree.AST_NODE_TYPES.Identifier ? node.typeName.name : "";
+          if (valueObjects.has(name)) return true;
+          if (!TRANSPARENT.has(name)) return false;
+          return (node.typeArguments?.params ?? []).some(returnsValueObject);
+        }
+        case TSESTree.AST_NODE_TYPES.TSUnionType:
+          return node.types.some(returnsValueObject);
+        // An inline literal union is a value object without needing a name.
+        case TSESTree.AST_NODE_TYPES.TSLiteralType:
+          return true;
+        default:
+          return false;
+      }
+    }
+
     // --- type walking ---------------------------------------------------------
 
     function walkType(node: TSESTree.TypeNode | undefined, ctx: Ctx): void {
@@ -254,7 +320,11 @@ export const noNakedPrimitives = createRule<[], MessageId>({
         | TSESTree.FunctionDeclaration,
       ownName: string,
     ): void {
-      for (const param of node.params) walkParam(param);
+      // The parse boundary: a signature that returns a value object declared
+      // in this contract is where raw primitives are supposed to enter.
+      if (!returnsValueObject(node.returnType?.typeAnnotation)) {
+        for (const param of node.params) walkParam(param);
+      }
       walkType(node.returnType?.typeAnnotation, { name: ownName, element: false });
     }
 
@@ -353,12 +423,17 @@ export const noNakedPrimitives = createRule<[], MessageId>({
       }
     }
 
-    /** Index a top-level statement, and check it eagerly if it is exported
-     *  inline. `export { Foo }` lists are resolved after the whole Program. */
+    /** Index a top-level statement, queueing it for checking if exported.
+     *  Nothing is checked during indexing: the parse-boundary exemption needs
+     *  the whole file's value objects known first, so declaration order in the
+     *  contract must not change the verdict. */
     function indexStatement(node: TSESTree.Node, exported: boolean): void {
       switch (node.type) {
-        case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
         case TSESTree.AST_NODE_TYPES.TSTypeAliasDeclaration:
+          declare(node, node.id.name);
+          if (isValueObjectDefinition(node.typeAnnotation)) valueObjects.add(node.id.name);
+          break;
+        case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
           declare(node, node.id.name);
           break;
         case TSESTree.AST_NODE_TYPES.TSDeclareFunction:
@@ -379,8 +454,11 @@ export const noNakedPrimitives = createRule<[], MessageId>({
         default:
           break;
       }
-      if (exported) checkDeclaration(node);
+      if (exported) pending.push(node);
     }
+
+    /** Exported declarations, in source order, checked after indexing. */
+    const pending: TSESTree.Node[] = [];
 
     function unwrapExport(stmt: TSESTree.Node): TSESTree.Node {
       return stmt.type === TSESTree.AST_NODE_TYPES.ExportNamedDeclaration && stmt.declaration
@@ -412,8 +490,11 @@ export const noNakedPrimitives = createRule<[], MessageId>({
           }
         }
         for (const name of exportedNames) {
-          for (const node of declared.get(name) ?? []) checkDeclaration(node);
+          for (const node of declared.get(name) ?? []) pending.push(node);
         }
+        // Source order keeps the gate's output stable and greppable.
+        pending.sort((a, b) => a.range[0] - b.range[0]);
+        for (const node of pending) checkDeclaration(node);
       },
     };
   },

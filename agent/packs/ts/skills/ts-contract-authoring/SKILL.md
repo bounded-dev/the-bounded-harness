@@ -59,6 +59,20 @@ the code belongs):
   Note `export type Isbn = string` (a bare alias) is *also* blocked — it is
   assignable from every other string, so it buys nothing.
 
+  **The parse boundary is the way out.** A raw primitive has to become a value
+  object somewhere, so a signature that *returns* a value object declared in
+  this contract may take naked primitives:
+
+  ```ts
+  export declare function parseIsbn(raw: string): Isbn | undefined;
+  ```
+
+  That is the rule's only escape hatch, and it improves the design instead of
+  suppressing the complaint: every primitive in the component funnels through
+  one named, testable function. The value object must be declared in the same
+  contract as its parser — a brand and its only legal constructor belong
+  together.
+
   What the rule deliberately leaves alone, so you can predict it: string-literal
   and template-literal unions (already value objects); `boolean`; `void` /
   `never` / `unknown`; type parameters and their constraints; type arguments of

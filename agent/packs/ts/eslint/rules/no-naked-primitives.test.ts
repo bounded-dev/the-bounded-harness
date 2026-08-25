@@ -56,6 +56,22 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     // declare class is already nominal — it IS the value object
     "export declare class Money { readonly amount: number;\n  static parse(raw: string): Money;\n}",
 
+    // --- the parse boundary: a signature that RETURNS a value object
+    // declared in this contract may take the raw primitive. This is where
+    // primitives are supposed to enter the domain, and it is the rule's
+    // escape hatch — one that improves the design instead of suppressing it.
+    'export type Isbn = string & { readonly __brand: "Isbn" };\nexport declare function parseIsbn(raw: string): Isbn;',
+    // the non-throwing variant
+    'export type Isbn = string & { readonly __brand: "Isbn" };\nexport declare function parseIsbn(raw: string): Isbn | undefined;',
+    // async parse, and declaration order must not matter
+    'export declare function parseIsbn(raw: string): Promise<Isbn>;\nexport type Isbn = string & { readonly __brand: "Isbn" };',
+    // method form, on a port
+    'export type Isbn = string & { readonly __brand: "Isbn" };\nexport interface IsbnCodec { parse(raw: string): Isbn }',
+    // literal-union value objects are value objects here too
+    "export type Status = 'open' | 'paid';\nexport declare function parseStatus(raw: string): Status;",
+    // the brand's base need not match the input primitive
+    'export type PagesRead = number & { readonly __brand: "PagesRead" };\nexport declare function parsePages(raw: string): PagesRead;',
+
     // --- composite shapes built from value objects ---
     "export interface Book { authors: readonly [AuthorName, ...AuthorName[]] }",
     "export interface Book { tags: readonly Tag[] }",
@@ -140,6 +156,33 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
           messageId: "nakedPrimitive",
           data: { name: "DEFAULT_CURRENCY", brand: "DefaultCurrency", primitive: "string" },
         },
+      ],
+    },
+
+    // --- the parse-boundary exemption is narrow: only the PARAMETERS, and
+    // only when the return really is a value object declared here ---
+    {
+      // returns a DTO, not a value object
+      code: "export interface Book { isbn: Isbn }\nexport declare function findBook(isbn: string): Book;",
+      errors: [
+        { messageId: "nakedPrimitive", data: { name: "isbn", brand: "Isbn", primitive: "string" } },
+      ],
+    },
+    {
+      // the return position is never exempt, even on a parse-shaped function
+      code: 'export type Isbn = string & { readonly __brand: "Isbn" };\nexport declare function unwrap(isbn: Isbn): string;',
+      errors: [
+        {
+          messageId: "nakedPrimitive",
+          data: { name: "unwrap", brand: "Unwrap", primitive: "string" },
+        },
+      ],
+    },
+    {
+      // an unbranded local alias is not a value object, so it exempts nothing
+      code: "type Isbn = string;\nexport declare function parseIsbn(raw: string): Isbn;",
+      errors: [
+        { messageId: "nakedPrimitive", data: { name: "raw", brand: "Raw", primitive: "string" } },
       ],
     },
 
