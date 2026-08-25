@@ -5,6 +5,8 @@
 // one-line, greppable reason — a deterministic system that is opaque when
 // it jams is just a deterministic jam.
 
+import picomatch from "picomatch";
+
 export type Role = "architect" | "test-writer" | "builder";
 
 export type Decision =
@@ -66,37 +68,25 @@ export const ZONES: Record<Role, Zone> = {
   },
 };
 
-// --- Minimal glob matcher ----------------------------------------------------
-// Deliberately tiny vocabulary: literal segments, '*' within a segment
-// (never crosses '/'), '**' as a whole segment (zero or more segments).
-// Anything richer belongs in tests first.
+// --- Glob matching -----------------------------------------------------------
+// picomatch (same engine as vitest): conventional globstar semantics, one
+// pinned option. dot: true so wildcards match dotfile segments — otherwise
+// e.g. builder writes to 'src/.env.example' would fall outside src/**.
+// Zone patterns are a closed harness-owned vocabulary (literal segments,
+// '*', '**'); paths are the untrusted input and are normalized lexically
+// before matching. If zone globs ever become per-repo configurable, treat
+// the pattern side as untrusted too and audit picomatch's full language
+// (braces, extglobs) before enabling.
+
+const matcherCache = new Map<string, (path: string) => boolean>();
 
 function matchGlob(pattern: string, path: string): boolean {
-  return matchSegs(pattern.split("/"), path.split("/"));
-}
-
-function matchSegs(pat: readonly string[], segs: readonly string[]): boolean {
-  if (pat.length === 0) return segs.length === 0;
-  const [head, ...rest] = pat;
-  if (head === "**") {
-    for (let i = 0; i <= segs.length; i++) {
-      if (matchSegs(rest, segs.slice(i))) return true;
-    }
-    return false;
+  let m = matcherCache.get(pattern);
+  if (!m) {
+    m = picomatch(pattern, { dot: true });
+    matcherCache.set(pattern, m);
   }
-  if (segs.length === 0) return false;
-  return matchSegment(head, segs[0]) && matchSegs(rest, segs.slice(1));
-}
-
-function matchSegment(pat: string, seg: string): boolean {
-  const re = new RegExp(
-    "^" + pat.split("*").map(escapeRe).join("[^/]*") + "$",
-  );
-  return re.test(seg);
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return m(path);
 }
 
 function matchesAny(patterns: readonly string[], path: string): boolean {

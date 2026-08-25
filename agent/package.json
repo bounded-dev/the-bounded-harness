@@ -4,9 +4,13 @@
   "description": "Personal pi coding agent harness — extensions, skills, prompts, themes",
   "private": true,
   "type": "module",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "scripts": {
     "check": "tsc --noEmit && npm run test",
@@ -15,8 +19,12 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
     "@types/node": "^24.0.0",
+    "@types/picomatch": "4.0.3",
     "typebox": "1.3.7",
     "typescript": "^5.8.0",
     "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "picomatch": "4.0.7"
   }
 }
