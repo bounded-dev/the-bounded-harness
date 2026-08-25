@@ -19,6 +19,10 @@ node_modules/
 # Local config overrides (API keys for third-party extensions)
 web-search.json
 
+# Tool-managed files — tools that want in write their own files, untracked
+# (ADR 2026-006; e.g. Orca installs its extensions at runtime)
+orca-*.ts
+
 *.log
 .DS_Store
 .agent-state/

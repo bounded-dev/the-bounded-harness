@@ -21,9 +21,11 @@ moment it changes. The repo root is the project around that: decisions
   synced by hand — a sibling-repo pointer can't survive the `~/.pi/agent`
   symlink (ADR 2026-012).
 - **Extensions.** `agent/extensions/*.ts` auto-load on session start: a web
-  search/fetch tool, and Orca-managed status hooks (`orca-*.ts` — tracked but
-  never hand-edited). `npm run check` in `agent/` typechecks the hand-written
-  ones; CI enforces it.
+  search/fetch tool, and Orca-managed status hooks. `npm run check` in
+  `agent/` typechecks the hand-written ones; CI enforces it.
+  Tool-managed files (like Orca's `orca-*.ts`) are **untracked** runtime
+  state — tools that want into the config home install their own files
+  (ADR 2026-006).
 - **Packs.** Language-specific capability lives in `packs/<lang>/` as
   on-demand skills and scaffolder scripts — never extensions, never root
   config (ADR 2026-007). `packs/ts` is the first, currently near-empty.

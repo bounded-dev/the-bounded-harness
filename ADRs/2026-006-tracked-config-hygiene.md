@@ -16,10 +16,12 @@ Three policies for everything tracked in this repo:
    are skipped by `pi update`, so "review source on update" is enforced
    rather than aspirational. Bump deliberately:
    `pi install npm:<pkg>@<version>`.
-3. **Orca-managed files** (`extensions/orca-*.ts`, marked
-   `// @orca-managed-pi-extension`) stay tracked but are never hand-edited;
-   commit Orca's rewrites promptly so the repo stays clean. Excluded from
-   `npm run check` (untyped by design).
+3. **Tool-managed files** (e.g. `extensions/orca-*.ts`, marked
+   `// @orca-managed-pi-extension`) are **untracked** — gitignored as
+   runtime state, like `auth.json` and `sessions/`. The tool owns them
+   end to end: it installs them, it rewrites them, and a fresh machine
+   gets them from the tool, not the repo. Excluded from `npm run check`
+   (untyped by design).
 
 ## Why
 
@@ -37,4 +39,14 @@ Three policies for everything tracked in this repo:
   — third-party skills are vendored into `agent/skills/` (ADR 2026-012).
 - `pi update --extensions` no longer moves npm packages; check for new
   versions periodically and bump by choice.
-- Occasional noise diffs when Orca updates — commit and move on.
+- No Orca noise diffs in history; the harness repo carries only what the
+  harness authors. New-machine bootstrap is unchanged — Orca installs its
+  extensions on first launch.
+
+## Change log
+
+- 2026-08-24 — policy 3 changed from "Orca-managed files stay tracked,
+  commit rewrites promptly" to **untracked + gitignored** (approved by
+  user). Tracking coupled the repo's history to a tool's output and
+  created the commit-the-rewrites chore; the files are runtime state,
+  not source. Recovery if ever needed: files remain in git history.

@@ -25,7 +25,8 @@ Every change takes effect immediately for all pi sessions on this machine.
   concise, scheme in `ADRs/README.md`. Rewrite/compact freely while young.
 - **Extensions** in `extensions/` auto-load on session start. Run
   `npm run check` after editing hand-written ones. `extensions/orca-*.ts`
-  are Orca-managed — never hand-edit (ADR 2026-006).
+  are Orca-managed: untracked runtime state, installed by Orca at
+  runtime — never hand-edit, never commit (ADR 2026-006).
 - **Canonical project commands.** Projects declare `check` / `test` /
   `build` / `lint`; look for these first in any project (ADR 2026-007).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
