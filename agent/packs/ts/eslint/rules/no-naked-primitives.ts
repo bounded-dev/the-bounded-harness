@@ -97,6 +97,10 @@ const VALUE_OBJECTS =
 
 const BRAND = 'export type {{brand}} = {{primitive}} & { readonly __brand: "{{brand}}" };';
 
+/** The one-command fix, so the message ends in an action rather than a rule. */
+const SCAFFOLD =
+  "Or run: node <pack>/scripts/new-value-object.ts <this file> {{brand}}={{primitive}}";
+
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 
 /** Transparent containers: the wrapped type is still the domain value, so a
@@ -150,9 +154,9 @@ export const noNakedPrimitives = createRule<[], MessageId>({
   meta: {
     type: "problem",
     messages: {
-      nakedPrimitive: `${VALUE_OBJECTS} '{{name}}' is declared as '{{primitive}}' — declare the value object in this contract and use it here, e.g. ${BRAND} Validation and parsing belong in the implementation; the contract just names the type.`,
-      nakedPrimitiveElement: `${VALUE_OBJECTS} '{{name}}' is a collection of naked '{{primitive}}' — declare the element type here and use {{brand}}[], e.g. ${BRAND} If the field means one-or-more, encode that too: 'readonly [{{brand}}, ...{{brand}}[]]' — an array type silently permits empty, and a requirement no type carries is a requirement nothing checks.`,
-      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Brand it: export type {{name}} = {{primitive}} & { readonly __brand: "{{name}}" };`,
+      nakedPrimitive: `${VALUE_OBJECTS} '{{name}}' is declared as '{{primitive}}' — declare the value object in this contract and use it here, e.g. ${BRAND} ${SCAFFOLD} Validation and parsing belong in the implementation; the contract just names the type.`,
+      nakedPrimitiveElement: `${VALUE_OBJECTS} '{{name}}' is a collection of naked '{{primitive}}' — declare the element type here and use {{brand}}[], e.g. ${BRAND} ${SCAFFOLD} If the field means one-or-more, encode that too: 'readonly [{{brand}}, ...{{brand}}[]]' — an array type silently permits empty, and a requirement no type carries is a requirement nothing checks.`,
+      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Brand it: export type {{name}} = {{primitive}} & { readonly __brand: "{{name}}" }; Or run: node <pack>/scripts/new-value-object.ts <this file> {{name}}={{primitive}} — it upgrades the alias in place.`,
     },
     schema: [],
   },

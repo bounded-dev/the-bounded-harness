@@ -59,6 +59,21 @@ the code belongs):
   Note `export type Isbn = string` (a bare alias) is *also* blocked — it is
   assignable from every other string, so it buys nothing.
 
+  Don't hand-write the brand — the one typo that matters is invisible (a brand
+  string that doesn't match the type name silently gives you two unrelated
+  types). Generate it:
+
+  ```bash
+  node "$SCRIPTS/new-value-object.ts" src/reading-list/book.contract.ts \
+      Isbn BookTitle AuthorName PagesRead=number [--parse]
+  ```
+
+  Base defaults to `string`; `--parse` also declares the smart constructor
+  (`parseIsbn(raw: string): Isbn | undefined`). Re-running is a no-op, and an
+  existing bare alias is upgraded in place. Then change the members that
+  triggered the violation to use the new types — that part is your design
+  call, not the tool's.
+
   **The parse boundary is the way out.** A raw primitive has to become a value
   object somewhere, so a signature that *returns* a value object declared in
   this contract may take naked primitives:
@@ -123,6 +138,7 @@ expected (the messages are instructions — read them):
 ```bash
 SCRIPTS="<skill-dir>/../../scripts"   # e.g. .../packs/ts/scripts
 node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"
+node "$SCRIPTS/new-value-object.ts" src/orders/orders.contract.ts OrderId  # as the gate asks
 node "$SCRIPTS/scaffold-contract.ts" src/orders/orders.contract.ts   # once per contract
 npx tsc --noEmit
 ```
