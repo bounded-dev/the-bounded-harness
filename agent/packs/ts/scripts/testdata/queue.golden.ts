@@ -2,33 +2,35 @@
 // Red-phase skeleton (TN-26-001): every value export throws NotImplementedError.
 // The builder replaces this file with the real implementation.
 
-import type * as __Contract from "./queue.contract.js";
+import { NotImplementedError } from "../shared/errors.js";
+import type { Money } from "../shared/money.contract.js";
 
 export type * from "./queue.contract.js";
 
-class NotImplementedError extends Error {
-  constructor(what: string) {
-    super(`NotImplemented: ${what}`);
-    this.name = "NotImplementedError";
-  }
-}
-
-// Instance members are omitted: the constructor throws first.
-export const Queue = class {
-  constructor(..._args: never[]) {
+export class Queue<T> {
+  constructor(maxSize: number) {
     throw new NotImplementedError("Queue.constructor");
   }
 
-  static create(..._args: never[]) {
+  private declare readonly brand: void;
+  declare readonly closed: boolean;
+
+  push(item: T, price: Money): void {
+    throw new NotImplementedError("Queue.push");
+  }
+
+  get size(): number {
+    throw new NotImplementedError("Queue.size");
+  }
+
+  static create<T>(maxSize: number): Queue<T> {
     throw new NotImplementedError("Queue.create");
   }
 
-  static get instances() {
+  static get instances(): number {
     throw new NotImplementedError("Queue.instances");
   }
-} as unknown as typeof __Contract.Queue;
+}
 
-// Compile-time conformance: every value export of the contract exists above,
-// each typed by the contract itself.
-const __conformance: typeof __Contract = { Queue };
-void __conformance;
+// Conformance note: classes with private/protected members are nominal in TS,
+// so class conformance is by verbatim construction, not a typeof check.

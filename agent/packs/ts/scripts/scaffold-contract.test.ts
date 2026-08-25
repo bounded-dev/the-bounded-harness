@@ -2,9 +2,15 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import { transform } from "esbuild";
+import { build } from "esbuild";
 import ts from "typescript";
-import { ScaffoldError, scaffoldContract, skeletonPathFor } from "./scaffold-contract.js";
+import {
+  ERRORS_MODULE_SOURCE,
+  ScaffoldError,
+  errorsModuleFor,
+  scaffoldContract,
+  skeletonPathFor,
+} from "./scaffold-contract.js";
 
 const TESTDATA = join(import.meta.dirname, "testdata");
 const fixture = (name: string) => readFileSync(join(TESTDATA, name), "utf8");
@@ -15,10 +21,20 @@ const PAIRS = ["functions", "queue", "types", "values"] as const;
 
 // --- golden files ------------------------------------------------------------
 
+// The path passed for each fixture reflects its assumed project layout
+// (the errors-module specifier is derived from it): queue lives one level
+// down because its contract imports '../shared/money.contract.js'.
+const LAYOUT: Record<(typeof PAIRS)[number], string> = {
+  functions: "functions.contract.ts",
+  queue: "queue/queue.contract.ts",
+  types: "types.contract.ts",
+  values: "values.contract.ts",
+};
+
 describe("golden files", () => {
   for (const name of PAIRS) {
     test(`${name}.contract.ts → skeleton matches ${name}.golden.ts`, () => {
-      expect(scaffoldContract(contractOf(name), `${name}.contract.ts`)).toBe(goldenOf(name));
+      expect(scaffoldContract(contractOf(name), LAYOUT[name])).toBe(goldenOf(name));
     });
   }
 });
@@ -30,7 +46,7 @@ afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
 });
 
-function typecheck(files: Record<string, string>): string[] {
+function writeTmp(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "scaffold-test-"));
   tmpDirs.push(dir);
   for (const [rel, content] of Object.entries(files)) {
@@ -38,10 +54,23 @@ function typecheck(files: Record<string, string>): string[] {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, content);
   }
+  return dir;
+}
+
+function typecheck(files: Record<string, string>): string[] {
+  const dir = writeTmp(files);
   const program = ts.createProgram(
     Object.keys(files).map((f) => join(dir, f)),
     {
+      // Very strict, per the harness TS philosophy: inference-first,
+      // no implicit anything. noUnusedParameters stays off deliberately —
+      // a throwing skeleton's parameters are unused by design.
       strict: true,
+      noUnusedLocals: true,
+      noImplicitReturns: true,
+      noImplicitOverride: true,
+      exactOptionalPropertyTypes: true,
+      noUncheckedIndexedAccess: true,
       noEmit: true,
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.NodeNext,
@@ -57,12 +86,16 @@ function typecheck(files: Record<string, string>): string[] {
 
 const MONEY_CONTRACT = "export interface Money {\n  cents: number;\n  currency: string;\n}\n";
 
+// Every skeleton project has the template's shared errors module.
+const SHARED = { "shared/errors.ts": ERRORS_MODULE_SOURCE };
+
 describe("skeletons compile against their contracts", () => {
   test("functions", () => {
     expect(
       typecheck({
         "functions.contract.ts": contractOf("functions"),
         "functions.ts": goldenOf("functions"),
+        ...SHARED,
       }),
     ).toEqual([]);
   });
@@ -73,19 +106,28 @@ describe("skeletons compile against their contracts", () => {
         "queue/queue.contract.ts": contractOf("queue"),
         "queue/queue.ts": goldenOf("queue"),
         "shared/money.contract.ts": MONEY_CONTRACT,
+        ...SHARED,
       }),
     ).toEqual([]);
   });
 
   test("types-only contract", () => {
     expect(
-      typecheck({ "types.contract.ts": contractOf("types"), "types.ts": goldenOf("types") }),
+      typecheck({
+        "types.contract.ts": contractOf("types"),
+        "types.ts": goldenOf("types"),
+        ...SHARED,
+      }),
     ).toEqual([]);
   });
 
   test("declare const values", () => {
     expect(
-      typecheck({ "values.contract.ts": contractOf("values"), "values.ts": goldenOf("values") }),
+      typecheck({
+        "values.contract.ts": contractOf("values"),
+        "values.ts": goldenOf("values"),
+        ...SHARED,
+      }),
     ).toEqual([]);
   });
 
@@ -97,6 +139,7 @@ describe("skeletons compile against their contracts", () => {
     const diags = typecheck({
       "functions.contract.ts": contractOf("functions"),
       "functions.ts": broken,
+      ...SHARED,
     });
     expect(diags.length).toBeGreaterThan(0);
     expect(diags.join("\n")).toMatch(/identity/);
@@ -105,14 +148,27 @@ describe("skeletons compile against their contracts", () => {
 
 // --- every export throws NotImplementedError ---------------------------------
 
-async function importModule(source: string): Promise<Record<string, unknown>> {
-  const { code } = await transform(source, { loader: "ts", format: "esm", target: "es2022" });
+// Skeletons import the shared errors module at runtime, so runtime tests
+// bundle from a real tmp project (esbuild resolves the .js→.ts specifiers).
+async function importModule(
+  files: Record<string, string>,
+  entry: string,
+): Promise<Record<string, unknown>> {
+  const dir = writeTmp(files);
+  const result = await build({
+    entryPoints: [join(dir, entry)],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+  });
+  const code = result.outputFiles[0].text;
   return import("data:text/javascript;base64," + Buffer.from(code, "utf8").toString("base64"));
 }
 
 describe("skeletons throw NotImplementedError at runtime", () => {
   test("functions: module imports cleanly; every call throws NotImplementedError", async () => {
-    const mod = await importModule(goldenOf("functions"));
+    const mod = await importModule({ "functions.ts": goldenOf("functions"), ...SHARED }, "functions.ts");
     for (const name of ["createOrder", "find", "identity"]) {
       expect(() => (mod[name] as (...a: unknown[]) => unknown)("x")).toThrowError(/NotImplemented/);
       try {
@@ -125,7 +181,10 @@ describe("skeletons throw NotImplementedError at runtime", () => {
   });
 
   test("class: constructor and statics throw NotImplementedError", async () => {
-    const mod = await importModule(goldenOf("queue"));
+    const mod = await importModule(
+      { "queue/queue.ts": goldenOf("queue"), ...SHARED },
+      "queue/queue.ts",
+    );
     const Queue = mod["Queue"] as {
       new (n: number): unknown;
       create(n: number): unknown;
@@ -143,17 +202,18 @@ describe("skeletons throw NotImplementedError at runtime", () => {
   });
 
   test("declare const: the throw happens at module evaluation (documented behavior)", async () => {
-    await expect(importModule(goldenOf("values"))).rejects.toThrowError(
+    const files = { "values.ts": goldenOf("values"), ...SHARED };
+    await expect(importModule(files, "values.ts")).rejects.toThrowError(
       /NotImplemented: DEFAULT_PAGE_SIZE/,
     );
-    await importModule(goldenOf("values")).then(
+    await importModule(files, "values.ts").then(
       () => expect.unreachable(),
       (e: Error) => expect(e.name).toBe("NotImplementedError"),
     );
   });
 
   test("types-only skeleton imports as an empty module", async () => {
-    const mod = await importModule(goldenOf("types"));
+    const mod = await importModule({ "types.ts": goldenOf("types") }, "types.ts");
     expect(Object.keys(mod)).toHaveLength(0);
   });
 });
@@ -176,6 +236,12 @@ describe("skeletonPathFor (foo.contract.ts → sibling foo.ts)", () => {
       /not a \*\.contract\.ts path/,
     );
   });
+
+  test("errorsModuleFor: shared errors module lives at <root>/shared/errors", () => {
+    expect(errorsModuleFor("src/orders/orders.contract.ts")).toBe("src/shared/errors");
+    expect(errorsModuleFor("src/x.contract.ts")).toBe("src/shared/errors");
+    expect(errorsModuleFor("x.contract.ts")).toBe("shared/errors");
+  });
 });
 
 // --- unsupported constructs fail loudly (never silently wrong output) ---------
@@ -194,8 +260,28 @@ describe("unsupported or non-declaration constructs → ScaffoldError", () => {
     ["destructuring declare", "export declare const { a }: { a: string };", /destructur/],
     [
       "scaffold-internal name collision",
-      "export declare function throwNotImplemented(): void;",
+      "export declare function notImplemented(): void;",
       /collides with scaffold internals/,
+    ],
+    [
+      "public-surface type must be exported",
+      "type Hidden = string;\nexport declare function f(): Hidden;",
+      /'Hidden' is part of the public surface but not exported/,
+    ],
+    [
+      "overloaded method",
+      "export declare class C {\n  m(a: string): void;\n  m(a: number): void;\n}",
+      /overloaded method 'C\.m'/,
+    ],
+    [
+      "overloaded constructor",
+      "export declare class C {\n  constructor(a: string);\n  constructor(a: number);\n}",
+      /overloaded constructor/,
+    ],
+    [
+      "declare const without a type",
+      "export declare const X;",
+      /needs an explicit type/,
     ],
   ];
   for (const [label, source, pattern] of cases) {

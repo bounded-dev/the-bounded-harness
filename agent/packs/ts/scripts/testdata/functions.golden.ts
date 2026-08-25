@@ -2,30 +2,27 @@
 // Red-phase skeleton (TN-26-001): every value export throws NotImplementedError.
 // The builder replaces this file with the real implementation.
 
+import { NotImplementedError } from "./shared/errors.js";
+import type { NewOrder, Order } from "./functions.contract.js";
 import type * as __Contract from "./functions.contract.js";
 
 export type * from "./functions.contract.js";
 
-class NotImplementedError extends Error {
-  constructor(what: string) {
-    super(`NotImplemented: ${what}`);
-    this.name = "NotImplementedError";
-  }
+export function createOrder(input: NewOrder): Order {
+  throw new NotImplementedError("createOrder");
 }
 
-export const createOrder = (() => {
-  throw new NotImplementedError("createOrder");
-}) as typeof __Contract.createOrder;
-
-export const find = (() => {
+export function find(id: string): Order | undefined;
+export function find(id: number): Order | undefined;
+export function find(..._args: unknown[]): unknown {
   throw new NotImplementedError("find");
-}) as typeof __Contract.find;
+}
 
-export const identity = (() => {
+export function identity<T>(value: T): T {
   throw new NotImplementedError("identity");
-}) as typeof __Contract.identity;
+}
 
-// Compile-time conformance: every value export of the contract exists above,
-// each typed by the contract itself.
+// Compile-time conformance: every scaffoldable value export of the contract
+// exists above, with the signature the contract declared.
 const __conformance: typeof __Contract = { createOrder, find, identity };
 void __conformance;
