@@ -1,0 +1,214 @@
+import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
+
+// TN-26-001 architect zone rule: `*.contract.ts` files are declaration-only —
+// types, interfaces and ambient (declare) declarations; no function bodies,
+// no value bindings, no runtime imports. Which files the rule applies to is
+// gate wiring (flat-config `files:`), not the rule's concern.
+//
+// Error messages are written for an agent reader, not a human (TN appendix,
+// Kinney: "write lint error messages like prompts"): each one names the sin
+// and the correct destination for the code.
+
+type MessageId =
+  | "functionBody"
+  | "valueBinding"
+  | "classBody"
+  | "enumRuntime"
+  | "namespaceRuntime"
+  | "valueImport"
+  | "importEquals"
+  | "valueExport"
+  | "sideEffect"
+  | "defaultValue"
+  | "exportAssignment";
+
+const DECLARATION_ONLY =
+  "Contract files are declaration-only (TN-26-001): types, interfaces and 'declare' shapes live here; runtime code belongs in the sibling implementation file.";
+
+const createRule = ESLintUtils.RuleCreator.withoutDocs;
+
+function nameOf(node: TSESTree.Node): string {
+  if (node.type === TSESTree.AST_NODE_TYPES.Identifier) return node.name;
+  return "<anonymous>";
+}
+
+export const declarationOnly = createRule<[], MessageId>({
+  name: "declaration-only",
+  meta: {
+    type: "problem",
+    messages: {
+      functionBody: `${DECLARATION_ONLY} '{{name}}' has a function body — keep only the signature here; the scaffolder generates the throwing skeleton in the sibling .ts and the builder implements there.`,
+      valueBinding: `${DECLARATION_ONLY} '{{name}}' is a value binding and would emit runtime code — declare the shape with 'export declare const {{name}}: …' or move the value into the implementation.`,
+      classBody: `${DECLARATION_ONLY} class '{{name}}' has a runtime body — use 'export declare class {{name}}' for the shape and implement in the sibling .ts.`,
+      enumRuntime: `${DECLARATION_ONLY} enum '{{name}}' emits runtime code — prefer a string-literal union (type {{name}} = 'a' | 'b'), or use 'declare enum' if the shape must be an enum.`,
+      namespaceRuntime: `${DECLARATION_ONLY} namespace '{{name}}' emits runtime code — use 'declare namespace' with type members only.`,
+      valueImport: `${DECLARATION_ONLY} '{{source}}' is imported as a value — use 'import type … from "{{source}}"'; concrete infra (db, http, fs) belongs behind ports in the implementation, never in a contract.`,
+      importEquals: `${DECLARATION_ONLY} 'import … = require("{{source}}")' pulls runtime code — use 'import type … from "{{source}}"' instead.`,
+      valueExport: `${DECLARATION_ONLY} re-exporting from '{{source}}' as values pulls runtime code — use 'export type … from "{{source}}"'.`,
+      sideEffect: `${DECLARATION_ONLY} this statement runs at import time — remove it.`,
+      defaultValue: `${DECLARATION_ONLY} a default export must be an interface ('export default interface …'), not a value.`,
+      exportAssignment: `${DECLARATION_ONLY} 'export =' is CommonJS interop, not a declaration — use named type exports.`,
+    },
+    schema: [],
+  },
+  defaultOptions: [],
+  create(context) {
+    function checkStatement(node: TSESTree.Node): void {
+      switch (node.type) {
+        // --- pure declarations: always allowed ---
+        case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
+        case TSESTree.AST_NODE_TYPES.TSTypeAliasDeclaration:
+        case TSESTree.AST_NODE_TYPES.TSDeclareFunction:
+          return;
+
+        case TSESTree.AST_NODE_TYPES.FunctionDeclaration:
+          // A bodiless signature is a declaration (tsc enforces pairing).
+          if (!node.body) return;
+          context.report({
+            node,
+            messageId: "functionBody",
+            data: { name: node.id ? node.id.name : "default" },
+          });
+          return;
+
+        case TSESTree.AST_NODE_TYPES.ClassDeclaration:
+          if (node.declare) return;
+          context.report({
+            node,
+            messageId: "classBody",
+            data: { name: node.id ? node.id.name : "<anonymous>" },
+          });
+          return;
+
+        case TSESTree.AST_NODE_TYPES.VariableDeclaration:
+          if (node.declare) return;
+          for (const decl of node.declarations) {
+            context.report({
+              node: decl,
+              messageId: "valueBinding",
+              data: { name: nameOf(decl.id) },
+            });
+          }
+          return;
+
+        case TSESTree.AST_NODE_TYPES.TSEnumDeclaration:
+          if (node.declare) return;
+          context.report({
+            node,
+            messageId: "enumRuntime",
+            data: { name: node.id.name },
+          });
+          return;
+
+        case TSESTree.AST_NODE_TYPES.TSModuleDeclaration: {
+          if (!node.declare) {
+            context.report({
+              node,
+              messageId: "namespaceRuntime",
+              data: {
+                name:
+                  node.id.type === TSESTree.AST_NODE_TYPES.Identifier
+                    ? node.id.name
+                    : node.id.type === TSESTree.AST_NODE_TYPES.Literal
+                      ? String(node.id.value)
+                      : "<qualified>",
+              },
+            });
+            return;
+          }
+          // Ambient namespace: contents are compiler-forced ambient, but
+          // recurse so nested modules stay honest.
+          if (node.body) checkStatement(node.body);
+          return;
+        }
+
+        case TSESTree.AST_NODE_TYPES.TSModuleBlock:
+          for (const stmt of node.body) checkStatement(stmt);
+          return;
+
+        // --- module graph: type-only or nothing ---
+        case TSESTree.AST_NODE_TYPES.ImportDeclaration: {
+          if (node.importKind === "type") return;
+          const allTypeSpecifiers =
+            node.specifiers.length > 0 &&
+            node.specifiers.every(
+              (s) => s.type === TSESTree.AST_NODE_TYPES.ImportSpecifier && s.importKind === "type",
+            );
+          if (allTypeSpecifiers) return;
+          context.report({
+            node,
+            messageId: "valueImport",
+            data: { source: node.source.value },
+          });
+          return;
+        }
+
+        case TSESTree.AST_NODE_TYPES.TSImportEqualsDeclaration:
+          context.report({
+            node,
+            messageId: "importEquals",
+            data: {
+              source:
+                node.moduleReference.type === TSESTree.AST_NODE_TYPES.TSExternalModuleReference
+                  ? String(node.moduleReference.expression.value)
+                  : "<local>",
+            },
+          });
+          return;
+
+        case TSESTree.AST_NODE_TYPES.ExportNamedDeclaration: {
+          if (node.declaration) {
+            checkStatement(node.declaration);
+            return;
+          }
+          // No source: a bare local re-export ('export { Foo }') — the binding
+          // is checked at its own declaration, so nothing to do here.
+          if (!node.source) return;
+          if (node.exportKind === "type") return;
+          const allTypeSpecifiers =
+            node.specifiers.length > 0 &&
+            node.specifiers.every(
+              (s) => s.type === TSESTree.AST_NODE_TYPES.ExportSpecifier && s.exportKind === "type",
+            );
+          if (allTypeSpecifiers) return;
+          context.report({
+            node,
+            messageId: "valueExport",
+            data: { source: node.source.value },
+          });
+          return;
+        }
+
+        case TSESTree.AST_NODE_TYPES.ExportAllDeclaration:
+          if (node.exportKind === "type") return;
+          context.report({
+            node,
+            messageId: "valueExport",
+            data: { source: node.source.value },
+          });
+          return;
+
+        case TSESTree.AST_NODE_TYPES.ExportDefaultDeclaration: {
+          const decl = node.declaration;
+          if (decl.type === TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration) return;
+          if (decl.type === TSESTree.AST_NODE_TYPES.FunctionDeclaration && !decl.body) return;
+          context.report({ node, messageId: "defaultValue" });
+          return;
+        }
+
+        case TSESTree.AST_NODE_TYPES.TSExportAssignment:
+          context.report({ node, messageId: "exportAssignment" });
+          return;
+
+        default:
+          context.report({ node, messageId: "sideEffect" });
+      }
+    }
+
+    return {
+      Program(program) {
+        for (const stmt of program.body) checkStatement(stmt);
+      },
+    };
+  },
+});
