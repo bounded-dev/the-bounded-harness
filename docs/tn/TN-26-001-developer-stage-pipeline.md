@@ -81,7 +81,12 @@ Enforcement layers:
    naming rule: `foo.contract.ts` is implemented by sibling `foo.ts`.
 6. **Test-runner gates** — red requires failure *because* NotImplemented
    (wrong-reason red, e.g. import errors, is rejected); green is asserted from
-   the orchestrator's own run, not the builder's say-so.
+   the orchestrator's own run, not the builder's say-so. Both gates also
+   require a **type-clean project** — a passing suite that does not compile is
+   a false green (issue #7, dogfood Run 3) — and both print one `route → role`
+   line naming the furthest-upstream role whose write zone owns the failure,
+   so a `tests/**` type error bounces to the test-writer rather than to a
+   builder that is blind to it.
 
 Contract files colocate with their component (`src/orders/orders.contract.ts`)
 and live on as the component's typed public surface. Pipeline-managed

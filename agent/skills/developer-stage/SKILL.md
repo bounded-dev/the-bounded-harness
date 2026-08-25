@@ -38,15 +38,17 @@ transition and feeds its greppable reason back to the responsible role.
 3. **TEST** — spawn the **test-writer** with the spec + contract *in the
    prompt*. It writes `tests/**`, blind to `src/`, faking side effects against
    the contract's ports.
-   - **Gate:** run the **red gate**. Valid red = the suite runs and every
-     failure is `NotImplementedError`. Wrong-reason red (import/type/config
-     errors, ordinary assertion failures, or a fully-green suite) is rejected.
+   - **Gate:** run the **red gate**. Valid red = the project typechecks, the
+     suite runs, and every failure is `NotImplementedError`. Wrong-reason red
+     (import/type/config errors, ordinary assertion failures, or a fully-green
+     suite) is rejected, and so is a red on a project that does not compile.
 
 4. **BUILD** — spawn the **builder** with the spec + contract. It implements
    `src/**` (except contracts), blind to test source; it debugs through the
    sanitized `run_tests` tool.
    - **Gate:** run the **green gate** from *your own* run of the suite. Every
-     test passes, or the gate fails and names each failing test.
+     test passes **and the project typechecks**, or the gate fails and names
+     each failing test and each type error.
 
 5. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
    green yourself; you route disputes (below).
@@ -60,7 +62,8 @@ role, it does not hard-code any one language's tooling. Per transition:
 
 - **After DESIGN:** contract-purity gate, then the scaffolder, then a
   contract checksum record.
-- **After TEST:** the red gate (fails unless red-for-the-right-reason).
+- **After TEST:** the red gate (fails unless red-for-the-right-reason *and*
+  type-clean).
 - **After BUILD:** the green gate (green from your own run).
 - **Any time the contract may have moved mid-loop:** the checksum gate (drift
   is a compile-time-fatal event, not a silent one).
@@ -68,6 +71,33 @@ role, it does not hard-code any one language's tooling. Per transition:
 Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.
+
+## Green means tests pass AND the project compiles
+
+A passing suite on a project that does not typecheck is a **false green** — the
+tests ran, the code does not compile. Both the red and green gates therefore
+run `tsc` as well as the suite, and **a type error is a gate failure, never an
+advisory note**. If you saw a `typecheck: block` earlier in the loop, the loop
+is not green; you may not declare it green.
+
+Because you are gating on types you must also route them, and the gate does it
+for you: a failing gate prints exactly one
+
+```
+<gate>: route → architect | test-writer | builder | orchestrator
+```
+
+line naming the **furthest-upstream** role that may repair what it found —
+derived from the same write zones the path gate enforces, so the target can
+always actually make the fix. Bounce to that role; do not improvise a target.
+In particular:
+
+- Type errors in `tests/**` → **test-writer**. The builder is blind to test
+  source and the path gate would refuse its edit, so bouncing there deadlocks.
+- Type errors in a contract → **architect** (treat as `CONTRACT-DISPUTE`:
+  revise, re-scaffold, re-run the red gate).
+- `orchestrator` means no pipeline role may write the offending file (config,
+  build files) — that one is yours.
 
 ## Dispute routing
 
@@ -91,7 +121,8 @@ forever.
 ## Non-negotiables
 
 - Only you hold `subagent`; workers never orchestrate.
-- Green is asserted from your own run, never the builder's say-so.
+- Green is asserted from your own run, never the builder's say-so — and green
+  means the suite passes *and* the project typechecks.
 - Skeletons are machine-generated; nobody hand-writes them.
 - Blindness is structural (tool allowlists + the path gate), not trust: the
   builder has no `bash`, the test-writer cannot read `src/`, the architect

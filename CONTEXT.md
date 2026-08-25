@@ -109,6 +109,14 @@ _Avoid_: stub (use for a single throwing member), contract
 A deterministic command that passes or fails a phase transition — e.g. contract-purity, red-with-right-reason, green. Orchestrator judgment routes; gates decide pass/fail.
 _Avoid_: check (unqualified), lint (that's one gate's mechanism)
 
+**False green**:
+A suite that passes while the project does not typecheck. Green requires both, so red-gate and green-gate run `tsc` as well as the suite.
+_Avoid_: flaky pass, soft green
+
+**Route**:
+The single `route → <role>` line a failing gate prints, naming the furthest-upstream role whose write zone owns the failure. The bounce target is derived from the path gate's own zones, so the named role can always actually make the fix.
+_Avoid_: assignee, owner (unqualified)
+
 **Guard log**:
 The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `PI_GUARD_LOG=off` opts out.
 _Avoid_: audit log, telemetry (unqualified)
