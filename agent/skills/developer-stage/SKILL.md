@@ -73,6 +73,39 @@ Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.
 
+### Run them exactly like this (TypeScript projects)
+
+**Do not go reading the gate scripts to work out how to call them.** In dogfood
+Run 4 the orchestrator spent its first ~3 minutes `find`-ing the pack, `head`-ing
+`contract-purity.ts`, `scaffold-contract.ts` and `run-tests.ts`, and re-read two
+of them again mid-run. Every invocation you need is here; the exit code is the
+verdict (`0` pass, `1` block, `2` misuse).
+
+```bash
+SCRIPTS="$HOME/.pi/agent/packs/ts/scripts"     # resolve once, reuse
+cd <project-root>
+
+node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"   # after DESIGN
+node "$SCRIPTS/scaffold-contract.ts" "src/**/*.contract.ts" # then scaffold
+node "$SCRIPTS/checksum-gate.ts" --write                    # freeze the contract
+node "$SCRIPTS/checksum-gate.ts"                            # check for drift
+node "$SCRIPTS/red-gate.ts"                                 # after TEST
+node "$SCRIPTS/green-gate.ts"                               # after BUILD
+```
+
+If a gate blocks for a reason you do not recognise, read its **output**, not its
+source — the block line names the sin and the responsible role.
+
+### Waiting for a worker
+
+**Never `sleep`.** Run 4's orchestrator ran `sleep 90` and then `sleep 60` while
+polling for the test-writer's files — 2.5 minutes of dead time with a perfectly
+good primitive available. Use `subagent_wait` to block until a worker finishes,
+and `subagent({action: "status", id})` only for an on-demand check. If a worker
+appears wedged, `subagent({action: "steer", id, message})` reaches a live child;
+`{action: "stop", id}` ends it. Polling the filesystem for a worker's output is
+never the right move — you cannot tell "not finished" from "finished badly".
+
 ## Green means tests pass AND the project compiles
 
 A passing suite on a project that does not typecheck is a **false green** — the
