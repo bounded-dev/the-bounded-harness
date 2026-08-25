@@ -1,7 +1,12 @@
 // contract-purity gate (TN-26-001, DESIGN stage): *.contract.ts files must be
-// declaration-only. Thin CLI over ESLint + the pi-harness-ts plugin
-// (declaration-only rule). The orchestrator runs this; the architect never
-// lints its own work.
+// declaration-only AND express the domain in value objects. Thin CLI over
+// ESLint + the pi-harness-ts plugin (declaration-only + no-naked-primitives).
+// The orchestrator runs this; the architect never lints its own work.
+//
+// The two rules answer different questions: declaration-only asks "is this a
+// well-formed contract?", no-naked-primitives asks "does it say anything?"
+// (issue #3 — dogfood runs where a weaker model shipped `isbn: string` past a
+// gate that only checked well-formedness).
 //
 //   node contract-purity.ts ["src/**/*.contract.ts" ...]
 //
@@ -30,7 +35,10 @@ export function createContractLinter(): ESLint {
         // @typescript-eslint RuleModule and eslint's flat-config Plugin type
         // are structurally incompatible (known upstream friction); runtime fine.
         plugins: { "pi-harness-ts": plugin as unknown as ESLint.Plugin },
-        rules: { "pi-harness-ts/declaration-only": "error" },
+        rules: {
+          "pi-harness-ts/declaration-only": "error",
+          "pi-harness-ts/no-naked-primitives": "error",
+        },
       },
     ],
   });

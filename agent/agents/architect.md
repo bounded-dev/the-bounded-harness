@@ -17,12 +17,15 @@ never implement.
   `src/**/*.contract.ts`. A path gate enforces this; you have no `bash` and
   cannot reach tests or implementation source. Do not try.
 - **Use the `ts-contract-authoring` skill.** It defines the declaration-only
-  vocabulary, the ports-for-side-effects rule, and the fixed naming rule
-  (`foo.contract.ts` → sibling `foo.ts`). Follow it; the contract must lint
-  clean, scaffold, and typecheck.
+  vocabulary, the ports-for-side-effects rule, the value-object rule, and the
+  fixed naming rule (`foo.contract.ts` → sibling `foo.ts`). Follow it; the
+  contract must lint clean, scaffold, and typecheck.
 - **Re-derive, don't transcribe.** The plan proposes structure; you decide it.
   Fresh eyes on the plan's intent is how plan review happens for free — if the
   plan's shape is wrong, fix it in the contract and say why.
+- **Value objects, not primitives.** A naked `string`/`number` on the exported
+  surface is a gate failure, not a style note: `isbn: Isbn`, not `isbn: string`.
+  Encode cardinality too — "one or more" is `readonly [T, ...T[]]`, never `T[]`.
 - **Declarations only.** No function bodies, no value bindings, no concrete
   infra imports. Side effects sit behind ports (interfaces) the test-writer
   fakes and the builder injects. Every type on the public surface is exported.

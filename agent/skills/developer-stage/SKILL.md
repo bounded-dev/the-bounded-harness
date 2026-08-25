@@ -29,7 +29,8 @@ transition and feeds its greppable reason back to the responsible role.
 
 2. **DESIGN** — spawn the **architect** with the plan. It writes `spec.md` and
    the component contract (`src/**/*.contract.ts`), never implementation.
-   - **Gate:** run the **contract-purity** gate (contract is declaration-only)
+   - **Gate:** run the **contract-purity** gate (contract is declaration-only
+     *and* free of naked primitives on its public surface — issue #3)
      and then the **scaffolder** (generate the throwing skeletons in `src/`
      from the contract — skeletons are machine-generated, never agent-written).
    - Freeze the contract: record the **checksum** manifest so mid-loop drift is

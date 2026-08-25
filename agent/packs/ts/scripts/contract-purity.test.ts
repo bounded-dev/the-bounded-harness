@@ -11,7 +11,9 @@ import { readGuardLog } from "../../../src/guard-log.ts";
 describe("lintContractSource", () => {
   test("a clean contract produces no problems", async () => {
     const problems = await lintContractSource(
-      "export interface Order { id: string }\nexport declare function create(o: Order): void;",
+      'export type OrderId = string & { readonly __brand: "OrderId" };\n' +
+        "export interface Order { id: OrderId }\n" +
+        "export declare function create(o: Order): void;",
       "orders.contract.ts",
     );
     expect(problems).toEqual([]);
@@ -29,6 +31,37 @@ describe("lintContractSource", () => {
 
   test("non-contract files are out of scope (the gate only lints *.contract.ts)", async () => {
     const problems = await lintContractSource("export const x: number = 1;", "x.ts");
+    expect(problems).toEqual([]);
+  });
+
+  // The gate enforces design quality, not just well-formedness (issue #3).
+  // Fixtures are the real dogfood contracts: docs/dogfooding.md runs 1-3.
+  test("naked primitives on the public surface are reported by the gate", async () => {
+    const problems = await lintContractSource(
+      "export interface Book { isbn: string; authors: string[] }\n" +
+        "export interface ProgressEvent { pagesRead: number }",
+      "book.contract.ts",
+    );
+    expect(problems.map((p) => p.ruleId)).toEqual([
+      "pi-harness-ts/no-naked-primitives",
+      "pi-harness-ts/no-naked-primitives",
+      "pi-harness-ts/no-naked-primitives",
+    ]);
+    expect(problems[0].message).toMatch(/'isbn' is declared as 'string'/);
+    expect(problems[1].message).toMatch(/'authors' is a collection of naked 'string'/);
+    expect(problems[2].message).toMatch(/'pagesRead' is declared as 'number'/);
+  });
+
+  test("the value-object version of the same contract is clean", async () => {
+    const problems = await lintContractSource(
+      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
+        'export type AuthorName = string & { readonly __brand: "AuthorName" };\n' +
+        'export type PagesRead = number & { readonly __brand: "PagesRead" };\n' +
+        "export interface Book { readonly isbn: Isbn; readonly authors: readonly [AuthorName, ...AuthorName[]] }\n" +
+        "export interface ProgressEvent { readonly pagesRead: PagesRead }\n" +
+        "export interface ReadingListStore { save(book: Book): Promise<void>; load(): Promise<readonly Book[]> }",
+      "book.contract.ts",
+    );
     expect(problems).toEqual([]);
   });
 });
@@ -50,6 +83,8 @@ describe("formatProblems (one greppable line per problem)", () => {
 // --- CLI (the gate as a command) ------------------------------------------------
 
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
+const GOOD_CONTRACT =
+  'export type Px = number & { readonly __brand: "Px" };\nexport interface P { x: Px }\n';
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
@@ -61,7 +96,7 @@ describe("contract-purity CLI", () => {
   test("exit 0 with an OK summary for clean contracts", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-ok-"));
     tmpDirs.push(dir);
-    writeFileSync(join(dir, "good.contract.ts"), "export interface P { x: number }\n");
+    writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
@@ -92,7 +127,7 @@ describe("contract-purity CLI", () => {
   test("runs when invoked through a symlink (the ~/.pi/agent case)", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-symlink-"));
     tmpDirs.push(dir);
-    writeFileSync(join(dir, "good.contract.ts"), "export interface P { x: number }\n");
+    writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
     const link = join(dir, "contract-purity.link.ts");
     symlinkSync(SCRIPT, link);
     const r = spawnSync(process.execPath, [link, "**/*.contract.ts"], { cwd: dir, encoding: "utf8" });

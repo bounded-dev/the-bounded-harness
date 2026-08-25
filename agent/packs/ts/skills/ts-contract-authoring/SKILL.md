@@ -37,14 +37,39 @@ the code belongs):
 - value imports (`import { Pool } from "pg"`) — concrete infra never appears
   in a contract; side effects sit behind **ports** (interfaces) instead
 - `export =`, default-exported values, `any`, `as` casts
+- **naked `string`/`number` on the public surface** — see "Value objects"
+  below; the gate names the exact declaration to write instead
 
 ## Rules of thumb
 
 - **Every type used by the public surface must be exported.** The scaffolder
   fails on a referenced-but-unexported type — that's your cue to export it.
-- **Value objects over primitives** at the boundary: prefer branded types
-  (`type OrderId = string & { readonly __brand: "OrderId" }`) over naked
-  `string`/`number` on DTO-like interfaces.
+- **Value objects over primitives** at the boundary — **enforced**, not
+  advice: `contract-purity` runs `no-naked-primitives`, which blocks a naked
+  `string`/`number` anywhere on the exported surface (interface members, port
+  method parameters and returns, `declare function` signatures,
+  `declare const`, array/tuple/`Set`/`Record`-value elements). Write the
+  branded type instead:
+
+  ```ts
+  export type Isbn = string & { readonly __brand: "Isbn" };
+  export interface Book { readonly isbn: Isbn }
+  ```
+
+  Note `export type Isbn = string` (a bare alias) is *also* blocked — it is
+  assignable from every other string, so it buys nothing.
+
+  What the rule deliberately leaves alone, so you can predict it: string-literal
+  and template-literal unions (already value objects); `boolean`; `void` /
+  `never` / `unknown`; type parameters and their constraints; type arguments of
+  types it does not see through (`Result<string, E>`, `Brand<string, "Isbn">`);
+  index-signature and `Record`/`Map` **key** positions; `declare class` bodies
+  (a class is already nominal); anything not exported.
+- **Encode cardinality in the type** where the requirement has one. No rule
+  can infer this, so it is on you: "one or more authors" is
+  `readonly [AuthorName, ...AuthorName[]]`, not `AuthorName[]` — an array
+  silently permits empty, and a requirement no type carries is a requirement
+  nothing checks.
 - **Explicit types live here.** This is the framework level: annotate
   everything. Implementations will infer from these declarations.
 - Side effects (time, IO, network, randomness) are **ports**: an interface in

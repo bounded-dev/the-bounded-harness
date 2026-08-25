@@ -105,6 +105,19 @@ _Avoid_: generator (unqualified), codegen
 The generated sibling implementation (`foo.ts`) whose every export throws `NotImplementedError` (from the shared errors module) until the builder replaces it. The red phase runs against it.
 _Avoid_: stub (use for a single throwing member), contract
 
+**Value object**:
+A domain type that replaces a primitive at a contract's public boundary — in
+TS a branded type (`type Isbn = string & { readonly __brand: "Isbn" }`) or a
+string-literal union. Enforced by the `no-naked-primitives` rule inside the
+contract-purity gate.
+_Avoid_: newtype, wrapper type, DTO
+
+**Naked primitive**:
+A `string`/`number` used directly as a type on a contract's exported surface —
+the design defect `no-naked-primitives` blocks. A bare alias (`type Isbn =
+string`) is equally naked: it is assignable from every other string.
+_Avoid_: raw type, stringly-typed (use for the symptom, not the check)
+
 **Gate**:
 A deterministic command that passes or fails a phase transition — e.g. contract-purity, red-with-right-reason, green. Orchestrator judgment routes; gates decide pass/fail.
 _Avoid_: check (unqualified), lint (that's one gate's mechanism)
