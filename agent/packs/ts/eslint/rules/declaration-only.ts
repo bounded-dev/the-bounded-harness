@@ -40,7 +40,7 @@ export const declarationOnly = createRule<[], MessageId>({
       functionBody: `${DECLARATION_ONLY} '{{name}}' has a function body — keep only the signature here; the scaffolder generates the throwing skeleton in the sibling .ts and the builder implements there.`,
       valueBinding: `${DECLARATION_ONLY} '{{name}}' is a value binding and would emit runtime code — declare the shape with 'export declare const {{name}}: …' or move the value into the implementation.`,
       classBody: `${DECLARATION_ONLY} class '{{name}}' has a runtime body — use 'export declare class {{name}}' for the shape and implement in the sibling .ts.`,
-      enumRuntime: `${DECLARATION_ONLY} enum '{{name}}' emits runtime code — prefer a string-literal union (type {{name}} = 'a' | 'b'), or use 'declare enum' if the shape must be an enum.`,
+      enumRuntime: `${DECLARATION_ONLY} enum '{{name}}' is not allowed (the scaffolder cannot skeleton enums) — use a string-literal union: type {{name}} = 'a' | 'b'.`,
       namespaceRuntime: `${DECLARATION_ONLY} namespace '{{name}}' emits runtime code — use 'declare namespace' with type members only.`,
       valueImport: `${DECLARATION_ONLY} '{{source}}' is imported as a value — use 'import type … from "{{source}}"'; concrete infra (db, http, fs) belongs behind ports in the implementation, never in a contract.`,
       importEquals: `${DECLARATION_ONLY} 'import … = require("{{source}}")' pulls runtime code — use 'import type … from "{{source}}"' instead.`,
@@ -92,7 +92,8 @@ export const declarationOnly = createRule<[], MessageId>({
           return;
 
         case TSESTree.AST_NODE_TYPES.TSEnumDeclaration:
-          if (node.declare) return;
+          // No exemption for 'declare enum': the scaffolder can't skeleton
+          // enums, and lint-passing must imply scaffoldable (TN-26-001).
           context.report({
             node,
             messageId: "enumRuntime",

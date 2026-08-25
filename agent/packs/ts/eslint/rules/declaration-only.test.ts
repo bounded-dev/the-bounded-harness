@@ -22,7 +22,6 @@ ruleTester.run("declaration-only", declarationOnly, {
     "export function parse(s: string): Order;", // bodiless signature (tsc enforces pairing)
     "export declare const DEFAULT_CURRENCY: string;",
     "export declare class OrderId { readonly value: string; }",
-    "export declare enum Level { Low, High }",
     "export default interface Config { debug: boolean; }",
     "export {};",
     "",
@@ -78,6 +77,11 @@ ruleTester.run("declaration-only", declarationOnly, {
     {
       code: "export enum Status { Open, Paid }",
       errors: [{ messageId: "enumRuntime", data: { name: "Status" } }],
+    },
+    {
+      // even ambient enums are banned: lint-passing must imply scaffoldable
+      code: "export declare enum Level { Low, High }",
+      errors: [{ messageId: "enumRuntime", data: { name: "Level" } }],
     },
     {
       code: "export namespace Orders { export const version = 1; }",
