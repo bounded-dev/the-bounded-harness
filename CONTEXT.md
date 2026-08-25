@@ -81,6 +81,10 @@ _Avoid_: spec, design (those are the architect's)
 The `*.contract.ts` files colocated with a component — exported interfaces, types, and ports; declaration-only by lint; implemented by the sibling module (`foo.contract.ts` → `foo.ts`). The load-bearing artifact both blind agents code against.
 _Avoid_: stubs (that's the generated skeleton), interface file, API doc
 
+**Orchestrator**:
+The pi session that drives the developer stage — the only party holding `subagent`. It spawns the three blind workers, runs every gate itself (never trusting a worker's word on pass/fail), and routes disputes. In interactive v1 it is the main session.
+_Avoid_: coordinator, driver, controller
+
 **Team lead**:
 An orchestrator that is itself a subagent — fans out multiple tasks to per-task orchestrators. v2; interactive v1 has no team lead.
 _Avoid_: manager agent, supervisor
