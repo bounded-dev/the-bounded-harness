@@ -32,6 +32,32 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 // hold subagent; shell access defeats all path rules).
 const FORBIDDEN_TOOLS = new Set(["bash", "subagent"]);
 
+// --- Role tool allowlists (frontmatter source of truth) ----------------------
+// The tool allowlist is the ONLY enforcement layer that PREVENTS rather than
+// detects (TN-26-001 §"Blindness and enforcement", layer 1): a capability an
+// agent never holds cannot be misused, whatever the prompt says. These arrays
+// are the canonical data; each pipeline agent's frontmatter `tools:` must equal
+// its role's entry here (asserted by agent-config-drift.test.ts), and the
+// orchestrator never grants a worker `subagent` or `bash`. Rationale:
+//
+//   · No `bash` for any worker — shell access defeats every path rule (a
+//     builder could `cat tests/`, an architect could read `src/`). The builder
+//     sees test FAILURES, never test SOURCE, through the sanitized `run_tests`
+//     tool instead of a shell.
+//   · No `subagent` for any worker — only orchestrators orchestrate; a worker
+//     that could spawn subagents could launder its blindness through a child.
+//   · `run_tests` is builder-only — the blind-safe debugging channel for the
+//     one role implementing against a hidden suite. The architect and
+//     test-writer never run the suite; the orchestrator runs the red/green
+//     gates itself and never trusts a worker's word on pass/fail.
+//   · `typecheck` for all three — types are the contract's shared language;
+//     every role must be able to confirm its own work compiles.
+export const ROLE_TOOLS: Record<Role, readonly string[]> = {
+  architect: ["read", "grep", "find", "ls", "write", "edit", "typecheck"],
+  "test-writer": ["read", "grep", "find", "ls", "write", "edit", "typecheck"],
+  builder: ["read", "grep", "find", "ls", "write", "edit", "run_tests", "typecheck"],
+};
+
 // Denied for every role, both directions.
 const ALWAYS_DENY = [".git", ".git/**"] as const;
 
