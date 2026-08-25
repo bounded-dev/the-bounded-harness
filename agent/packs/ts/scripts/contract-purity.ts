@@ -8,7 +8,8 @@
 // Exit 0 clean · 1 problems (one greppable line each) · 2 no files matched
 // (silence is not success — a gate that matches nothing is a broken gate).
 
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { relative } from "node:path";
 import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
@@ -120,7 +121,19 @@ async function main(argv: string[]): Promise<number> {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Symlink-safe main check: the harness is reached via the ~/.pi/agent symlink,
+// so argv[1] (symlink path) and import.meta.url (realpath) differ — compare realpaths.
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e: unknown) => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -87,6 +87,17 @@ describe("contract-purity CLI", () => {
     const problems = events[0].detail?.["problems"] as { ruleId: string; message: string }[];
     expect(problems[0].ruleId).toBe("pi-harness-ts/declaration-only");
     expect(problems[0].message).toMatch(/'pg' is imported as a value/);
+  });
+
+  test("runs when invoked through a symlink (the ~/.pi/agent case)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "purity-symlink-"));
+    tmpDirs.push(dir);
+    writeFileSync(join(dir, "good.contract.ts"), "export interface P { x: number }\n");
+    const link = join(dir, "contract-purity.link.ts");
+    symlinkSync(SCRIPT, link);
+    const r = spawnSync(process.execPath, [link, "**/*.contract.ts"], { cwd: dir, encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/contract-purity: OK/);
   });
 
   test("exit 2 when no contract files match (silence is not success)", () => {

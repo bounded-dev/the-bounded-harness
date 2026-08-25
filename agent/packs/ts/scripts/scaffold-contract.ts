@@ -21,9 +21,9 @@
 // namespaces, default-exported values, `export =`, computed member names,
 // overloaded class methods/constructors.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, posix } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
@@ -536,7 +536,18 @@ export function scaffoldContract(
 
 // --- CLI ------------------------------------------------------------------------
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Symlink-safe main check (invoked via the ~/.pi/agent symlink): compare realpaths.
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   const contractPath = process.argv[2];
   if (!contractPath) {
     console.error("usage: node scaffold-contract.ts <path/to/foo.contract.ts>");
