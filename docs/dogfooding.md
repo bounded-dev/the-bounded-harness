@@ -37,6 +37,56 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
+### Run 4 — Sonnet · subscription-billing · A/B: harness vs. no harness · PLANNED
+
+**Pre-registered before either arm runs.** The first test of whether the
+machinery *adds* anything a good model doesn't already do. Runs 1–3 showed the
+pipeline holds a weak model up; this asks the harder question.
+
+- **Arms** (identical toolchain — vitest 4.1.11, TypeScript 5.9.3, the same
+  strict `tsconfig.json` including `noUncheckedIndexedAccess` and
+  `exactOptionalPropertyTypes`):
+  - **A · harness** — `~/dev/dogfood-billing-harness`, orchestrated through the
+    `developer-stage` skill on Sonnet (orchestrator + all three workers).
+  - **B · control** — `~/dev/dogfood-billing-control`, one Claude Code session
+    on Sonnet, ordinary tools, no gates, no blindness, no skills.
+- **Prompt: the same text, verbatim, to both.** Domain requirements plus one
+  line of guidance ("Keep the code clean and well separated. Write it
+  test-first."). Arm A's extra guidance comes only from the harness's own
+  skills — which is precisely the variable. The exact text is committed at
+  `docs/dogfood/run4-prompt.md` so the runs are reproducible.
+- **Domain:** subscription billing with mid-period plan changes. Chosen for
+  scope for error, not size: money + currency, dates and whole-day proration,
+  rounding to the smallest unit, a capped charge, idempotency under a caller
+  operation id, a rejected back-date, a cancelled-state machine, and a stated
+  cross-cutting invariant (invoices summed == amount charged).
+
+**What we measure** (fixed now; scored after both arms finish):
+
+1. **Rule coverage** — for each of the prompt's numbered rules, does a test in
+   that arm's suite actually pin it? Scored per rule, not in aggregate.
+2. **Adversarial probes** — one probe suite per rule, written against each
+   arm's own API *after* the runs, and run against both. Same scenarios both
+   sides: proration cap not exceeded; rounding at the smallest unit; replayed
+   operation id does not double-charge; back-dated operation rejected; cross-
+   currency change rejected; change on a cancelled subscription rejected;
+   invoices sum to charges after a change + renew sequence. This is the
+   objective half — the arms' own suites grade themselves, the probes don't.
+3. **Naked primitives at the boundary** — is money a `number`, a date a
+   `string`, a currency a `string`? Direct evidence for #3, which all three
+   earlier runs already implicate.
+4. **Invariants in types vs. in prose** — non-empty collections, states that
+   forbid operations, currency agreement: encoded or merely documented?
+5. **Ports for side effects** — is time a `Clock` port or a `Date.now()` call?
+6. **Type-clean** — does `npm run check` pass? Arm A's gates now enforce this
+   (#7); arm B has nothing forcing it, which is the point.
+7. **Did the tests grade their own exam?** — in arm B, were tests written
+   before the implementation they cover, and do they assert behaviour or
+   restate it?
+8. **Cost** — turns and wall-clock per arm. The machinery has to be worth it.
+
+**Result:** _pending._
+
 ### Run 3 — Haiku · reading-list (FULL PIPELINE) · 2026-08-25
 
 **First real end-to-end run** — orchestrated (developer-stage skill), blindness
