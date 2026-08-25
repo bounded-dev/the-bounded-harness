@@ -159,6 +159,34 @@ function normalize(raw: string, cwd: string): Normalized {
   return { ok: true, path: out.length === 0 ? "." : out.join("/") };
 }
 
+// --- Ownership (who may FIX a file) ------------------------------------------
+
+/** Upstream-first: the order the pipeline produces artifacts (contract → tests
+ *  → implementation), and so the order in which a defect should be repaired. */
+export const ROLES_UPSTREAM_FIRST: readonly Role[] = ["architect", "test-writer", "builder"];
+
+/**
+ * The role whose write zone owns `path` — i.e. the only role the path gate
+ * would let repair it — or `null` when no pipeline role may write it (config,
+ * build files, anything outside the project).
+ *
+ * Derived from the same ZONES that decide() enforces, so gate routing can
+ * never drift from what the path gate actually permits. Input is a
+ * PROJECT-RELATIVE path (tsc diagnostics are relativized before they get
+ * here); absolute paths are unowned rather than guessed at.
+ */
+export function ownerOfPath(path: string): Role | null {
+  if (path.startsWith("/")) return null;
+  const n = normalize(path, "/");
+  if (!n.ok || n.path === ".") return null;
+  return (
+    ROLES_UPSTREAM_FIRST.find((role) => {
+      const zone = ZONES[role];
+      return !matchesAny(zone.writeDeny, n.path) && matchesAny(zone.writeAllow, n.path);
+    }) ?? null
+  );
+}
+
 // --- decide() -----------------------------------------------------------------
 
 function verb(tool: string): string {

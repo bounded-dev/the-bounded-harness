@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decide, type Decision, type Role } from "./path-policy.js";
+import { decide, ownerOfPath, type Decision, type Role } from "./path-policy.js";
 
 // TN-26-001 blindness matrix, executable form.
 // Paths are resolved against a fixed project root (/repo) so tests are hermetic.
@@ -228,5 +228,47 @@ describe("block reasons", () => {
     expect(reason("builder", "ls", ".")).toBe(
       "path-gate: builder may not search '.': overlaps denied zone 'tests'",
     );
+  });
+});
+
+// --- ownerOfPath --------------------------------------------------------------
+// "Who may fix this file?" — derived from the same write zones as decide(), so
+// gate routing can never disagree with what the path gate actually permits.
+
+describe("ownerOfPath", () => {
+  const cases: [path: string, owner: Role | null][] = [
+    ["spec.md", "architect"],
+    ["src/orders/orders.contract.ts", "architect"],
+    ["src/orders.contract.ts", "architect"],
+    ["tests/orders.test.ts", "test-writer"],
+    ["tests/fakes/clock.ts", "test-writer"],
+    ["src/orders/orders.ts", "builder"],
+    ["src/shared/errors.ts", "builder"],
+    // Outside every write zone: nobody in the pipeline may fix it.
+    ["vitest.config.ts", null],
+    ["package.json", null],
+    ["tsconfig.json", null],
+    ["docs/notes.md", null],
+  ];
+  for (const [path, owner] of cases) {
+    test(`${path} → ${owner ?? "(unowned)"}`, () => {
+      expect(ownerOfPath(path)).toBe(owner);
+    });
+  }
+
+  test("normalizes before matching (leading ./ and redundant segments)", () => {
+    expect(ownerOfPath("./tests/orders.test.ts")).toBe("test-writer");
+    expect(ownerOfPath("src/orders/../orders/orders.ts")).toBe("builder");
+  });
+
+  test("paths escaping the project root are unowned, never mis-routed", () => {
+    expect(ownerOfPath("../elsewhere/src/x.ts")).toBe(null);
+  });
+
+  test("every owned path agrees with decide(): its owner may write it", () => {
+    for (const [path, owner] of cases) {
+      if (owner === null) continue;
+      expect(decide(owner, "write", { path }, CTX).allow, `${owner} write ${path}`).toBe(true);
+    }
   });
 });
