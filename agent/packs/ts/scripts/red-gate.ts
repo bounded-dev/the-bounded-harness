@@ -3,7 +3,8 @@
 //   node red-gate.ts [targetDir]
 //
 // Runs the target project's vitest suite (JSON reporter, via the shared
-// run_tests suite runner) and asserts a VALID red: the suite RUNS, at least
+// run_tests suite runner) AND `tsc --noEmit`, and asserts a VALID red: the
+// project TYPECHECKS, the suite RUNS, at least
 // one test fails, and EVERY failure is a NotImplementedError. Red only proves
 // something if someone checks WHY it went red (see TN-26-001 Appendix,
 // Böckeler). Wrong-reason red — import errors, config errors, type/runtime
@@ -11,18 +12,26 @@
 // test. A fully-passing suite at the red phase is ALSO a fail: nothing is
 // waiting to be built.
 //
+// RED ALSO REQUIRES A TYPE-CLEAN PROJECT (issue #7). In Run 3 two type errors
+// in a test file survived the whole TEST phase and only surfaced after a
+// (false) green — by which point the only role that could fix them, the
+// test-writer, had long been handed off. tests/** type errors are the
+// test-writer's to fix and this is the last gate where that is cheap, so
+// catch them here and print one greppable `route → <role>` line.
+//
 // Exit 0 valid red · 1 invalid red (one greppable line each) · 2 misuse
 // (target unrunnable / bad invocation). Logs one guard event to the target's
 // .pi/guard-log.jsonl.
 //
-// The suite command is injectable for testing via PI_GATE_TEST_CMD /
-// PI_GATE_TEST_ARGS (a JSON array); default is the run_tests invocation
-// (`npx vitest run --reporter=json`).
+// The suite and tsc commands are injectable for testing via PI_GATE_TEST_CMD /
+// PI_GATE_TEST_ARGS and PI_GATE_TSC_CMD / PI_GATE_TSC_ARGS (JSON arrays);
+// defaults are `npx vitest run --reporter=json` and `npx tsc --noEmit`.
 
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
-import type { TypecheckOptions } from "./typecheck.ts";
+import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
+import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 
 const GUARD = "red-gate";
@@ -50,8 +59,8 @@ function firstLine(message: string | undefined): string {
   return message && message.trim() !== "" ? message.split("\n")[0] : "(no failure message)";
 }
 
-/** Classify a run against the red-gate contract. Pure: no I/O, no logging. */
-export function classifyRed(run: RunTestsResult): GateResult {
+/** The suite half of the red verdict. Pure: no I/O, no logging. */
+function classifySuite(run: RunTestsResult): GateResult {
   // The suite could not even produce a report (import/config error, crash):
   // that is a wrong-reason red — the suite is broken, not pending.
   if (run.blocked !== undefined) {
@@ -116,6 +125,45 @@ export function classifyRed(run: RunTestsResult): GateResult {
   };
 }
 
+/**
+ * Classify a run against the red-gate contract. Pure: no I/O, no logging.
+ * A valid red requires BOTH a right-reason red suite and a type-clean
+ * project (#7). Every red-phase failure is the test-writer's to fix unless a
+ * type error points further upstream (a broken contract is the architect's).
+ */
+export function classifyRed(run: RunTestsResult, tsc: TypecheckResult): GateResult {
+  const suite = classifySuite(run);
+  const types = routeTypecheck(tsc.diagnostics);
+
+  if (types.errorCount === 0) {
+    return suite.code === 0
+      ? { ...suite, lines: [`${suite.lines[0]}, typecheck clean`, ...suite.lines.slice(1)] }
+      : { ...suite, lines: [...suite.lines, "red-gate: route → test-writer"], detail: { ...suite.detail, route: "test-writer" } };
+  }
+
+  const plural = types.errorCount === 1 ? "" : "s";
+  const headline =
+    suite.code === 0
+      ? [`red-gate: FAIL — ${types.errorCount} type error${plural}; red is valid but the project is not type-clean`]
+      : suite.lines;
+  // The test-writer owns anything wrong at TEST; a type error may point further up.
+  const route = mostUpstream(["test-writer", ...types.owners]);
+  const summary = suite.code === 0 ? `${types.errorCount} type error${plural}` : `${suite.summary} + ${types.errorCount} type error${plural}`;
+
+  return {
+    code: 1,
+    verdict: "block",
+    summary: `${summary} (route: ${route})`,
+    lines: [...headline, ...typecheckLines(types), `red-gate: route → ${route}`],
+    detail: {
+      ...(suite.code === 0 ? { reason: "type-errors" } : suite.detail),
+      typeErrors: types.errorCount,
+      route,
+      typeErrorOwners: types.owners,
+    },
+  };
+}
+
 // --- CLI ------------------------------------------------------------------------
 
 /** Test seam: override the suite command without spawning real vitest. */
@@ -136,8 +184,11 @@ export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env
 
 async function main(argv: string[]): Promise<number> {
   const cwd = argv[0] ?? process.cwd();
-  const run = await runTests(cwd, gateOptionsFromEnv());
-  const result = classifyRed(run);
+  const [run, tsc] = await Promise.all([
+    runTests(cwd, gateOptionsFromEnv()),
+    typecheck(cwd, gateTypecheckOptionsFromEnv()),
+  ]);
+  const result = classifyRed(run, tsc);
   for (const line of result.lines) console.log(line);
   logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
   return result.code;
