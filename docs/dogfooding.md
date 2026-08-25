@@ -37,6 +37,39 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
+### Run 3 — Haiku · reading-list (FULL PIPELINE) · 2026-08-25
+
+**First real end-to-end run** — orchestrated (developer-stage skill), blindness
+enforced, all on Haiku (orchestrator + all three workers). One component
+(`ReadingList`: add/list/remove + a persistence port).
+
+- **Outcome:** completed the whole loop — architect → test-writer → builder →
+  `green-gate: GREEN (22/22)`. A weak model, carried by the machinery, produced
+  a working component.
+- **Blindness ENFORCED (the milestone) — 5 path-gate blocks:** architect blocked
+  from `read` (its own skill file), `ls .` (root), `ls src`; test-writer blocked
+  from `ls .` (src blindness); builder blocked from `ls .` (tests blindness).
+  The harness *enforced*, not the model behaving.
+- **Every gate fired correctly:** contract-purity; scaffolder; **checksum caught
+  a real mid-loop contract revision** (drift → re-scaffold); red-gate rejected
+  `22 wrong-reason failures` then accepted `22 NotImplemented`; run_tests showed
+  the builder climbing `0→20→22` blind to test source; green.
+- **KEY FINDING — GREEN was a false victory (#7):** green-gate passed (22/22)
+  while `tsc` still had **2 errors in the test file** (`noUncheckedIndexedAccess`
+  on `books[0]`). green = "tests pass at runtime", not "project type-clean". The
+  builder can't fix test-file errors (blind + out of zone) — this should route
+  BLOCKED→test-writer, but nothing forced it; the orchestrator declared green
+  despite an earlier `typecheck: block`. Fix: green must include typecheck; a
+  TEST-phase typecheck would catch it earlier.
+- **Friction (#8):** all three roles wasted a turn on a blocked orienting `ls .`
+  (root overlaps a denied zone); architect noisily blocked reading its own skill.
+- **Quality (more #3 evidence):** Haiku's architect contract was *weaker* than
+  its DESIGN-only run — `isbn: string`, `authors: string[]` (naked primitives),
+  coarse `save(list)/load()` port. Passed contract-purity (no value-object guard).
+- **Assessment:** the pipeline works end-to-end with real enforcement — a major
+  milestone. Determinism held under a weak model; the gaps found (false green,
+  ls friction, value objects) are exactly what dogfooding is for, all fixable.
+
 ### Run 2 — Haiku · reading-list · 2026-08-25
 
 - **Model:** Claude Haiku. **Prompt:** reading-list tracker (domain-only, +
@@ -79,9 +112,14 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Open threads
 
-- **#3 value-objects rule** — top design-quality gap; both runs are evidence.
-- **Phase 2** (path gate, run_tests/typecheck, red/green/checksum) — enables
-  the first runs that test *enforcement*, not just model behaviour.
+- **#7 GREEN must include typecheck** — a passing suite with tsc errors is a
+  false green (Run 3). Highest-priority correctness gap.
+- **#3 value-objects rule** — top design-quality gap; all three runs are evidence.
+- **#8 path-gate `ls .` friction** — every role trips it; cheap UX fix.
+- **#5 model tiering** — Run 3 ran Haiku as orchestrator too; watch whether the
+  orchestrator specifically wants the strong model.
 - **Scaffolder ordering nit** — CLI creates `src/shared/errors.ts` before
   validating the contract, so a rejected scaffold still leaves the module
   behind. Harmless; tidy later.
+
+_Phases 1–3 of the pipeline are built and pushed; Run 3 exercised all of it._
