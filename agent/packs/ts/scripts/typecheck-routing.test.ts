@@ -85,18 +85,16 @@ describe("mostUpstream", () => {
 });
 
 describe("typecheckLines", () => {
-  test("names the route, the count, and every diagnostic grouped by owner", () => {
+  test("names the count and every diagnostic grouped by owner", () => {
     const lines = typecheckLines(routeTypecheck([TEST_ERR, SRC_ERR]));
-    expect(lines[0]).toBe("  typecheck: 2 type errors — route to test-writer");
+    expect(lines[0]).toBe("  typecheck: 2 type errors");
     expect(lines.join("\n")).toContain("  test-writer (1):");
     expect(lines.join("\n")).toContain(`    ${TEST_ERR}`);
     expect(lines.join("\n")).toContain("  builder (1):");
   });
 
   test("singular wording for one error", () => {
-    expect(typecheckLines(routeTypecheck([SRC_ERR]))[0]).toBe(
-      "  typecheck: 1 type error — route to builder",
-    );
+    expect(typecheckLines(routeTypecheck([SRC_ERR]))[0]).toBe("  typecheck: 1 type error");
   });
 
   test("clean typecheck produces no lines", () => {

@@ -22,6 +22,7 @@
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
+import type { TypecheckOptions } from "./typecheck.ts";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 
 const GUARD = "red-gate";
@@ -122,6 +123,14 @@ export function gateOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): RunTes
   const command = env["PI_GATE_TEST_CMD"];
   if (!command) return {};
   const args = JSON.parse(env["PI_GATE_TEST_ARGS"] ?? "[]") as string[];
+  return { command, args };
+}
+
+/** The same seam for the gates' typecheck run (both red and green typecheck). */
+export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): TypecheckOptions {
+  const command = env["PI_GATE_TSC_CMD"];
+  if (!command) return {};
+  const args = JSON.parse(env["PI_GATE_TSC_ARGS"] ?? "[]") as string[];
   return { command, args };
 }
 

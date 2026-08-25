@@ -80,11 +80,13 @@ export function routeTypecheck(diagnostics: readonly string[]): TypecheckRouting
   return { errorCount, route: mostUpstream(owners), owners, byOwner };
 }
 
-/** Indented gate-output lines for a failing typecheck. Empty when clean. */
+/** Indented gate-output lines for a failing typecheck, grouped by who may fix
+ *  each diagnostic. Empty when clean. The gate itself prints the single route
+ *  line; this section only attributes. */
 export function typecheckLines(routing: TypecheckRouting): string[] {
   if (routing.errorCount === 0) return [];
   const lines = [
-    `  typecheck: ${routing.errorCount} type error${routing.errorCount === 1 ? "" : "s"} — route to ${routing.route}`,
+    `  typecheck: ${routing.errorCount} type error${routing.errorCount === 1 ? "" : "s"}`,
   ];
   for (const owner of routing.owners) {
     const group = routing.byOwner[owner] ?? [];

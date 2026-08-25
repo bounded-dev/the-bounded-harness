@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
 import { classifyGreen } from "./green-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
+import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
 function vitestJson(cases: { name: string; status: string; message?: string }[]): string {
@@ -28,12 +29,24 @@ function run(partial: Partial<RunTestsResult>): RunTestsResult {
   return { ok: false, total: 0, passed: 0, failed: 0, skipped: 0, results: [], ...partial };
 }
 
+/** A clean typecheck — the precondition every pre-#7 green implicitly assumed. */
+const TYPE_CLEAN: TypecheckResult = { ok: true, errorCount: 0, diagnostics: [] };
+
+function tsc(...diagnostics: string[]): TypecheckResult {
+  return { ok: false, errorCount: diagnostics.length, diagnostics };
+}
+
+const TEST_TYPE_ERR = "tests/reading-list.test.ts(12,5): error TS2532: Object is possibly 'undefined'.";
+const SRC_TYPE_ERR = "src/reading-list/reading-list.ts(4,3): error TS2345: Argument of type 'string'…";
+const CONTRACT_TYPE_ERR = "src/reading-list/reading-list.contract.ts(9,1): error TS2304: Cannot find name 'Isbn'.";
+
 // --- pure core: classifyGreen -------------------------------------------------
 
 describe("classifyGreen", () => {
   test("all tests pass → exit 0", () => {
     const r = classifyGreen(
       run({ ok: true, total: 2, passed: 2, results: [{ name: "a", status: "passed" }, { name: "b", status: "passed" }] }),
+      TYPE_CLEAN,
     );
     expect(r.code).toBe(0);
     expect(r.verdict).toBe("pass");
@@ -51,6 +64,7 @@ describe("classifyGreen", () => {
           { name: "subtracts", status: "failed", message: "AssertionError: expected 1 to be 2" },
         ],
       }),
+      TYPE_CLEAN,
     );
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/1 failing test of 2/);
@@ -58,15 +72,89 @@ describe("classifyGreen", () => {
   });
 
   test("blocked suite → exit 1", () => {
-    const r = classifyGreen(run({ blocked: "Error: Cannot find module [path]" }));
+    const r = classifyGreen(run({ blocked: "Error: Cannot find module [path]" }), TYPE_CLEAN);
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/suite did not run/);
   });
 
   test("no tests ran → exit 1", () => {
-    const r = classifyGreen(run({ total: 0 }));
+    const r = classifyGreen(run({ total: 0 }), TYPE_CLEAN);
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/no tests ran/);
+  });
+});
+
+// --- #7: green requires a type-clean project, not just a passing suite --------
+// Dogfood Run 3 shipped "GREEN (22/22)" with two tsc errors in the test file.
+// Green means both, and the gate must say which role can fix what it found.
+
+const passing = (n: number): Partial<RunTestsResult> => ({
+  ok: true,
+  total: n,
+  passed: n,
+  results: Array.from({ length: n }, (_, i) => ({ name: `t${i}`, status: "passed" as const })),
+});
+
+describe("classifyGreen + typecheck (#7)", () => {
+  test("passing suite with type errors is NOT green", () => {
+    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR));
+    expect(r.code).toBe(1);
+    expect(r.verdict).toBe("block");
+    expect(r.lines[0]).toMatch(/green-gate: FAIL — 1 type error/);
+    expect(r.lines[0]).toMatch(/suite passes/);
+  });
+
+  test("type errors confined to tests\/** route to the test-writer", () => {
+    const r = classifyGreen(run(passing(22)), tsc(TEST_TYPE_ERR, TEST_TYPE_ERR));
+    expect(r.lines).toContain("green-gate: route → test-writer");
+    expect(r.lines.join("\n")).toContain("  test-writer (2):");
+    expect(r.lines.join("\n")).toContain(TEST_TYPE_ERR);
+    expect(r.detail).toMatchObject({ route: "test-writer", typeErrors: 2 });
+  });
+
+  test("type errors in src/** route to the builder", () => {
+    const r = classifyGreen(run(passing(3)), tsc(SRC_TYPE_ERR));
+    expect(r.lines).toContain("green-gate: route → builder");
+  });
+
+  test("failing tests plus upstream type errors route upstream, and report both", () => {
+    const r = classifyGreen(
+      run({
+        total: 2,
+        passed: 1,
+        failed: 1,
+        results: [
+          { name: "adds", status: "passed" },
+          { name: "subtracts", status: "failed", message: "AssertionError: expected 1 to be 2" },
+        ],
+      }),
+      tsc(CONTRACT_TYPE_ERR),
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines[0]).toMatch(/1 failing test of 2/);
+    expect(r.lines.join("\n")).toContain("failed: subtracts");
+    expect(r.lines.join("\n")).toContain("  typecheck: 1 type error");
+    expect(r.lines).toContain("green-gate: route → architect");
+  });
+
+  test("failing tests with a type-clean project still route to the builder", () => {
+    const r = classifyGreen(
+      run({ total: 1, failed: 1, results: [{ name: "x", status: "failed", message: "AssertionError" }] }),
+      TYPE_CLEAN,
+    );
+    expect(r.lines).toContain("green-gate: route → builder");
+  });
+
+  test("a blocked suite routes to the test-writer (dispute protocol BLOCKED)", () => {
+    const r = classifyGreen(run({ blocked: "Error: Cannot find module [path]" }), TYPE_CLEAN);
+    expect(r.lines).toContain("green-gate: route → test-writer");
+  });
+
+  test("green states that the project is type-clean, so the claim is auditable", () => {
+    const r = classifyGreen(run(passing(22)), TYPE_CLEAN);
+    expect(r.code).toBe(0);
+    expect(r.lines[0]).toMatch(/22 passed, 22 total, typecheck clean/);
+    expect(r.detail).toMatchObject({ typeErrors: 0 });
   });
 });
 
@@ -76,18 +164,26 @@ const SCRIPT = join(import.meta.dirname, "green-gate.ts");
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-function fixtureRepo(prefix: string, runJson: string): string {
+function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tmpDirs.push(dir);
   writeFileSync(join(dir, "run.json"), runJson);
+  writeFileSync(join(dir, "tsc.txt"), tscOutput);
   return dir;
 }
 
-function runGate(dir: string) {
+function runGate(dir: string, typeErrors = false) {
   return spawnSync(process.execPath, [SCRIPT], {
     cwd: dir,
     encoding: "utf8",
-    env: { ...process.env, PI_GATE_TEST_CMD: "cat", PI_GATE_TEST_ARGS: JSON.stringify(["run.json"]) },
+    env: {
+      ...process.env,
+      PI_GATE_TEST_CMD: "cat",
+      PI_GATE_TEST_ARGS: JSON.stringify(["run.json"]),
+      // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
+      PI_GATE_TSC_CMD: "sh",
+      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
+    },
   });
 }
 
@@ -116,5 +212,22 @@ describe("green-gate CLI (fixture repos)", () => {
     expect(r.stdout).toMatch(/1 failing test of 2/);
     expect(r.stdout).toContain("failed: cancel order");
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "green-gate", verdict: "block" });
+  });
+
+  test("passing suite + test-file type errors → exit 1, routed, logged as a block (#7)", () => {
+    const dir = fixtureRepo(
+      "green-falsegreen-",
+      vitestJson([{ name: "adds a book", status: "passed" }, { name: "lists books", status: "passed" }]),
+      `${TEST_TYPE_ERR}\nFound 1 error in tests/reading-list.test.ts:12\n`,
+    );
+    const r = runGate(dir, true);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/green-gate: FAIL — 1 type error/);
+    expect(r.stdout).toContain("green-gate: route → test-writer");
+    expect(readGuardLog(dir)[0]).toMatchObject({
+      guard: "green-gate",
+      verdict: "block",
+      detail: { route: "test-writer", typeErrors: 1 },
+    });
   });
 });
