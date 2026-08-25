@@ -16,6 +16,9 @@ npm/
 git/
 node_modules/
 
+# Stray lockfile from npm commands run at the wrong cwd (real lockfile: agent/package-lock.json)
+/package-lock.json
+
 # Local config overrides (API keys for third-party extensions)
 web-search.json
 
