@@ -73,6 +73,27 @@ export interface Zone {
   readonly readExcept: readonly string[];
 }
 
+// WHAT BLINDNESS ACTUALLY IS (corrected after dogfood Run 5)
+//
+// The blindness is between TESTS and IMPLEMENTATION, and nowhere else:
+//
+//     artifact          architect   test-writer   builder
+//     contract          read        read          read     ← shared
+//     spec.md           read        read          read     ← shared
+//     implementation    –           –             write
+//     tests             –           write         –        ← the real blindness
+//
+// The contract and the spec are the SHARED interface: all three roles work
+// against them, and they are declaration-only by construction (contract-purity
+// enforces it), so sharing them leaks nothing. An earlier version of this file
+// stated the rule as "src is ALWAYS blind, contracts included", which is a
+// muddled reading of the same idea — and it killed a live run, because the
+// test-writer imports from contract paths it was then refused permission to
+// read. It escalated, was told the wall was intentional, and exited without
+// writing a test.
+//
+// So: deny an agent the OTHER SIDE's work product. Never deny it the interface
+// it is working against.
 export const ZONES: Record<Role, Zone> = {
   architect: {
     writeAllow: ["spec.md", "src/**/*.contract.ts"],
@@ -80,11 +101,19 @@ export const ZONES: Record<Role, Zone> = {
     readDeny: ["tests", "tests/**", "src", "src/**"],
     readExcept: ["src/**/*.contract.ts"],
   },
+  // The contract is the interface under test, so the test-writer must be able
+  // to read it — it imports from those exact paths. Dogfood Run 5 died here:
+  // the task prompt told the test-writer to import from the contract, the gate
+  // refused the read, and the role escalated and exited without writing a
+  // test. Contracts are declaration-only (the contract-purity gate enforces
+  // it), so this leaks no implementation; blind to src/** means blind to the
+  // IMPLEMENTATION, never to the interface. Searches over src/ remain denied:
+  // a directory listing would reveal the implementation's shape.
   "test-writer": {
     writeAllow: ["tests/**"],
     writeDeny: [],
     readDeny: ["src", "src/**"],
-    readExcept: [],
+    readExcept: ["src/**/*.contract.ts"],
   },
   builder: {
     writeAllow: ["src/**"],

@@ -70,10 +70,20 @@ matrix("architect", [
 ]);
 
 matrix("test-writer", [
-  // spec is delivered; contract too (src is ALWAYS blind, contracts included)
+  // The contract is the interface under test and MUST be readable: the
+  // test-writer imports from those exact paths, and dogfood Run 5 died when
+  // the gate refused the read the task prompt required (it escalated, was told
+  // the wall was intentional, and exited). Contracts are declaration-only —
+  // the contract-purity gate enforces that — so reading one leaks no
+  // implementation. Blind to src/** means blind to the IMPLEMENTATION, never
+  // to the interface. Searches over src DIRECTORIES stay blocked — a listing
+  // would reveal the implementation's shape — but a search scoped to one
+  // contract file is allowed, since it yields no more than reading it does.
   ["spec.md", A, A, B],
-  ["src/orders/orders.contract.ts", B, B, B],
-  ["src/x.contract.ts", B, B, B],
+  // read AND search on a specific contract file: grepping one declaration-only
+  // file yields exactly what reading it yields, so denying it buys nothing
+  ["src/orders/orders.contract.ts", A, A, B],
+  ["src/x.contract.ts", A, A, B],
   ["src/orders/orders.ts", B, B, B],
   ["src", B, B, B],
   ["src/orders", B, B, B],
@@ -145,7 +155,8 @@ describe("hostile paths", () => {
     expect(d("builder", "read", "src/../tests/orders.test.ts").allow).toBe(false);
     expect(d("builder", "read", "./tests/orders.test.ts").allow).toBe(false);
     expect(d("builder", "read", "tests//sub/x.test.ts").allow).toBe(false);
-    expect(d("test-writer", "read", "tests/../src/x.contract.ts").allow).toBe(false);
+    // contracts are readable, but implementation laundered through '..' is not
+    expect(d("test-writer", "read", "tests/../src/x.ts").allow).toBe(false);
   });
 
   test("'..' that escapes the project root is blocked", () => {
