@@ -44,71 +44,76 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
-### Run 5 — Sonnet · subscription-billing · THREE ARMS · PLANNED
+### Run 5 — Sonnet · subscription-billing · bare vs harness · PLANNED
 
-Pre-registered before any arm runs. Run 4 validated the *bundle*; this run
-decomposes it. Same domain as Run 4 (`docs/dogfood/run4-prompt.md`), **Sonnet
-throughout**, and the prompt is now **byte-identical in all three arms** — the
-only variable is the environment the agent works in.
+Pre-registered before either arm runs. Same domain as Run 4
+(`docs/dogfood/run4-prompt.md`), **Sonnet throughout**, prompt **byte-identical
+in both arms** — the only variable is the environment.
 
-Layout: one repo, `~/dev/dogfood-billing`, with three git worktrees on three
-branches off a shared baseline commit, so arms diff directly against each
-other. Each arm has one "arm setup" commit; score its output as the diff from
-that commit.
+Layout: one repo, `~/dev/dogfood-billing`, two git worktrees on branches off a
+shared baseline. Each arm has one setup commit; score its output as the diff
+from that commit. Each arm carries an `AGENTS.md` with an **identical**
+operational block (layout, toolchain, `npm run check` is the bar, no new
+dependencies, don't commit) and exactly one differing line naming what that
+environment offers — the method itself lives in the skill, never in
+`AGENTS.md`, so an inadequate skill shows up as a result rather than being
+papered over by the setup.
 
-- **1 · bare** — `~/dev/dogfood-arm1-bare` (branch `arm1-bare`). Claude Code,
-  one agent, no skills, prompt only.
-- **2 · skill** — `~/dev/dogfood-arm2-skill` (branch `arm2-skill`). Claude
-  Code, one agent, with `ts-contract-authoring` installed at
-  `.claude/skills/` — the design guidance with every reference to gates,
-  scaffolder and guard log stripped (verified zero). **No gates, no blindness,
-  no role separation.**
-- **3 · harness** — `~/dev/dogfood-arm3-harness` (branch `arm3-harness`). pi,
-  full `developer-stage` pipeline: three blind roles, deterministic gates,
-  scaffolder, path gate.
+- **1 · bare** — `~/dev/dogfood-arm1-bare`. Claude Code, one agent, no skills.
+  *"Nothing special. Build it with your ordinary tools, the way you think it
+  should be built."*
+- **3 · harness** — `~/dev/dogfood-arm3-harness`. pi, full `developer-stage`
+  pipeline: three blind roles, deterministic gates, scaffolder, path gate.
+  *"This project is built through the `developer-stage` skill. Invoke it and
+  follow it."*
 
-**The question.** Run 4's harness arm produced branded value objects, errors as
-values and an adversarial test suite where the bare control shipped
-`CalendarDate = Date` and a tautological invariant test — but the harness had
-four advantages at once. Arm 2 isolates the cheap half. Expected
-discriminations:
-
-- **2 matches 3's contract quality** → the value-object win came from the
-  *skill*, at ~5% of the machinery. Blindness narrows to test quality.
-- **2's tests self-confirm like 1's** (tautological invariants, tests named
-  after the implementation) → blindness does work nothing cheaper does, and
-  the 3× buys it.
-- **2 is type-dirty where 3 is clean** → the gates are load-bearing
-  independently of blindness (issue #7's territory).
+**A skill-only middle arm was planned and dropped before running.** The intent
+was to decompose the bundle: does the quality come from the authoring skill or
+from blindness? But the arm as built gave the single agent only
+`ts-contract-authoring`, while most of the harness's guidance now lives in the
+three agent definitions (the architect's design judgment, the test-writer's
+enumeration method, the builder's craft rules). That arm would have carried
+roughly a fifth of the harness's advice, understating the cheap intervention
+and flattering blindness. **The decomposition question therefore remains
+open.** A faithful version would hand a single agent the combined guidance
+from all three agent defs with no blindness, gates or orchestration — worth
+building for a later run.
 
 Scored on Run 4's criteria, unchanged: per-rule coverage, adversarial probes
-run against all three arms, naked primitives at the boundary, invariants in
-types vs prose, ports vs ambient time, `npm run check`, whether the tests
-graded their own exam, and cost.
+run against both arms, naked primitives at the boundary, invariants in types
+vs prose, ports vs ambient time, `npm run check`, whether the tests graded
+their own exam, and cost.
 
 **Fixes in the harness since Run 4** (so arm 3 is not re-running known bugs):
 verified gate invocations and a `sleep` ban in the orchestration skill;
 `run_tests` non-convergence nudge; a builder dispute budget; orientation
 guidance so no role opens with a blocked `ls .`; `no-naked-primitives` live
-from the start rather than landing mid-run.
+from the start; and the `developer-stage` skill description rewritten to
+trigger on the task shape it serves.
 
-**Known confound, recorded up front.** All three pipeline agent definitions
-gained personality and method between Run 4 and Run 5: the test-writer an
-enumeration walk and a stop rule; the architect simplicity-as-governing-aim,
-deep modules, the deletion test, and ports-as-language-boundary; the builder
-craft rules and a ranked-hypothesis debugging method. Run 4's test-writer
-produced its sharpest tests with **none** of this — blindness and a good spec
-did the work — so any arm-3 improvement over Run 4 cannot be attributed to
-blindness alone. Watch specifically: whether arm 3's spec comes in under Run
-4's 364 lines without losing the tests that traced to it (§2.0 execution
-order, §3.3 round-half-up, §3.3.1 per-call plan evaluation), and whether the
-builder disputes promptly instead of stalling (Run 4 lost ~15 min there).
+**Aborted first attempts (kept as evidence, branches `arm1-void-firstattempt`
+and `arm3-void-noskill`).** Arm 3's first attempt never loaded the
+`developer-stage` skill: no subagent spawned, no gate run, no `.pi/` written.
+It read `package.json`, said *"Project scaffold already exists. Now I'll build
+the full implementation"*, and wrote `src/*.ts` directly — pi behaving as a
+single agent. Cause: the skill's description (*"turn an approved plan into
+tested code… use when driving a task from plan to green through the
+architect/test-writer/builder pipeline"*) only matched a user who already knew
+the pipeline existed. A skill that must be known about before it can be found
+is not discoverable — the same class of defect as Run 1's silent scaffolder
+bug, and visible only because the arms were given identical prompts.
 
-**Hygiene.** Arms share one repo, so a later arm could in principle see an
-earlier arm's branch. Do not commit arm output until scoring, or run them
-concurrently. And do not push to pi-harness main while arm 3 is running — arm
-3 resolves its gates through `~/.pi/agent` → the live checkout, and Run 4's
-arm A picked up a new lint rule mid-run because of exactly that.
+**Known confound.** All three pipeline agent definitions gained personality and
+method between Run 4 and Run 5. Run 4's test-writer produced its sharpest tests
+with none of it, so any arm-3 improvement over Run 4 cannot be attributed to
+blindness alone. Watch: whether arm 3's spec comes in under Run 4's 364 lines
+without losing the tests that traced to it, and whether the builder disputes
+promptly rather than stalling (Run 4 lost ~15 min there).
+
+**Hygiene.** Arms share one repo, so run them concurrently or don't commit arm
+output until scoring. Do not push to pi-harness main while arm 3 runs — it
+resolves gates through `~/.pi/agent` → the live checkout, which is how Run 4's
+harness arm got contaminated mid-flight.
 
 **Result:** _pending._
 
