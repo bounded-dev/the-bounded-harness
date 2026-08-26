@@ -44,32 +44,41 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
-### Run 5 — Opus · subscription-billing · THREE ARMS · PLANNED
+### Run 5 — Sonnet · subscription-billing · THREE ARMS · PLANNED
 
 Pre-registered before any arm runs. Run 4 validated the *bundle*; this run
-decomposes it. Same domain and prompt as Run 4 (`docs/dogfood/run4-prompt.md`),
-so arm-to-arm and run-to-run comparison both work, but on **Opus** throughout.
+decomposes it. Same domain as Run 4 (`docs/dogfood/run4-prompt.md`), **Sonnet
+throughout**, and the prompt is now **byte-identical in all three arms** — the
+only variable is the environment the agent works in.
 
-- **A · harness** — `~/dev/dogfood-r5-harness`. Full `developer-stage`
-  pipeline: three blind roles, deterministic gates, scaffolder, path gate.
-- **B · skill only** — `~/dev/dogfood-r5-skill`. One agent, ordinary tools.
-  Gets `CONTRACT-GUIDE.md` (the design guidance from `ts-contract-authoring`
-  with every reference to gates, scaffolder and guard log stripped) and
-  nothing else. **No gates, no blindness, no role separation.**
-- **C · bare** — `~/dev/dogfood-r5-bare`. Prompt only, as Run 4's control.
+Layout: one repo, `~/dev/dogfood-billing`, with three git worktrees on three
+branches off a shared baseline commit, so arms diff directly against each
+other. Each arm has one "arm setup" commit; score its output as the diff from
+that commit.
 
-**The question:** Run 4 showed arm A produced branded value objects, errors as
-values, and an adversarial test suite, where the bare control shipped
-`CalendarDate = Date` and a tautological invariant test. But arm A had four
-advantages at once — contract-first design, the authoring skill, deterministic
-gates, and blindness. Arm B isolates the cheap half. Expected discriminations:
+- **1 · bare** — `~/dev/dogfood-arm1-bare` (branch `arm1-bare`). Claude Code,
+  one agent, no skills, prompt only.
+- **2 · skill** — `~/dev/dogfood-arm2-skill` (branch `arm2-skill`). Claude
+  Code, one agent, with `ts-contract-authoring` installed at
+  `.claude/skills/` — the design guidance with every reference to gates,
+  scaffolder and guard log stripped (verified zero). **No gates, no blindness,
+  no role separation.**
+- **3 · harness** — `~/dev/dogfood-arm3-harness` (branch `arm3-harness`). pi,
+  full `developer-stage` pipeline: three blind roles, deterministic gates,
+  scaffolder, path gate.
 
-- If **B matches A's contract quality** → the value-object win came from the
-  *skill*, and costs ~5% of the machinery. Blindness narrows to test quality.
-- If **B's tests self-confirm like C's** (tautological invariants, tests named
-  after the implementation) → blindness is doing work nothing cheaper does,
-  and the 3× is buying it.
-- If **B is type-dirty where A is clean** → the gates are load-bearing
+**The question.** Run 4's harness arm produced branded value objects, errors as
+values and an adversarial test suite where the bare control shipped
+`CalendarDate = Date` and a tautological invariant test — but the harness had
+four advantages at once. Arm 2 isolates the cheap half. Expected
+discriminations:
+
+- **2 matches 3's contract quality** → the value-object win came from the
+  *skill*, at ~5% of the machinery. Blindness narrows to test quality.
+- **2's tests self-confirm like 1's** (tautological invariants, tests named
+  after the implementation) → blindness does work nothing cheaper does, and
+  the 3× buys it.
+- **2 is type-dirty where 3 is clean** → the gates are load-bearing
   independently of blindness (issue #7's territory).
 
 Scored on Run 4's criteria, unchanged: per-rule coverage, adversarial probes
@@ -77,25 +86,29 @@ run against all three arms, naked primitives at the boundary, invariants in
 types vs prose, ports vs ambient time, `npm run check`, whether the tests
 graded their own exam, and cost.
 
-**Fixes in the harness since Run 4** (so arm A is not re-running known bugs):
+**Fixes in the harness since Run 4** (so arm 3 is not re-running known bugs):
 verified gate invocations and a `sleep` ban in the orchestration skill;
 `run_tests` non-convergence nudge; a builder dispute budget; orientation
 guidance so no role opens with a blocked `ls .`; `no-naked-primitives` live
-from the start this time rather than landing mid-run.
+from the start rather than landing mid-run.
 
-**Two deliberate changes to arm A's agents — a known confound, recorded up
-front.** The test-writer gained a character line and an explicit enumeration
-method (preconditions in order, boundaries, arithmetic ties, cardinality,
-identity/aliasing, replay, sequences) plus a stop rule; the architect gained a
-rule scoping `spec.md` to what types cannot express, forbidding restatement of
-the contract. Both are unproven. Run 4's test-writer produced its sharpest
-tests with **no** personality and no method — blindness and a good spec did the
-work — so any test-quality change between Run 4 and Run 5 cannot be attributed
-to blindness alone. Watch two things specifically: whether arm A's spec gets
-shorter than Run 4's 364 lines without losing the tests that traced to it
-(§2.0 execution order, §3.3 round-half-up, §3.3.1 per-call plan evaluation),
-and whether the enumeration method produces tests the Run 4 suite missed or
-merely more of them.
+**Known confound, recorded up front.** All three pipeline agent definitions
+gained personality and method between Run 4 and Run 5: the test-writer an
+enumeration walk and a stop rule; the architect simplicity-as-governing-aim,
+deep modules, the deletion test, and ports-as-language-boundary; the builder
+craft rules and a ranked-hypothesis debugging method. Run 4's test-writer
+produced its sharpest tests with **none** of this — blindness and a good spec
+did the work — so any arm-3 improvement over Run 4 cannot be attributed to
+blindness alone. Watch specifically: whether arm 3's spec comes in under Run
+4's 364 lines without losing the tests that traced to it (§2.0 execution
+order, §3.3 round-half-up, §3.3.1 per-call plan evaluation), and whether the
+builder disputes promptly instead of stalling (Run 4 lost ~15 min there).
+
+**Hygiene.** Arms share one repo, so a later arm could in principle see an
+earlier arm's branch. Do not commit arm output until scoring, or run them
+concurrently. And do not push to pi-harness main while arm 3 is running — arm
+3 resolves its gates through `~/.pi/agent` → the live checkout, and Run 4's
+arm A picked up a new lint rule mid-run because of exactly that.
 
 **Result:** _pending._
 
