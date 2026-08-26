@@ -83,6 +83,20 @@ verified gate invocations and a `sleep` ban in the orchestration skill;
 guidance so no role opens with a blocked `ls .`; `no-naked-primitives` live
 from the start this time rather than landing mid-run.
 
+**Two deliberate changes to arm A's agents — a known confound, recorded up
+front.** The test-writer gained a character line and an explicit enumeration
+method (preconditions in order, boundaries, arithmetic ties, cardinality,
+identity/aliasing, replay, sequences) plus a stop rule; the architect gained a
+rule scoping `spec.md` to what types cannot express, forbidding restatement of
+the contract. Both are unproven. Run 4's test-writer produced its sharpest
+tests with **no** personality and no method — blindness and a good spec did the
+work — so any test-quality change between Run 4 and Run 5 cannot be attributed
+to blindness alone. Watch two things specifically: whether arm A's spec gets
+shorter than Run 4's 364 lines without losing the tests that traced to it
+(§2.0 execution order, §3.3 round-half-up, §3.3.1 per-call plan evaluation),
+and whether the enumeration method produces tests the Run 4 suite missed or
+merely more of them.
+
 **Result:** _pending._
 
 ### Run 4 — Sonnet · subscription-billing · A/B: harness vs. no harness · PLANNED
