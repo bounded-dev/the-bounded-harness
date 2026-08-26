@@ -115,7 +115,67 @@ output until scoring. Do not push to pi-harness main while arm 3 runs — it
 resolves gates through `~/.pi/agent` → the live checkout, which is how Run 4's
 harness arm got contaminated mid-flight.
 
-**Result:** _pending._
+**Result: the harness arm is decisively better on test quality, and the bare
+arm's failure mode reproduced exactly.** Both shipped working, type-clean code
+— arm 1 `31 tests / 3 files`, arm 3 `95 tests / 8 files` plus a 335-line spec.
+Every behavioural probe passes identically on both (proration, idempotent
+replay, back-dating, cross-currency, post-cancel rejection, invoice/line-item
+consistency), and both leak the caller's `Plan` object by reference. On
+*behaviour* they are equivalent. The differences are architectural and, above
+all, in the tests.
+
+**1. The tautological invariant reproduced.** Arm 1, independently and on a
+different model session from Run 4's control, wrote the same self-confirming
+test: it sums `invoice.total` into `summed`, then asserts `totalCharged`
+equals it — and `totalCharged` is implemented as that same sum. It cannot
+fail. Arm 3's equivalent derives every expected value by hand from the spec's
+formula (`proratedAmount(1200, 31, 21) = floor(50431/62) = 813`) and asserts
+literals, so a drift in the rounding rule breaks it. **Two bare runs, two
+tautologies; two harness runs, none.** This is the clearest evidence yet that
+the separation buys something prompting does not.
+
+**2. Precondition ordering: tested by arm 3, absent from arm 1.** Arm 3's
+`ordering.test.ts` pins which error wins when several checks would all fail —
+*"renew on a cancelled subscription reports back-dated-operation, not
+subscription-cancelled, when both would fail"*, and a three-way version. It
+also covers replay-after-the-world-moved-on (*"changePlan replay succeeds
+after the subscription has since been cancelled"*) and replay-with-different-
+arguments. Arm 1 has none of these. This is the test-writer's new enumeration
+method (*"one test per check, plus one where two would fail and the earlier
+must win"*) firing in its first live run.
+
+**3. Value objects.** Arm 3 branded the whole surface via a `Brand<T,B>`
+helper — `CurrencyCode`, `MinorUnits`, `DayCount`, every id, `Description`,
+and `CalendarDate` as a branded *string*. Arm 1 has zero branded types and
+`export type CurrencyCode = string`, so `"usd" !== "USD"` and `""` is a valid
+currency. Arm 1 did, however, avoid Run 4's catastrophic `Date` aliasing bug
+by normalising dates on entry — a better bare run than Run 4's control.
+
+**4. Errors as values, per operation.** Arm 3 returns
+`{ok:true,…} | {ok:false,error}` with a *distinct* error union per operation
+(`RenewError` ⊂ `ChangePlanError`), so the compiler enumerates exactly the
+failures each call can produce — more precise than Run 4's single union. Arm 1
+throws nine error classes; nothing makes a caller handle them.
+
+**5. Every new mechanism earned its place.** `no-naked-primitives` blocked the
+architect's first contract (issue #3's first live firing); the green gate
+blocked with `route: builder` rather than declaring a false green (#7); the
+`run_tests` non-convergence nudge fired `stuck=True` after the builder hit the
+same two failures three times, and it was green one run later — against Run
+4's 15-minute stall in the same situation. The red gate recorded a textbook
+valid red: 95 NotImplemented failures, 0 passes.
+
+**Cost.** Arm 3 took ~33 min against arm 1's ~19 min, but the harness time is
+dominated by stalls, not work: the architect's first run was 446s of which
+363s were gaps ≥30s (81% dead air), while its second run did 15 messages in
+26s. Excluding stalls the pipeline moves at 3–4s per turn.
+
+**Caveat, recorded plainly.** Arm 3 ran across a mid-run harness change: the
+test-writer read-zone fix was synced while its orchestrator was stalled, after
+its first test-writer had already died on the old zone. The arm is scoreable
+— the fix restored intended behaviour rather than adding capability — but it
+is not a clean run, and the value-object and test-quality findings should be
+read as consistent with Run 4 rather than as independent confirmation.
 
 ### Run 4 — Sonnet · subscription-billing · A/B: harness vs. no harness · PLANNED
 
