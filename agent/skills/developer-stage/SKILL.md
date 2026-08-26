@@ -1,6 +1,6 @@
 ---
 name: developer-stage
-description: Orchestrate the developer stage (TN-26-001) — turn an approved plan into tested code via three blind, write-capable subagents (architect, test-writer, builder) with every phase transition enforced by a deterministic gate. Use when driving a task from plan to green through the architect/test-writer/builder pipeline.
+description: Build a component or feature test-first, from requirements through to a passing suite. Use for any non-trivial implementation task — "build X", "implement X", "add feature X", "write a component that…" — where the tests should be an independent check rather than written by whoever wrote the code. Runs the developer stage (TN-26-001) as three blind, write-capable subagents (architect, test-writer, builder) whose phase transitions are enforced by deterministic gates.
 ---
 
 # Developer stage
