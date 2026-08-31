@@ -1,0 +1,218 @@
+/**
+ * Architect tools (issue #12): the gates, and git.
+ *
+ * The architect drives a whole ticket but holds NO `bash` — a shell defeats
+ * every path rule at once, so it gets named tools for the things it
+ * legitimately needs instead of a way to run anything. This file is what makes
+ * that trade survivable: every capability the architect actually needs exists
+ * here, or it cannot do its job.
+ *
+ * Each gate is thin wiring over the same `run*` function the CLI calls, so a
+ * gate cannot differ by how it was invoked. That matters more than it sounds:
+ * "the architect runs every gate itself and never trusts a worker's word" is
+ * worth nothing if the tool is a second, drifting implementation of the gate.
+ *
+ * Two things this buys beyond closing the shell:
+ *
+ *   · The invocation guidance deletes itself. Dogfood Run 4's orchestrator
+ *     spent its first ~3 minutes `find`-ing the pack and `head`-ing three gate
+ *     scripts to work out how to call them, then re-read two of them mid-run.
+ *     A tool schema cannot be mis-invoked that way, and `scaffold` now finds
+ *     the contracts itself rather than taking one path per call.
+ *   · Every gate lands in the guard log by construction, so "did the architect
+ *     actually run the gate" is checkable rather than trusted.
+ *
+ * `git` is deliberately unrestricted. Archaeology — reflog, bisect, blame — is
+ * exactly when a closed verb list becomes a cage, and it is exactly when you
+ * need the tool most. The safety story is not "restrict the verb": it is that
+ * the two blind roles hold no git at all (`git show HEAD:tests/x.test.ts`
+ * would hand the builder the test source in one call), that args are passed as
+ * an array and spawned directly so this tool is not itself an injection point,
+ * and that every invocation is logged.
+ */
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
+import { isAbsolute, resolve } from "node:path";
+import { Type } from "typebox";
+import { runContractPurity } from "../packs/ts/scripts/contract-purity.ts";
+import { runChecksumGate } from "../packs/ts/scripts/checksum-gate.ts";
+import { runGreenGate } from "../packs/ts/scripts/green-gate.ts";
+import { runRedGate } from "../packs/ts/scripts/red-gate.ts";
+import { runScaffold } from "../packs/ts/scripts/scaffold-contract.ts";
+import { logGuardEvent } from "../src/guard-log.ts";
+
+const CWD_PARAM = Type.Object({
+  cwd: Type.Optional(
+    Type.String({
+      description:
+        "Project directory to run in (absolute, or relative to the session cwd). Defaults to the session cwd.",
+    }),
+  ),
+});
+
+function targetCwd(sessionCwd: string, param?: string): string {
+  if (!param) return sessionCwd;
+  return isAbsolute(param) ? param : resolve(sessionCwd, param);
+}
+
+/** A gate's exit code as the verdict line the architect reads. */
+function verdictOf(code: number): string {
+  if (code === 0) return "PASS";
+  if (code === 1) return "BLOCK";
+  return "ERROR (misuse — the gate could not run)";
+}
+
+function gateOutput(name: string, code: number, lines: readonly string[]) {
+  const text = [...lines, `${name}: ${verdictOf(code)}`].join("\n");
+  return { content: [{ type: "text" as const, text }], details: { code, ok: code === 0 } };
+}
+
+export default function (pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "contract_purity",
+    label: "Contract Purity Gate",
+    description:
+      "Run the contract-purity gate over the project's *.contract.ts files: contracts must be declaration-only AND free of naked primitives on their public surface. Run after writing or revising a contract, before scaffolding.",
+    promptSnippet: "Gate the contracts: declaration-only, no naked primitives.",
+    parameters: Type.Object({
+      cwd: CWD_PARAM.properties.cwd,
+      patterns: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Glob patterns for the contract files. Defaults to src/**/*.contract.ts — you rarely need to pass this.",
+        }),
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = await runContractPurity(cwd, params.patterns);
+      return gateOutput("contract-purity", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "scaffold",
+    label: "Scaffold Skeletons",
+    description:
+      "Generate the throwing implementation skeleton for every contract in the project. Skeletons are machine-generated — never hand-written — so contract drift becomes a compile error rather than an assertion. Run after contract_purity passes.",
+    promptSnippet: "Generate throwing skeletons from every contract.",
+    parameters: Type.Object({
+      cwd: CWD_PARAM.properties.cwd,
+      contracts: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Specific contract paths to scaffold. Omit to scaffold every *.contract.ts in the project, which is almost always what you want.",
+        }),
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runScaffold(cwd, params.contracts);
+      return gateOutput("scaffold", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "freeze_contracts",
+    label: "Freeze Contracts",
+    description:
+      "Record the contract checksum manifest, freezing the contract as the shared interface both blind roles build against. Run once the design is settled, before commissioning the test-writer.",
+    promptSnippet: "Freeze the contract by recording its checksum manifest.",
+    parameters: CWD_PARAM,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runChecksumGate(cwd, true);
+      return gateOutput("checksum-gate", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "check_drift",
+    label: "Check Contract Drift",
+    description:
+      "Verify the contracts are byte-for-byte unchanged since freeze_contracts recorded them. A contract that moves mid-loop drifts the tests and the implementation apart underneath you. Run any time you suspect the contract has moved.",
+    promptSnippet: "Check whether any contract has moved since it was frozen.",
+    parameters: CWD_PARAM,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runChecksumGate(cwd, false);
+      return gateOutput("checksum-gate", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "red_gate",
+    label: "Red Gate",
+    description:
+      "Run the red gate after the test-writer finishes. A VALID red means the project typechecks, the suite runs, and every failure is NotImplementedError. Wrong-reason red — import/type/config errors, ordinary assertion failures, or a fully green suite — is rejected. The gate prints one `route → <role>` line naming who must fix what it found.",
+    promptSnippet: "Gate the tests: is this a red for the right reason?",
+    parameters: CWD_PARAM,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = await runRedGate(cwd);
+      return gateOutput("red-gate", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "green_gate",
+    label: "Green Gate",
+    description:
+      "Run the green gate after the builder finishes. GREEN means every test passes AND the project typechecks — a passing suite on a project that does not compile is a false green, not a pass. The gate prints one `route → <role>` line naming who must fix what it found.",
+    promptSnippet: "Gate the build: tests pass AND the project compiles.",
+    parameters: CWD_PARAM,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = await runGreenGate(cwd);
+      return gateOutput("green-gate", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "git",
+    label: "Git",
+    description:
+      "Run any git command. Args are passed as an array, exactly as git would receive them: [\"log\", \"--oneline\", \"-10\"]. Unrestricted on purpose — reflog, bisect, blame and stash archaeology are when you need git most, and a closed verb list would cage you exactly then.",
+    promptSnippet: "Run a git command (args as an array).",
+    promptGuidelines: [
+      "Pass args as an array, not a shell string: [\"commit\", \"-m\", \"message\"] — there is no shell, so quoting and pipes do not apply.",
+    ],
+    parameters: Type.Object({
+      args: Type.Array(Type.String(), {
+        description:
+          'Git arguments as an array, e.g. ["status", "--short"] or ["show", "abc123:path/to/file.ts"].',
+      }),
+      cwd: CWD_PARAM.properties.cwd,
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const { code, stdout, stderr } = await runGit(params.args, cwd, signal);
+      logGuardEvent(cwd, {
+        guard: "git",
+        verdict: code === 0 ? "pass" : "block",
+        summary: `git ${params.args.join(" ")} → exit ${code}`,
+        detail: { args: params.args, code },
+      });
+      const text = [stdout, stderr].filter((s) => s.trim() !== "").join("\n") || `(exit ${code})`;
+      return { content: [{ type: "text" as const, text }], details: { code, ok: code === 0 } };
+    },
+  });
+}
+
+/** Spawn git directly — no shell, so this tool is never itself an injection point. */
+function runGit(
+  args: readonly string[],
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("git", [...args], { cwd, signal });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
+  });
+}

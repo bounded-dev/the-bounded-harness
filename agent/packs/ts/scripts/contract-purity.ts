@@ -78,55 +78,73 @@ export function formatProblems(results: ESLint.LintResult[], cwd: string): strin
   );
 }
 
+/** Verdict of one contract-purity run: exit code plus the lines the CLI prints. */
+export interface PurityRun {
+  readonly code: number;
+  readonly lines: readonly string[];
+}
+
+/**
+ * Run the contract-purity gate and return its verdict without printing.
+ *
+ * The architect reaches this through the `contract_purity` tool rather than a
+ * shell, and the CLI reaches it through `main`. One implementation, two
+ * callers — a gate that differs by how it was invoked is not a gate.
+ */
+export async function runContractPurity(
+  cwd: string,
+  patterns: readonly string[] = ["src/**/*.contract.ts"],
+): Promise<PurityRun> {
+  return await gate(cwd, [...patterns]);
+}
+
 async function main(argv: string[]): Promise<number> {
-  const patterns = argv.length > 0 ? argv : ["src/**/*.contract.ts"];
+  const result = await gate(process.cwd(), argv.length > 0 ? argv : ["src/**/*.contract.ts"]);
+  for (const line of result.lines) {
+    if (result.code === 2) console.error(line);
+    else console.log(line);
+  }
+  return result.code;
+}
+
+async function gate(cwd: string, patterns: string[]): Promise<PurityRun> {
   const linter = createContractLinter();
   // ESLint throws its own wording when a pattern matches nothing; normalize
   // to the gate's stable message.
+  const noMatch = (): PurityRun => {
+    const summary = `no files matched [${patterns.join(", ")}]`;
+    logGuardEvent(cwd, { guard: "contract-purity", verdict: "error", summary });
+    return {
+      code: 2,
+      lines: [`contract-purity: ${summary} — a gate that matches nothing is a broken gate`],
+    };
+  };
+
   let results: ESLint.LintResult[];
   try {
     results = await linter.lintFiles(patterns);
   } catch (e) {
-    if (e instanceof Error && /No files matching/.test(e.message)) {
-      console.error(`contract-purity: no files matched [${patterns.join(", ")}] — a gate that matches nothing is a broken gate`);
-      logGuardEvent(process.cwd(), {
-        guard: "contract-purity",
-        verdict: "error",
-        summary: `no files matched [${patterns.join(", ")}]`,
-      });
-      return 2;
-    }
+    if (e instanceof Error && /No files matching/.test(e.message)) return noMatch();
     throw e;
   }
   const fileCount = results.length;
-  if (fileCount === 0) {
-    console.error(`contract-purity: no files matched [${patterns.join(", ")}] — a gate that matches nothing is a broken gate`);
-    logGuardEvent(process.cwd(), {
-      guard: "contract-purity",
-      verdict: "error",
-      summary: `no files matched [${patterns.join(", ")}]`,
-    });
-    return 2;
-  }
-  const lines = formatProblems(results, process.cwd());
-  for (const line of lines) console.log(line);
-  if (lines.length > 0) {
-    console.log(`contract-purity: ${lines.length} problem${lines.length === 1 ? "" : "s"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`);
-    logGuardEvent(process.cwd(), {
+  if (fileCount === 0) return noMatch();
+
+  const problems = formatProblems(results, cwd);
+  const files = `${fileCount} file${fileCount === 1 ? "" : "s"}`;
+  if (problems.length > 0) {
+    const summary = `${problems.length} problem${problems.length === 1 ? "" : "s"} in ${files}`;
+    logGuardEvent(cwd, {
       guard: "contract-purity",
       verdict: "block",
-      summary: `${lines.length} problem${lines.length === 1 ? "" : "s"} in ${fileCount} file${fileCount === 1 ? "" : "s"}`,
+      summary,
       detail: { problems: toProblems(results) },
     });
-    return 1;
+    return { code: 1, lines: [...problems, `contract-purity: ${summary}`] };
   }
-  console.log(`contract-purity: OK (${fileCount} file${fileCount === 1 ? "" : "s"})`);
-  logGuardEvent(process.cwd(), {
-    guard: "contract-purity",
-    verdict: "pass",
-    summary: `OK (${fileCount} file${fileCount === 1 ? "" : "s"})`,
-  });
-  return 0;
+  const summary = `OK (${files})`;
+  logGuardEvent(cwd, { guard: "contract-purity", verdict: "pass", summary });
+  return { code: 0, lines: [`contract-purity: ${summary}`] };
 }
 
 // Symlink-safe main check: the harness is reached via the ~/.pi/agent symlink,

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -11,6 +11,7 @@ import {
   ScaffoldError,
   errorsModuleFor,
   scaffoldContract,
+  runScaffold,
   skeletonPathFor,
 } from "./scaffold-contract.ts";
 
@@ -340,5 +341,67 @@ describe("scaffold-contract CLI", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ guard: "scaffold", verdict: "block" });
     expect(events[0].summary).toMatch(/enum 'Level' is not scaffoldable/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runScaffold — the architect's `scaffold` tool and the CLI both land here
+// ---------------------------------------------------------------------------
+
+describe("runScaffold", () => {
+  const dirs: string[] = [];
+  const project = (contracts: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "scaffold-run-"));
+    dirs.push(dir);
+    for (const [rel, source] of Object.entries(contracts)) {
+      const path = join(dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    return dir;
+  };
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  const GOOD = `export type Id = string & { readonly __brand: "Id" };
+export declare function get(id: Id): string;
+`;
+
+  // The CLI takes ONE contract per call, and dogfood Run 4 lost time to exactly
+  // that: the orchestrator passed a glob, got a confusing error, and went
+  // reading the script. The tool finds the contracts itself.
+  test("scaffolds every contract in the project from one call", () => {
+    const dir = project({
+      "src/orders/orders.contract.ts": GOOD,
+      "src/billing/billing.contract.ts": GOOD,
+    });
+    const result = runScaffold(dir);
+    expect(result.code).toBe(0);
+    expect(readFileSync(join(dir, "src/orders/orders.ts"), "utf8")).toContain("NotImplementedError");
+    expect(readFileSync(join(dir, "src/billing/billing.ts"), "utf8")).toContain(
+      "NotImplementedError",
+    );
+  });
+
+  // The ordering nit recorded in docs/dogfooding.md: the CLI created the shared
+  // errors module BEFORE validating the contract, so a rejected scaffold left
+  // the module behind. Generating first — the step that rejects — means a
+  // refusal now touches nothing at all.
+  test("a rejected contract leaves nothing behind on disk", () => {
+    const dir = project({ "src/orders/orders.contract.ts": "export const runtimeValue = 42;\n" });
+    const result = runScaffold(dir);
+    expect(result.code).toBe(1);
+    expect(result.lines.join("\n")).toContain("declaration-only");
+    expect(existsSync(join(dir, "src/shared/errors.ts"))).toBe(false);
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(false);
+  });
+
+  // A gate that silently succeeds on an empty project is a broken gate — the
+  // same rule contract-purity already follows.
+  test("a project with no contracts is misuse, not a pass", () => {
+    const result = runScaffold(project({}));
+    expect(result.code).toBe(2);
+    expect(result.lines.join("\n")).toContain("nothing to scaffold");
   });
 });

@@ -205,6 +205,23 @@ export function parseArgs(argv: string[]): { write: boolean; cwd: string } {
   return { write, cwd: positional[0] ?? process.cwd() };
 }
 
+/**
+ * Record (`write: true`) or verify the contract manifest, logging the verdict.
+ *
+ * The architect reaches this as two tools — `freeze_contracts` and
+ * `check_drift` — because it has no shell to pass `--write` through. Both, and
+ * the CLI, land here so there is one implementation of "has the contract
+ * moved".
+ */
+export function runChecksumGate(
+  cwd: string,
+  write: boolean,
+): { code: number; lines: readonly string[] } {
+  const outcome = runGate(cwd, write);
+  logGuardEvent(cwd, { guard: GUARD, verdict: outcome.verdict, summary: outcome.summary, detail: outcome.detail });
+  return { code: outcome.code, lines: [...outcome.stdout, ...outcome.stderr] };
+}
+
 function main(argv: string[]): number {
   const { write, cwd } = parseArgs(argv);
   const outcome = runGate(cwd, write);

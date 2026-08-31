@@ -28,6 +28,7 @@ import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { findContractFiles } from "./checksum-gate.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -535,6 +536,70 @@ export function scaffoldContract(
   let text = w.toString();
   if (!text.endsWith("\n")) text += "\n";
   return text;
+}
+
+// --- Runner (shared by the CLI and the architect's `scaffold` tool) --------------
+
+/**
+ * Scaffold every contract under `cwd` (or just the given paths).
+ *
+ * The CLI takes ONE contract path per call, and that cost real time in dogfood
+ * Run 4: the orchestrator passed it a glob, got a confusing error, and went
+ * reading the script to work out why. The tool takes no path at all by default
+ * — it finds the contracts itself — so the footgun stops existing.
+ *
+ * Also fixes the ordering nit recorded in docs/dogfooding.md: the skeleton is
+ * GENERATED (which is what rejects a bad contract) before anything is written,
+ * so a rejected scaffold no longer leaves a stray shared errors module behind.
+ */
+export function runScaffold(
+  cwd: string,
+  contractPaths?: readonly string[],
+): { code: number; lines: readonly string[] } {
+  const contracts = contractPaths ?? findContractFiles(cwd);
+  if (contracts.length === 0) {
+    const summary = "no *.contract.ts files found — nothing to scaffold";
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "error", summary });
+    return { code: 2, lines: [`scaffold: ${summary}`] };
+  }
+
+  const lines: string[] = [];
+  for (const contractPath of contracts) {
+    let skeleton: string;
+    try {
+      // Generate first: this is the step that rejects a bad contract, and it
+      // touches nothing on disk.
+      skeleton = scaffoldContract(readFileSync(contractPath, "utf8"), contractPath);
+    } catch (e) {
+      if (!(e instanceof ScaffoldError)) throw e;
+      logGuardEvent(cwd, {
+        guard: "scaffold",
+        verdict: "block",
+        summary: e.message,
+        detail: { contract: contractPath },
+      });
+      return { code: 1, lines: [...lines, e.message] };
+    }
+
+    const errorsPath = errorsModuleFor(contractPath) + ".ts";
+    let createdErrorsModule = false;
+    if (!existsSync(errorsPath)) {
+      mkdirSync(dirname(errorsPath), { recursive: true });
+      writeFileSync(errorsPath, ERRORS_MODULE_SOURCE);
+      createdErrorsModule = true;
+      lines.push(`scaffold: created ${errorsPath} (template shared errors module)`);
+    }
+    const out = skeletonPathFor(contractPath);
+    writeFileSync(out, skeleton);
+    lines.push(`scaffold: wrote ${out}`);
+    logGuardEvent(cwd, {
+      guard: "scaffold",
+      verdict: "pass",
+      summary: `wrote ${out}`,
+      detail: { contract: contractPath, skeleton: out, createdErrorsModule },
+    });
+  }
+  return { code: 0, lines };
 }
 
 // --- CLI ------------------------------------------------------------------------

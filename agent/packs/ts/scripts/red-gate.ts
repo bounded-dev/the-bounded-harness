@@ -182,15 +182,22 @@ export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env
   return { command, args };
 }
 
-async function main(argv: string[]): Promise<number> {
-  const cwd = argv[0] ?? process.cwd();
+/** Run the red gate and return its verdict without printing or exiting.
+ *  The `red_gate` tool and the CLI below are both thin wrappers over this, so
+ *  there is exactly one implementation of "is this a valid red". */
+export async function runRedGate(cwd: string): Promise<GateResult> {
   const [run, tsc] = await Promise.all([
     runTests(cwd, gateOptionsFromEnv()),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
   ]);
   const result = classifyRed(run, tsc);
-  for (const line of result.lines) console.log(line);
   logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
+  return result;
+}
+
+async function main(argv: string[]): Promise<number> {
+  const result = await runRedGate(argv[0] ?? process.cwd());
+  for (const line of result.lines) console.log(line);
   return result.code;
 }
 

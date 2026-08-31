@@ -129,15 +129,28 @@ export function classifyGreen(run: RunTestsResult, tsc: TypecheckResult): GateRe
 
 // --- CLI ------------------------------------------------------------------------
 
-async function main(argv: string[]): Promise<number> {
-  const cwd = argv[0] ?? process.cwd();
+/**
+ * Run the green gate and return its verdict without printing or exiting.
+ *
+ * The architect holds no `bash`, so it reaches this gate through the
+ * `green_gate` tool rather than a shell. Both routes MUST run the same gate —
+ * "the orchestrator runs every gate itself and never trusts a worker's word"
+ * is worth nothing if the tool is a second, drifting implementation. So the
+ * CLI below is a thin wrapper over this function, and so is the tool.
+ */
+export async function runGreenGate(cwd: string): Promise<GateResult> {
   const [run, tsc] = await Promise.all([
     runTests(cwd, gateOptionsFromEnv()),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
   ]);
   const result = classifyGreen(run, tsc);
-  for (const line of result.lines) console.log(line);
   logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
+  return result;
+}
+
+async function main(argv: string[]): Promise<number> {
+  const result = await runGreenGate(argv[0] ?? process.cwd());
+  for (const line of result.lines) console.log(line);
   return result.code;
 }
 
