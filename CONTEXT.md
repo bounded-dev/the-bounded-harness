@@ -58,39 +58,39 @@ _Avoid_: .git/ stash, tmp dirs, hidden tool folders
 ### Developer stage
 
 **Developer stage**:
-The pipeline stage that turns a task into tested code via three write-capable subagents with disjoint authority: architect, test-writer, builder (TN-26-001).
+The pipeline stage that turns a ticket into tested code: an architect that designs and drives, plus two blind write-capable subagents with disjoint authority — test-writer and builder (TN-26-001).
 _Avoid_: dev phase, coding step
 
 **Architect**:
-The developer-stage subagent that writes the spec and contract — never implementation. Fresh context per task; re-derives structure from the plan rather than transcribing it.
-_Avoid_: designer, planner
+The developer-stage role that owns one ticket end to end — designs it, writes the spec and contract, commissions the test-writer and builder, runs every gate, and arbitrates disputes. Reads everything in the project; writes only `spec.md` and `*.contract.ts`. Holds `subagent`, `git` and the gate tools, and no `bash`.
+_Avoid_: designer, planner, orchestrator (retired — the architect drives)
 
 **Test-writer**:
 The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes.
 _Avoid_: tester, QA agent
 
 **Builder**:
-The developer-stage subagent that implements to the contract. Blind to test source (no `bash`; sanitized `run_tests` tool); never edits tests or contract files.
+The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files.
 _Avoid_: developer (that's the stage), worker, coder
-
-**Plan**:
-The orchestrator's per-task document: intent, approach, sequence, risks, scope, and a structural *sketch*. Disposable once the contract exists — it proposes, the architect decides.
-_Avoid_: spec, design (those are the architect's)
 
 **Contract**:
 The `*.contract.ts` files colocated with a component — exported interfaces, types, and ports; declaration-only by lint; implemented by the sibling module (`foo.contract.ts` → `foo.ts`). The load-bearing artifact both blind agents code against.
 _Avoid_: stubs (that's the generated skeleton), interface file, API doc
 
-**Orchestrator**:
-The pi session that drives the developer stage — the only party holding `subagent`. It spawns the three blind workers, runs every gate itself (never trusting a worker's word on pass/fail), and routes disputes. In interactive v1 it is the main session.
-_Avoid_: coordinator, driver, controller
-
 **Team lead**:
-An orchestrator that is itself a subagent — fans out multiple tasks to per-task orchestrators. v2; interactive v1 has no team lead.
-_Avoid_: manager agent, supervisor
+The role above the architects — fans tickets out to one architect each, and holds no write rights of its own. v2; today a single architect is driven directly.
+_Avoid_: manager agent, supervisor, orchestrator
+
+**Gate tool**:
+One of the six named tools the architect runs a gate through (`contract_purity`, `scaffold`, `freeze_contracts`, `check_drift`, `red_gate`, `green_gate`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`.
+_Avoid_: gate script (that's the CLI), command
+
+**pi-ticket**:
+The launcher (`agent/bin/pi-ticket`) that starts a pi session bound to the architect role. Role binding happens at launch, from outside the project, so nothing in the session can change it.
+_Avoid_: wrapper, alias
 
 **Dispute**:
-The builder's formal objection to a test (`DISPUTE`) or contract (`CONTRACT-DISPUTE`) — voice without a pen. Routes builder → test-writer → architect → user.
+The builder's formal objection to a test (`DISPUTE`) or contract (`CONTRACT-DISPUTE`) — voice without a pen. Routes builder → test-writer → architect → user; the architect settles it, having read both the disputed test and the spec it cites.
 _Avoid_: complaint, override
 
 **Zone**:
@@ -119,7 +119,7 @@ string`) is equally naked: it is assignable from every other string.
 _Avoid_: raw type, stringly-typed (use for the symptom, not the check)
 
 **Gate**:
-A deterministic command that passes or fails a phase transition — e.g. contract-purity, red-with-right-reason, green. Orchestrator judgment routes; gates decide pass/fail.
+A deterministic command that passes or fails a phase transition — e.g. contract-purity, red-with-right-reason, green. The architect's judgment routes; gates decide pass/fail.
 _Avoid_: check (unqualified), lint (that's one gate's mechanism)
 
 **False green**:
@@ -127,7 +127,7 @@ A suite that passes while the project does not typecheck. Green requires both, s
 _Avoid_: flaky pass, soft green
 
 **Route**:
-The single `route → <role>` line a failing gate prints, naming the furthest-upstream role whose write zone owns the failure. The bounce target is derived from the path gate's own zones, so the named role can always actually make the fix.
+The single `route → <role>` line a failing gate prints, naming the furthest-upstream role whose write zone owns the failure. The bounce target is derived from the path gate's own zones, so the named role can always actually make the fix. `route → architect` and `route → orchestrator` both land on the driving session; the latter means no pipeline zone owns the file at all (config, build files).
 _Avoid_: assignee, owner (unqualified)
 
 **Guard log**:
