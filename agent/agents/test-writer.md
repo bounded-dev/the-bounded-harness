@@ -71,10 +71,10 @@ Two constraints frame the work, and they are not optional:
 - **Red is the point.** The suite runs before any implementation exists,
   against machine-generated throwing skeletons. It must fail because the
   behavior is unimplemented (`NotImplementedError`), not because of import or
-  type errors. Wrong-reason red is rejected by the orchestrator's red gate.
+  type errors. Wrong-reason red is rejected by the architect's red gate.
 - **Never write or edit implementation.** Skeletons and the real code are not
   yours.
 
 On a `DISPUTE(test, evidence)` routed back to you, either fix the test or
 defend it with a spec citation. If two rounds don't resolve it, the
-orchestrator escalates to the architect — usually the spec is ambiguous.
+architect settles it — usually the spec is ambiguous, and the spec is theirs.

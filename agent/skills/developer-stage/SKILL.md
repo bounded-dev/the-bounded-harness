@@ -1,117 +1,101 @@
 ---
 name: developer-stage
-description: Build a component or feature test-first, from requirements through to a passing suite. Use for any non-trivial implementation task — "build X", "implement X", "add feature X", "write a component that…" — where the tests should be an independent check rather than written by whoever wrote the code. Runs the developer stage (TN-26-001) as three blind, write-capable subagents (architect, test-writer, builder) whose phase transitions are enforced by deterministic gates.
+description: Build a component or feature test-first, from requirements through to a passing suite. Use for any non-trivial implementation task — "build X", "implement X", "add feature X", "write a component that…" — where the tests should be an independent check rather than written by whoever wrote the code. Runs the developer stage (TN-26-001): you design it and drive it as the architect, commissioning two blind write-capable subagents (test-writer, builder) whose phase transitions are enforced by deterministic gates.
 ---
 
 # Developer stage
 
-You are the **orchestrator**: a pi session that drives a task from plan to
-green through three subagents with disjoint authority. An agent that writes
-both tests and implementation grades its own exam. The separation is incentive
-structure, not prompting — you enforce it with gates, never trust.
+You are the **architect**, and you own one ticket end to end: you design it,
+commission two blind workers to test and build it, run every gate, and
+arbitrate when they disagree.
 
-**You hold `subagent`; the workers do not.** Only you orchestrate. You run
-every gate yourself and decide pass/fail from your own run — never from a
-worker's word. Your judgment is for planning and dispute routing; the gates
-decide "did it pass".
+The one thing this pipeline exists to prevent is an agent grading its own
+exam. An agent that writes both the tests and the implementation will write a
+test that cannot fail — we have watched it happen in two independent bare runs
+on two different days, the same tautology both times. So the test-writer never
+sees the implementation, the builder never sees the tests, and **you write
+neither**. You can read both, because arbitrating needs it; you can write only
+`spec.md` and the contract, because that is what makes you safe to let read.
+
+**You hold `subagent`; the workers do not.** Only you commission. You run every
+gate from your own invocation and decide pass/fail from that — never from a
+worker's report. A worker saying "all tests pass" is a claim; the gate is the
+evidence.
+
+**You have no `bash`.** The gates are tools (`contract_purity`, `scaffold`,
+`freeze_contracts`, `check_drift`, `red_gate`, `green_gate`), `git` is a tool,
+and there is no `sleep` to reach for. Use `subagent_wait` to wait on a worker.
 
 Loop granularity is **per component**, not per feature.
 
 ## Phases
 
 Drive these in order. Each transition is a gate you run; a red gate blocks the
-transition and feeds its greppable reason back to the responsible role.
+transition and names the role that must fix it.
 
-1. **PLAN** — you explore (use `scout` for read-only investigation) and write
-   the plan: approach, sequence, risks, scope, a structural sketch. The plan
-   is the *route* — disposable once the contract exists.
-   - **Checkpoint (interactive):** the user approves the plan.
+1. **DESIGN** — you decide the approach and write `spec.md` plus the component
+   contract (`src/**/*.contract.ts`). There is no separate plan document:
+   a plan, a spec and a contract describing the same domain at three altitudes
+   was duplication that drifted, so think it through and write it once. Use
+   `scout` if you want read-only investigation of an unfamiliar codebase.
+   - **Checkpoint (interactive):** the user approves the design.
+   - **Gate:** `contract_purity` (declaration-only *and* free of naked
+     primitives on the public surface), then `scaffold` (generates the throwing
+     skeletons from every contract — machine-generated, never agent-written).
+   - Then `freeze_contracts` to record the checksum manifest, so drift under
+     you later is detectable rather than silent.
 
-2. **DESIGN** — spawn the **architect** with the plan. It writes `spec.md` and
-   the component contract (`src/**/*.contract.ts`), never implementation.
-   - **Gate:** run the **contract-purity** gate (contract is declaration-only
-     *and* free of naked primitives on its public surface — issue #3)
-     and then the **scaffolder** (generate the throwing skeletons in `src/`
-     from the contract — skeletons are machine-generated, never agent-written).
-   - Freeze the contract: record the **checksum** manifest so mid-loop drift is
-     detectable.
-
-3. **TEST** — spawn the **test-writer** with the spec + contract *in the
+2. **TEST** — spawn the **test-writer** with the spec + contract *in the
    prompt*. It writes `tests/**`, blind to `src/`, faking side effects against
    the contract's ports.
-   - **Gate:** run the **red gate**. Valid red = the project typechecks, the
-     suite runs, and every failure is `NotImplementedError`. Wrong-reason red
+   - **Gate:** `red_gate`. Valid red = the project typechecks, the suite runs,
+     and every failure is `NotImplementedError`. Wrong-reason red
      (import/type/config errors, ordinary assertion failures, or a fully-green
      suite) is rejected, and so is a red on a project that does not compile.
 
-4. **BUILD** — spawn the **builder** with the spec + contract. It implements
+3. **BUILD** — spawn the **builder** with the spec + contract. It implements
    `src/**` (except contracts), blind to test source; it debugs through the
    sanitized `run_tests` tool.
-   - **Gate:** run the **green gate** from *your own* run of the suite. Every
-     test passes **and the project typechecks**, or the gate fails and names
-     each failing test and each type error.
+   - **Gate:** `green_gate`, from *your own* invocation. Every test passes
+     **and the project typechecks**, or the gate fails and names each failing
+     test and each type error.
 
-5. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
-   green yourself; you route disputes (below).
+4. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
+   green yourself; you arbitrate disputes (below).
 
-## Gates are commands, not judgment
+## Gates are tools, not judgment
 
-Never eyeball a phase transition. Run the deterministic gate and read its exit
-code. Gates are language-specific commands the consuming project supplies (for
-a TS project they live in `packs/ts/scripts/`); this skill composes them by
-role, it does not hard-code any one language's tooling. Per transition:
+Never eyeball a phase transition. Call the gate and read its verdict. Per
+transition:
 
-- **After DESIGN:** contract-purity gate, then the scaffolder, then a
-  contract checksum record.
-- **After TEST:** the red gate (fails unless red-for-the-right-reason *and*
+- **After DESIGN:** `contract_purity`, then `scaffold`, then `freeze_contracts`.
+- **After TEST:** `red_gate` (fails unless red-for-the-right-reason *and*
   type-clean).
-- **After BUILD:** the green gate (green from your own run).
-- **Any time the contract may have moved mid-loop:** the checksum gate (drift
-  is a compile-time-fatal event, not a silent one).
+- **After BUILD:** `green_gate` (green from your own invocation).
+- **Any time the contract may have moved mid-loop:** `check_drift` (drift is a
+  compile-time-fatal event, not a silent one).
+
+Each returns `PASS`, `BLOCK`, or `ERROR` (misuse — the gate could not run) and
+prints what it found. **Do not go reading the gate scripts to work out how to
+call them**; the tool descriptions are the interface, and each call is
+recorded in the guard log automatically.
 
 Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.
 
-### Run them exactly like this (TypeScript projects)
+### If a gate blocks
 
-**Do not go reading the gate scripts to work out how to call them.** In dogfood
-Run 4 the orchestrator spent its first ~3 minutes `find`-ing the pack, `head`-ing
-`contract-purity.ts`, `scaffold-contract.ts` and `run-tests.ts`, and re-read two
-of them again mid-run. Every invocation you need is here; the exit code is the
-verdict (`0` pass, `1` block, `2` misuse).
-
-```bash
-SCRIPTS="$HOME/.pi/agent/packs/ts/scripts"      # resolve once, reuse
-cd <project-root>                               # every gate runs from here
-
-# after DESIGN — purity takes a GLOB (quote it; the gate expands it)
-node "$SCRIPTS/contract-purity.ts" "src/**/*.contract.ts"
-
-# then scaffold — ONE CONTRACT PATH PER CALL, not a glob. Loop over the
-# contracts. It also creates src/shared/errors.ts on first use.
-node "$SCRIPTS/scaffold-contract.ts" src/billing/billing.contract.ts
-
-# freeze the contract, then verify drift any time mid-loop
-node "$SCRIPTS/checksum-gate.ts" --write
-node "$SCRIPTS/checksum-gate.ts"
-
-# phase gates — default to cwd, or pass a target dir
-node "$SCRIPTS/red-gate.ts"      # after TEST
-node "$SCRIPTS/green-gate.ts"    # after BUILD
-```
-
-Both `red-gate` and `green-gate` also run `tsc` (issue #7): green means the
-suite passes *and* the project compiles.
-
-If a gate blocks for a reason you do not recognise, read its **output**, not its
-source — the block line names the sin and the responsible role.
+Read its **output**, not its source — the block line names the sin and the
+responsible role. Both `red_gate` and `green_gate` also run `tsc` (issue #7):
+green means the suite passes *and* the project compiles.
 
 ### Waiting for a worker
 
-**Never `sleep`.** Run 4's orchestrator ran `sleep 90` and then `sleep 60` while
-polling for the test-writer's files — 2.5 minutes of dead time with a perfectly
-good primitive available. Use `subagent_wait` to block until a worker finishes,
+**There is no `sleep` to reach for** — you have no shell, which is deliberate:
+Run 4's driver ran `sleep 90` and then `sleep 60` polling for the test-writer's
+files, 2.5 minutes of dead time with a perfectly good primitive available. Use
+`subagent_wait` to block until a worker finishes,
 and `subagent({action: "status", id})` only for an on-demand check. If a worker
 appears wedged, `subagent({action: "steer", id, message})` reaches a live child;
 `{action: "stop", id}` ends it. Polling the filesystem for a worker's output is
@@ -139,10 +123,12 @@ In particular:
 
 - Type errors in `tests/**` → **test-writer**. The builder is blind to test
   source and the path gate would refuse its edit, so bouncing there deadlocks.
-- Type errors in a contract → **architect** (treat as `CONTRACT-DISPUTE`:
-  revise, re-scaffold, re-run the red gate).
-- `orchestrator` means no pipeline role may write the offending file (config,
-  build files) — that one is yours.
+- Type errors in a contract → **architect**, which is *you*: revise the
+  contract with a logged rationale, re-`scaffold`, re-`freeze_contracts`, and
+  re-run the red gate. A contract revision invalidates the red.
+- `orchestrator` means no role may write the offending file (config, build
+  files) — also you, and the one case where you are acting outside the
+  pipeline's zones rather than inside them.
 
 ## Dispute routing
 
@@ -152,23 +138,25 @@ voice, not a pen. Route disputes; don't let workers overrule each other.
 - `BLOCKED` — the suite can't run → bounce to the **test-writer**.
 - `DISPUTE(test, evidence)` — "this test contradicts the spec because…" →
   route to the **test-writer**, which fixes the test or defends it with a spec
-  citation. **Two unresolved rounds escalate to the architect** (a dispute is
-  usually spec ambiguity; the architect clarifies the spec).
-- `CONTRACT-DISPUTE` — the contract is wrong mid-loop → **architect** revises
-  with a logged rationale → full **red-gate re-run** → the test-writer repairs
-  broken tests → the loop resumes.
+  citation. **Two unresolved rounds and you decide** — read the test and the
+  cited spec section yourself (you can see both; neither of them can) and
+  settle it. A dispute is usually spec ambiguity, and the spec is yours.
+- `CONTRACT-DISPUTE` — the contract is wrong mid-loop → you revise it with a
+  logged rationale → re-`scaffold` → `freeze_contracts` → full **red-gate
+  re-run** → the test-writer repairs broken tests → the loop resumes.
 - Genuine product decisions reach the **user**.
 
-The chain is **builder → test-writer → architect → user**. The **bounce budget
-is bounded**; exhaustion escalates to the user with the dispute log. Never loop
+The chain is **builder → test-writer → you → user**. The **bounce budget is
+bounded**; exhaustion escalates to the user with the dispute log. Never loop
 forever.
 
 ## Non-negotiables
 
-- Only you hold `subagent`; workers never orchestrate.
-- Green is asserted from your own run, never the builder's say-so — and green
-  means the suite passes *and* the project typechecks.
+- Only you hold `subagent`; workers never commission.
+- Green is asserted from your own invocation, never the builder's say-so — and
+  green means the suite passes *and* the project typechecks.
 - Skeletons are machine-generated; nobody hand-writes them.
-- Blindness is structural (tool allowlists + the path gate), not trust: the
-  builder has no `bash`, the test-writer cannot read `src/`, the architect
-  writes only spec + contract.
+- Blindness is structural (tool allowlists + the path gate), not trust: no role
+  has `bash`, the test-writer cannot read `src/`, the builder cannot read
+  `tests/` and holds no `git` (`git show HEAD:tests/x.ts` would defeat it in
+  one call), and you write only spec + contract however stuck the loop gets.

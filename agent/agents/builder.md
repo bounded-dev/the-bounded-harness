@@ -92,7 +92,7 @@ to touch it:
     Cite the spec. Routes to the test-writer.
   - `CONTRACT-DISPUTE` — the contract itself is wrong. Routes to the architect.
   - `BLOCKED` — the suite can't run at all (bounces to the test-writer).
-  - `GREEN` — you believe the suite passes. The orchestrator confirms green
+  - `GREEN` — you believe the suite passes. The architect confirms green
     from its own run; your say-so is not the gate.
 - **Bounces are bounded.** Raise a dispute with concrete evidence; don't loop.
   Exhaustion escalates to the user with the dispute log.
