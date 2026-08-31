@@ -44,20 +44,33 @@ function matrix(role: Role, rows: Row[]) {
 // The matrix: role × tool-class × path
 // ---------------------------------------------------------------------------
 
+// The architect owns one ticket end to end: it designs, commissions the tests,
+// commissions the build, and arbitrates disputes between the two blind roles.
+// It therefore READS EVERYTHING and WRITES ALMOST NOTHING.
+//
+// Blindness is preserved exactly where it is proven load-bearing — the
+// test-writer cannot see the implementation, the builder cannot see the tests —
+// and the architect is no threat to it because it writes NEITHER. A role that
+// cannot write a test cannot make a test agree with an implementation, which is
+// the failure the separation exists to prevent. Meanwhile it must read both:
+// arbitrating "this test contradicts the spec" is impossible without reading
+// the test, and answering "why is this failing?" is the human's whole reason
+// for talking to it.
 matrix("architect", [
-  // own artifacts: spec.md + colocated contracts
+  // own artifacts: spec.md + colocated contracts — the ONLY writable paths
   ["spec.md", A, A, A],
   ["src/orders/orders.contract.ts", A, A, A],
   ["src/x.contract.ts", A, A, A], // ** matches zero intermediate dirs
-  // builder output: blind (read), forbidden (write)
-  ["src/orders/orders.ts", B, B, B],
-  ["src/orders/nested/deep.ts", B, B, B],
-  ["src", B, B, B],
-  ["src/orders", B, B, B], // listing would reveal impl filenames
-  // tests: blind, forbidden
-  ["tests", B, B, B],
-  ["tests/orders.test.ts", B, B, B],
-  ["tests/sub/x.test.ts", B, B, B],
+  // builder output: readable (arbitration + diagnosis), never writable
+  ["src/orders/orders.ts", A, A, B],
+  ["src/orders/nested/deep.ts", A, A, B],
+  ["src", A, A, B],
+  ["src/orders", A, A, B],
+  // tests: readable (arbitration), never writable — this is the one that stops
+  // the tempting shortcut when the builder is stuck and the clock is running
+  ["tests", A, A, B],
+  ["tests/orders.test.ts", A, A, B],
+  ["tests/sub/x.test.ts", A, A, B],
   // rest of repo: readable, not writable
   ["README.md", A, A, B],
   ["docs/guide.md", A, A, B],
@@ -65,7 +78,12 @@ matrix("architect", [
   [".gitignore", A, A, B],
   // .git denied for all roles
   [".git/config", B, B, B],
-  // root: readable file-by-file; unscoped listing would reveal blind zones
+  // Root search stays blocked, but now for ONE reason only: it overlaps
+  // `.git`, which is denied to everybody. With the architect's readDeny empty
+  // there is no pipeline blind zone left for it to trip over, so issue #8's
+  // friction (`ls src`, `ls tests`, `grep` across the tree) is gone for this
+  // role — only the `.git` overlap remains, and that wants result filtering
+  // rather than a widened zone.
   [".", A, B, B],
 ]);
 
@@ -124,16 +142,65 @@ matrix("builder", [
 // Forbidden tools — backup layer under the frontmatter allowlist
 // ---------------------------------------------------------------------------
 
-describe("forbidden tools (all roles)", () => {
+describe("forbidden tools", () => {
   const roles: Role[] = ["architect", "test-writer", "builder"];
+
+  // `bash` is forbidden to EVERY role including the architect. A shell defeats
+  // every path rule at once, so the architect gets named tools for the things
+  // it legitimately needs (the gates, git) rather than a way to run anything.
   for (const role of roles) {
     test(`${role} bash → block`, () => {
       expect(decide(role, "bash", { command: "cat tests/x.test.ts" }, CTX).allow).toBe(false);
     });
+  }
+
+  // `subagent` and `git` are the architect's, and ONLY the architect's.
+  //
+  // git is the sharper of the two: `git show HEAD:tests/billing.test.ts` hands
+  // the builder the test source in one call, and `git log -p` does it by
+  // accident. Full git in a blind role's hands defeats blindness more
+  // completely than bash would.
+  for (const role of ["test-writer", "builder"] as const) {
     test(`${role} subagent → block`, () => {
       expect(decide(role, "subagent", { agent: "scout" }, CTX).allow).toBe(false);
     });
+    test(`${role} git → block (git show would reveal the other side's work)`, () => {
+      expect(decide(role, "git", { args: ["show", "HEAD:tests/x.test.ts"] }, CTX).allow).toBe(
+        false,
+      );
+    });
   }
+
+  test("architect holds subagent — it commissions the two blind roles", () => {
+    expect(decide("architect", "subagent", { agent: "builder" }, CTX).allow).toBe(true);
+  });
+
+  test("architect holds git — reflog/bisect archaeology is its job", () => {
+    expect(decide("architect", "git", { args: ["reflog"] }, CTX).allow).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The guard log's own directory: readable by all, writable by none
+// ---------------------------------------------------------------------------
+
+// `.pi/` holds the guard log and the contract-checksum manifest — the audit
+// trail and the drift evidence. Agents must READ them (diagnosing a jam, citing
+// the log when escalating) and must never WRITE them, or the record of what
+// happened becomes something the accused can edit. The gates write these files
+// through plain `fs`, which never passes through the tool hook, so they are
+// unaffected. Already closed by the write allowlist; this makes it explicit.
+describe(".pi is write-denied for every role, read-allowed for all", () => {
+  const roles: Role[] = ["architect", "test-writer", "builder"];
+  for (const role of roles) {
+    test(`${role} may not write .pi/guard-log.jsonl`, () => {
+      expect(d(role, "write", ".pi/guard-log.jsonl").allow).toBe(false);
+      expect(d(role, "edit", ".pi/contract-checksums.json").allow).toBe(false);
+    });
+  }
+  test("architect may read the guard log it is expected to cite", () => {
+    expect(d("architect", "read", ".pi/guard-log.jsonl").allow).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -225,7 +292,7 @@ describe("block reasons", () => {
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
     );
     expect(reason("builder", "bash", "ignored")).toBe(
-      "path-gate: builder may not use 'bash': forbidden for pipeline roles (frontmatter allowlist is the primary layer)",
+      "path-gate: builder may not use 'bash': forbidden for builder (frontmatter allowlist is the primary layer)",
     );
     expect(reason("builder", "write", "../escape.ts")).toBe(
       "path-gate: builder may not write '../escape.ts': path escapes project root",

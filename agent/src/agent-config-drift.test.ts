@@ -63,12 +63,23 @@ describe("developer-stage agent config drift", () => {
         expect(toolList(fm)).toEqual([...ROLE_TOOLS[role]]);
       });
 
-      // (b) no worker holds bash or subagent — the two forbidden capabilities.
-      test("has neither bash nor subagent", () => {
-        const tools = toolList(fm);
-        expect(tools).not.toContain("bash");
-        expect(tools).not.toContain("subagent");
+      // (b) NO role holds bash, ever — a shell defeats every path rule at
+      // once, so even the architect gets named tools instead.
+      test("has no bash", () => {
+        expect(toolList(fm)).not.toContain("bash");
       });
+
+      // (b2) `subagent` and `git` belong to the architect alone. The two blind
+      // roles must hold neither: `subagent` would let a worker launder its
+      // blindness through a child, and `git show HEAD:tests/x.test.ts` hands
+      // the builder the test source in a single call.
+      if (role !== "architect") {
+        test("blind roles hold neither subagent nor git", () => {
+          const tools = toolList(fm);
+          expect(tools).not.toContain("subagent");
+          expect(tools).not.toContain("git");
+        });
+      }
 
       // (c) subagentOnlyExtensions binds the matching per-role path-gate loader.
       test("subagentOnlyExtensions points at the role's path-gate loader", () => {

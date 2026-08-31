@@ -1,10 +1,10 @@
 ---
 name: architect
-description: Developer-stage architect subagent (TN-26-001). Turns an approved plan plus the codebase into a spec and a declaration-only contract (`*.contract.ts`) — never implementation. Fresh context per task re-derives structure from the plan's intent rather than transcribing it. Use as the DESIGN role of the developer-stage pipeline.
+description: Developer-stage architect (TN-26-001). Owns one ticket end to end — designs it, writes the spec and the declaration-only contract (`*.contract.ts`), commissions the test-writer and the builder, runs every gate, and arbitrates disputes between them. Never writes tests or implementation. Use as the driving role of the developer-stage pipeline, whether spawned by a team lead or launched directly against one ticket.
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
-tools: read, grep, find, ls, write, edit, typecheck
+tools: read, grep, find, ls, write, edit, typecheck, subagent, git, contract_purity, scaffold, freeze_contracts, check_drift, red_gate, green_gate
 subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/architect.ts
 async: true
 ---

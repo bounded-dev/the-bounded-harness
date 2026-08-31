@@ -28,9 +28,30 @@ const READ_TOOLS = new Set(["read", ...SEARCH_TOOLS]);
 const WRITE_TOOLS = new Set(["write", "edit"]);
 const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 
-// Backup layer under the frontmatter allowlist (TN-26-001: only orchestrators
-// hold subagent; shell access defeats all path rules).
-const FORBIDDEN_TOOLS = new Set(["bash", "subagent"]);
+// Backup layer under the frontmatter allowlist. Two tiers, because the roles
+// are no longer symmetric: the architect drives a whole ticket and needs
+// capabilities the two blind roles must never hold.
+//
+//   · `bash` — forbidden to EVERY role, architect included. A shell defeats
+//     every path rule at once, so the architect gets named tools for what it
+//     legitimately needs (the gates, git) rather than a way to run anything.
+//     This is the difference between a wall and a suggestion.
+//   · `subagent` and `git` — the architect's alone. It commissions the two
+//     blind roles, and it does the archaeology (reflog, bisect, blame) that a
+//     closed verb list would cage exactly when it is most needed.
+//
+// git is the sharper exclusion of the two: `git show HEAD:tests/x.test.ts`
+// hands the builder the test source in a single call and `git log -p` does it
+// by accident, so full git in a blind role's hands defeats blindness more
+// completely than bash would.
+const FORBIDDEN_ALL_ROLES = ["bash"] as const;
+const ARCHITECT_ONLY_TOOLS = ["subagent", "git"] as const;
+
+const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
+  architect: new Set(FORBIDDEN_ALL_ROLES),
+  "test-writer": new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS]),
+  builder: new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS]),
+};
 
 // --- Role tool allowlists (frontmatter source of truth) ----------------------
 // The tool allowlist is the ONLY enforcement layer that PREVENTS rather than
@@ -52,14 +73,52 @@ const FORBIDDEN_TOOLS = new Set(["bash", "subagent"]);
 //     gates itself and never trusts a worker's word on pass/fail.
 //   · `typecheck` for all three — types are the contract's shared language;
 //     every role must be able to confirm its own work compiles.
+//   · The GATE TOOLS are the architect's alone, and they exist so it never
+//     needs a shell. Each is thin wiring over an already-tested pack module,
+//     which also removes a documented waste: dogfood Run 4's orchestrator
+//     spent its first ~3 minutes `find`-ing the pack and `head`-ing three gate
+//     scripts to work out how to invoke them. A tool schema cannot be
+//     mis-invoked that way, and every call lands in the guard log — so "did
+//     the architect actually run the gate" becomes checkable, not trusted.
+//   · No `sleep` is reachable by anyone. Run 4's orchestrator ran `sleep 90`
+//     and then `sleep 60`; with no shell that failure mode stops existing
+//     rather than being a paragraph asking it not to.
+export const GATE_TOOLS: readonly string[] = [
+  "contract_purity",
+  "scaffold",
+  "freeze_contracts",
+  "check_drift",
+  "red_gate",
+  "green_gate",
+];
+
 export const ROLE_TOOLS: Record<Role, readonly string[]> = {
-  architect: ["read", "grep", "find", "ls", "write", "edit", "typecheck"],
+  architect: [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "write",
+    "edit",
+    "typecheck",
+    "subagent",
+    "git",
+    ...GATE_TOOLS,
+  ],
   "test-writer": ["read", "grep", "find", "ls", "write", "edit", "typecheck"],
   builder: ["read", "grep", "find", "ls", "write", "edit", "run_tests", "typecheck"],
 };
 
 // Denied for every role, both directions.
 const ALWAYS_DENY = [".git", ".git/**"] as const;
+
+// Denied for every role on WRITE only. `.pi/` holds the guard log and the
+// contract-checksum manifest — the audit trail and the drift evidence. Every
+// role must be able to READ them (diagnosing a jam, citing the log when
+// escalating) and none may WRITE them, or the record of what happened becomes
+// something the accused can edit. The gates write these files through plain
+// `fs`, which never passes through the tool hook, so they are unaffected.
+const ALWAYS_WRITE_DENY = [".pi", ".pi/**"] as const;
 
 // --- Zones (v1: hardcoded globs, per TN-26-001) ------------------------------
 
@@ -95,11 +154,26 @@ export interface Zone {
 // So: deny an agent the OTHER SIDE's work product. Never deny it the interface
 // it is working against.
 export const ZONES: Record<Role, Zone> = {
+  // The architect owns one ticket end to end: it designs, commissions the two
+  // blind roles, and arbitrates between them. So it READS EVERYTHING and WRITES
+  // ALMOST NOTHING.
+  //
+  // This is not a hole in the blindness — it is where the blindness is aimed.
+  // The failure the separation exists to prevent is one agent making a test
+  // agree with an implementation, and a role that can write NEITHER cannot
+  // commit it. Meanwhile the architect must read both: arbitrating "this test
+  // contradicts the spec" is impossible without reading the test, and
+  // answering "why is this failing?" is the human's whole reason for talking
+  // to it. An empty readDeny also leaves no pipeline blind zone for a search
+  // to overlap, so this role stops tripping most of issue #8's friction —
+  // `ls src` and `ls tests` now work. Root `ls .` still blocks, but on the
+  // `.git` overlap alone, which wants result filtering rather than a wider
+  // zone.
   architect: {
     writeAllow: ["spec.md", "src/**/*.contract.ts"],
     writeDeny: [],
-    readDeny: ["tests", "tests/**", "src", "src/**"],
-    readExcept: ["src/**/*.contract.ts"],
+    readDeny: [],
+    readExcept: [],
   },
   // The contract is the interface under test, so the test-writer must be able
   // to read it — it imports from those exact paths. Dogfood Run 5 died here:
@@ -230,9 +304,9 @@ export function decide(
   input: Readonly<Record<string, unknown>>,
   ctx: Ctx,
 ): Decision {
-  if (FORBIDDEN_TOOLS.has(tool)) {
+  if (FORBIDDEN_TOOLS[role].has(tool)) {
     return block(
-      `path-gate: ${role} may not use '${tool}': forbidden for pipeline roles (frontmatter allowlist is the primary layer)`,
+      `path-gate: ${role} may not use '${tool}': forbidden for ${role} (frontmatter allowlist is the primary layer)`,
     );
   }
   if (!GATED_TOOLS.has(tool)) return ALLOW;
@@ -270,6 +344,12 @@ export function decide(
   };
 
   if (WRITE_TOOLS.has(tool)) {
+    const alwaysDenied = ALWAYS_WRITE_DENY.find((g) => matchGlob(g, t));
+    if (alwaysDenied !== undefined) {
+      return block(
+        `path-gate: ${role} may not write '${t}': '.pi' is the guard log and checksum manifest — read-only for every role`,
+      );
+    }
     const denied = zone.writeDeny.find((g) => matchGlob(g, t));
     if (denied) {
       return block(
