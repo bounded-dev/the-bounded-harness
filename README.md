@@ -40,18 +40,25 @@ Working today: the global config above — subagent roster, working-method
 skills, web tooling, the issue-tracking + board workflow, and the harness
 self-check. No language packs or project tooling of substance yet.
 
-**In flight — the developer stage:** a pipeline that turns a task into tested
-code using three subagents that can't step on each other: an **architect**
-writes the spec and type contract (never code), a **test-writer** writes
-tests from that contract (never sees the implementation), and a **builder**
-writes the implementation (never sees the tests). A pi session orchestrates
-them, and every hand-off is guarded by something mechanical — tool
-allowlists, a path-gate extension, lint rules per zone, red/green test
-gates — so the design can't quietly drift. The point: an agent that writes
-both the tests and the code grades its own exam; here, no agent can. Design:
-[TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
-[ADR 2026-013](ADRs/2026-013-developer-stage-pipeline.md),
-[issue #1](https://github.com/bounded-dev/pi-harness/issues/1).
+**In flight — the developer stage:** a pipeline that turns a ticket into
+tested code through roles that can't step on each other. An **architect**
+owns the ticket: it writes the spec and type contract, commissions the work,
+runs every gate, and arbitrates — but it writes no tests and no
+implementation. A **test-writer** writes tests from the contract and never
+sees the implementation; a **builder** writes the implementation and never
+sees the tests. Every hand-off is guarded by something mechanical — tool
+allowlists, a path-gate extension, lint rules per zone, red/green gates that
+also typecheck — so the design can't quietly drift.
+
+The point: an agent that writes both the tests and the code grades its own
+exam. Two bare runs on two different days independently wrote the same
+invariant test that *cannot fail*; no run with the separation did. That
+finding is what the rest of the machinery is in service of.
+
+Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
+[ADR 2026-013](ADRs/2026-013-developer-stage-pipeline.md), evidence in
+[docs/where-we-are.md](docs/where-we-are.md), current plan in
+[issue #12](https://github.com/bounded-dev/pi-harness/issues/12).
 
 ## Bootstrap a new machine
 

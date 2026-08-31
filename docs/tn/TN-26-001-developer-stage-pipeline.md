@@ -8,6 +8,15 @@ issue: 1
 
 # TN-26-001: Developer stage — architect / test-writer / builder pipeline
 
+> **Superseded in part (2026-08-31).** This note records the pipeline as first
+> designed and built: a separate orchestrator spawning three blind subagents,
+> with a PLAN phase before DESIGN. Five dogfood runs showed the orchestrator
+> and the plan phase cost more than they returned, so both were folded into
+> the architect — see [issue #12](https://github.com/bounded-dev/pi-harness/issues/12)
+> and `docs/where-we-are.md` for the evidence. Everything here about
+> blindness, the gates, the contract and the guard log still stands; the
+> role *count* and the phase list do not.
+
 ## Summary
 
 A pipeline for the developer stage of the agentic workflow: three write-capable
