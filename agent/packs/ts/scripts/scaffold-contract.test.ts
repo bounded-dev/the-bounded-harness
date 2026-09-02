@@ -405,3 +405,87 @@ export declare function get(id: Id): string;
     expect(result.lines.join("\n")).toContain("nothing to scaffold");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A contract with no value exports is not implementable (dogfood Run 6)
+// ---------------------------------------------------------------------------
+
+describe("contracts that declare only types", () => {
+  const dirs: string[] = [];
+  const project = (contracts: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "scaffold-empty-"));
+    dirs.push(dir);
+    for (const [rel, source] of Object.entries(contracts)) {
+      const path = join(dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    return dir;
+  };
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  // THE RUN 6 FAILURE. The architect expressed every operation as a method on
+  // `export interface SubscriptionBilling`. An interface is a TYPE — it exists
+  // only at compile time — so the contract had 27 type exports and zero value
+  // exports. The scaffolder had nothing to throw, emitted a file containing
+  // just `export type * from "./billing.contract.js"`, and logged `pass`.
+  //
+  // Every gate then agreed: contract-purity passed (declaration-only, no naked
+  // primitives), typecheck passed (an empty module compiles), checksum-gate
+  // froze it. Four green gates on a contract that cannot be implemented or
+  // tested — the test-writer had no way to obtain a SubscriptionBilling to
+  // call, and the builder had nothing to fill in.
+  //
+  // An empty skeleton is the loudest available signal that DESIGN produced
+  // nothing buildable. It must be a block, named at the moment it happens,
+  // rather than a confusing red-gate failure two phases later.
+  const TYPES_ONLY = `export type PlanId = string & { readonly __brand: "PlanId" };
+export interface Plan { readonly id: PlanId; }
+export interface Billing {
+  start(plan: Plan): Plan;
+}
+`;
+
+  const IMPLEMENTABLE = `export type PlanId = string & { readonly __brand: "PlanId" };
+export interface Plan { readonly id: PlanId; }
+export declare function start(plan: Plan): Plan;
+`;
+
+  test("a types-only contract is a block, not a silent empty skeleton", () => {
+    const dir = project({ "src/billing.contract.ts": TYPES_ONLY });
+    const result = runScaffold(dir);
+    expect(result.code).toBe(1);
+    const text = result.lines.join("\n");
+    expect(text).toContain("billing.contract.ts");
+    expect(text).toMatch(/only types|nothing to implement/i);
+  });
+
+  test("the message says how to fix it", () => {
+    const result = runScaffold(project({ "src/billing.contract.ts": TYPES_ONLY }));
+    // An interface full of methods LOOKS like an API, so the block has to name
+    // the actual distinction rather than just refusing.
+    expect(result.lines.join("\n")).toMatch(/export declare/);
+  });
+
+  test("a contract with a declared function still scaffolds", () => {
+    const dir = project({ "src/billing.contract.ts": IMPLEMENTABLE });
+    const result = runScaffold(dir);
+    expect(result.code).toBe(0);
+    expect(readFileSync(join(dir, "src/billing.ts"), "utf8")).toContain("NotImplementedError");
+  });
+
+  // A shared vocabulary module IS legitimately types-only (Run 1 had
+  // shared/book.contract.ts). What matters is that the PROJECT has something
+  // implementable, not that every single file does.
+  test("a types-only contract is fine alongside one that is implementable", () => {
+    const dir = project({
+      "src/shared/vocab.contract.ts": TYPES_ONLY,
+      "src/billing.contract.ts": IMPLEMENTABLE,
+    });
+    const result = runScaffold(dir);
+    expect(result.code).toBe(0);
+    expect(readFileSync(join(dir, "src/billing.ts"), "utf8")).toContain("NotImplementedError");
+  });
+});

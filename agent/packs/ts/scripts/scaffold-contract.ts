@@ -22,7 +22,7 @@
 // overloaded class methods/constructors.
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, dirname, posix } from "node:path";
+import { basename, dirname, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
@@ -379,6 +379,41 @@ function typeRefsOf(node: Node, exclude: Set<string>): Set<string> {
 
 // --- rendering ------------------------------------------------------------------
 
+/** What a contract actually exposes — the shape questions the gates need to ask. */
+export interface ContractSurface {
+  /** Exports that exist at RUNTIME: what can be implemented and called. */
+  readonly valueExports: readonly string[];
+  /** Methods declared on exported interfaces: operations that are types only. */
+  readonly interfaceMethods: readonly string[];
+}
+
+/**
+ * Summarise a contract's public surface without generating anything.
+ *
+ * Needed because "does this contract expose anything implementable?" cannot be
+ * answered from the generated text — the skeleton's own header comment
+ * mentions NotImplementedError, so a substring check always says yes. Ask the
+ * AST instead.
+ */
+export function contractSurface(contractSource: string, contractFileName: string): ContractSurface {
+  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
+  const sf = project.createSourceFile(basename(contractFileName), contractSource, { overwrite: true });
+  const info = collect(sf);
+  const interfaceMethods: string[] = [];
+  for (const stmt of sf.getStatements()) {
+    if (!Node.isInterfaceDeclaration(stmt) || !isExportDecl(stmt)) continue;
+    for (const m of stmt.getMembers()) {
+      if (Node.isMethodSignature(m)) interfaceMethods.push(`${stmt.getName()}.${m.getName()}`);
+      // A property whose type is a function is an operation too.
+      else if (Node.isPropertySignature(m)) {
+        const t = m.getTypeNode();
+        if (t && Node.isFunctionTypeNode(t)) interfaceMethods.push(`${stmt.getName()}.${m.getName()}`);
+      }
+    }
+  }
+  return { valueExports: info.values.map((v) => v.name), interfaceMethods };
+}
+
 export interface ScaffoldOptions {
   /** Project-relative path (no extension) of the shared errors module.
    *  Default: errorsModuleFor(contractFileName) → <root>/shared/errors. */
@@ -564,6 +599,10 @@ export function runScaffold(
   }
 
   const lines: string[] = [];
+  const typesOnly: string[] = [];
+  const strandedOps: string[] = [];
+  let implementable = 0;
+
   for (const contractPath of contracts) {
     let skeleton: string;
     try {
@@ -579,6 +618,24 @@ export function runScaffold(
         detail: { contract: contractPath },
       });
       return { code: 1, lines: [...lines, e.message] };
+    }
+
+    // Does this contract expose anything that exists at RUNTIME? Ask the AST,
+    // not the generated text — the skeleton's own header comment mentions
+    // NotImplementedError, so a substring check always says yes.
+    //
+    // Dogfood Run 6: every operation was a method on `export interface
+    // SubscriptionBilling`. Interfaces vanish at compile time, so there was no
+    // way to obtain the thing under test — yet contract-purity, typecheck and
+    // checksum-gate all passed on it. A types-only file is legitimate as shared
+    // vocabulary, so decide once every contract has been seen rather than
+    // blocking per file.
+    const surface = contractSurface(readFileSync(contractPath, "utf8"), contractPath);
+    if (surface.valueExports.length === 0) {
+      typesOnly.push(relative(cwd, contractPath).split(sep).join("/"));
+      strandedOps.push(...surface.interfaceMethods);
+    } else {
+      implementable += 1;
     }
 
     const errorsPath = errorsModuleFor(contractPath) + ".ts";
@@ -598,6 +655,46 @@ export function runScaffold(
       summary: `wrote ${out}`,
       detail: { contract: contractPath, skeleton: out, createdErrorsModule },
     });
+  }
+
+  if (implementable === 0) {
+    const summary = `no contract declares anything to implement (${typesOnly.join(", ")})`;
+    logGuardEvent(cwd, {
+      guard: "scaffold",
+      verdict: "block",
+      summary,
+      detail: { typesOnly, strandedOps },
+    });
+
+    // The message must NOT read as "add a value export", because the cheapest
+    // way to satisfy that is one god-function — which would make the design
+    // worse, not better. Name the operations already declared and ask for those
+    // exact ones, so the fix preserves the shape the architect chose.
+    const how =
+      strandedOps.length > 0
+        ? [
+            `  You already declared ${strandedOps.length} operation${strandedOps.length === 1 ? "" : "s"}: ${strandedOps.join(", ")}.`,
+            "  Keep that shape — do not collapse them into one entry point. Either export each",
+            "  operation as its own declaration:",
+            ...strandedOps.slice(0, 3).map((op) => `    export declare function ${op.split(".")[1]}(…): …;`),
+            "  or export a factory that returns the interface:",
+            `    export declare function create${strandedOps[0]?.split(".")[0] ?? "Service"}(deps: Deps): ${strandedOps[0]?.split(".")[0] ?? "Service"};`,
+          ]
+        : [
+            "  Declare the operations this component provides, one per behaviour:",
+            "    export declare function doThing(input: In): Out;",
+          ];
+
+    return {
+      code: 1,
+      lines: [
+        ...lines,
+        `scaffold: BLOCK — ${typesOnly.join(", ")} declares only types, so there is nothing to implement.`,
+        "  An `export interface Foo { bar(): Baz }` is a TYPE: it does not exist at runtime, so",
+        "  neither the test-writer nor the builder can obtain a Foo to work with.",
+        ...how,
+      ],
+    };
   }
   return { code: 0, lines };
 }

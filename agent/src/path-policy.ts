@@ -212,7 +212,14 @@ const matcherCache = new Map<string, (path: string) => boolean>();
 function matchGlob(pattern: string, path: string): boolean {
   let m = matcherCache.get(pattern);
   if (!m) {
-    m = picomatch(pattern, { dot: true });
+    // nocase: macOS and Windows filesystems are case-insensitive, so
+    // case-sensitive matching is not merely unhelpful — it is wrong in both
+    // directions. It refused the architect's `SPEC.md` when `spec.md` is
+    // literally the same file (dogfood Run 6), and, far worse, it would let
+    // `TESTS/orders.test.ts` slip past a `tests/**` denial and hand a blind
+    // role the other side's work. Zone patterns are a closed harness-owned
+    // vocabulary, so widening the match costs nothing and closes that hole.
+    m = picomatch(pattern, { dot: true, nocase: true });
     matcherCache.set(pattern, m);
   }
   return m(path);

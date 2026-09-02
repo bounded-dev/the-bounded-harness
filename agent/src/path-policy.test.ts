@@ -350,3 +350,48 @@ describe("ownerOfPath", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Case: the filesystem is case-insensitive, so the gate must be too
+// ---------------------------------------------------------------------------
+
+// Two findings, one cause. The friendly one (dogfood Run 6): the architect
+// tried to write `SPEC.md`, was refused because the zone glob is the literal
+// `spec.md`, and lost turns to a rule that reads as arbitrary — on macOS those
+// are the SAME FILE.
+//
+// The serious one: the same case-sensitivity applies to the DENY side. On a
+// case-insensitive filesystem `TESTS/orders.test.ts` IS the tests directory,
+// but a case-sensitive `tests/**` pattern does not match it — so a case-varied
+// path would walk straight through the blindness the whole pipeline rests on.
+describe("zone matching is case-insensitive", () => {
+  test("the architect may write its spec whatever the case", () => {
+    for (const p of ["spec.md", "SPEC.md", "Spec.md"]) {
+      expect(d("architect", "write", p).allow, `write ${p}`).toBe(true);
+    }
+  });
+
+  test("a case-varied tests path does not escape the builder's blindness", () => {
+    for (const p of ["tests/orders.test.ts", "TESTS/orders.test.ts", "Tests/Orders.Test.ts"]) {
+      expect(d("builder", "read", p).allow, `read ${p}`).toBe(false);
+    }
+  });
+
+  test("a case-varied src path does not escape the test-writer's blindness", () => {
+    for (const p of ["src/money.ts", "SRC/money.ts", "Src/Money.ts"]) {
+      expect(d("test-writer", "read", p).allow, `read ${p}`).toBe(false);
+    }
+  });
+
+  test("a case-varied contract path is still denied to the builder's pen", () => {
+    for (const p of ["src/money.contract.ts", "src/money.CONTRACT.ts"]) {
+      expect(d("builder", "write", p).allow, `write ${p}`).toBe(false);
+    }
+  });
+
+  test("'.git' is denied whatever the case", () => {
+    for (const p of [".git/config", ".GIT/config", ".Git/config"]) {
+      expect(d("architect", "read", p).allow, `read ${p}`).toBe(false);
+    }
+  });
+});
