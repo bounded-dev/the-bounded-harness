@@ -17,6 +17,32 @@ the builder.
 - The scaffolder derives the implementation path: `foo.contract.ts` → sibling `foo.ts`. Never create the sibling by hand.
 - Spec lives in `spec.md`; one component per loop iteration.
 
+## Operations must exist at runtime
+
+**An `export interface` is a TYPE. It vanishes at compile time.** So a contract
+whose operations are only methods on an exported interface declares nothing to
+implement: neither the test-writer nor the builder can obtain the thing to call
+it. The scaffolder blocks this, because every gate before it — declaration-only,
+value objects, typecheck, checksum — passes happily on a contract that cannot
+be built.
+
+Every operation needs a value export. Either declare each one:
+
+```ts
+export declare function renew(subscription: Subscription, input: RenewInput): ChargeOutcome;
+```
+
+or keep the interface as the shape and declare a factory that returns it:
+
+```ts
+export interface SubscriptionBilling { renew(…): ChargeOutcome; /* … */ }
+export declare function createSubscriptionBilling(deps: Deps): SubscriptionBilling;
+```
+
+Either is fine. What is not fine is collapsing several operations into one
+entry point to satisfy the rule — the fix is to make what you designed
+callable, not to shrink it.
+
 ## Declaration-only vocabulary
 
 Allowed:

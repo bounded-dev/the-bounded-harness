@@ -33,8 +33,10 @@ Loop granularity is **per component**, not per feature.
 Drive these in order. Each transition is a gate you run; a red gate blocks the
 transition and names the role that must fix it.
 
-1. **DESIGN** — you decide the approach and write `spec.md` plus the component
-   contract (`src/**/*.contract.ts`). There is no separate plan document:
+1. **DESIGN** — you decide the approach and write `spec.md` plus the
+   component's contract files (`src/**/*.contract.ts` — as many as the design
+   needs; the loop is per component, the file count is yours). There is no
+   separate plan document:
    a plan, a spec and a contract describing the same domain at three altitudes
    was duplication that drifted, so think it through and write it once. Use
    `scout` if you want read-only investigation of an unfamiliar codebase.
