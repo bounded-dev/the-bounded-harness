@@ -28,6 +28,44 @@ Not yet exercised (pending):
 Read the guard log (`<project>/.pi/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
+## Where runs live
+
+**Three directories, forever — not one pair per run.**
+
+- `~/dev/pi-harness-dogfood` — the archive repo. Every arm of every run is a
+  branch here, and `main` is the shared baseline arms branch from.
+- `~/dev/pi-harness-dogfood-bare` — the control arm's worktree.
+- `~/dev/pi-harness-dogfood-harnessed` — the harness arm's worktree.
+
+A worktree is a disposable *view*; the branch is the archive. So a new run does
+not need new directories — in each arm directory, branch from the baseline:
+
+```bash
+cd ~/dev/pi-harness-dogfood-bare      && git checkout -b r<N>-bare main
+cd ~/dev/pi-harness-dogfood-harnessed && git checkout -b r<N>-harnessed main
+```
+
+Earlier runs used a directory per arm, which is why the entries below name
+paths that no longer exist. Their content was committed and imported here, so
+nothing is lost:
+
+| old directory | now the branch |
+|---|---|
+| `dogfood-reading-list-sonnet` (Run 1) | `run1-reading-list-sonnet` |
+| `dogfood-reading-list` (Run 2/3) | `run2-reading-list-haiku` |
+| `dogfood-billing-control` (Run 4 B) | `run4-control` |
+| `dogfood-billing-harness` (Run 4 A) | `run4-harness` |
+| `dogfood-arm1-bare` (Run 5 arm 1) | `arm1-bare` |
+| `dogfood-arm3-harness` (Run 5 arm 3) | `arm3-harness` |
+| `dogfood-arm4-harness-kimi` (Run 5 Kimi) | `arm4-harness-kimi` |
+
+**Commit each arm's output to its branch when scoring finishes.** Arms are told
+not to commit *during* a run, so their output sits uncommitted — which means a
+directory reused without committing first silently destroys the previous run.
+Committing at scoring time is what makes the directories reusable. Include
+`.pi/guard-log.jsonl`: it is the evidence trail, and it is the only reason past
+failures were diagnosable.
+
 ## Themes so far
 
 - **The skill survives weak readers.** Both Sonnet and Haiku found and
@@ -52,16 +90,16 @@ any quality, and did it buy back any of the time?** Run 5's harness arm is the
 yardstick for quality; Run 5's bare arm is the yardstick for whether the
 separation still pays at all.
 
-Same baseline commit as Run 5 (`b6bc308` in `~/dev/dogfood-billing`), same
+Same baseline commit as Run 5 (`b6bc308` in `~/dev/pi-harness-dogfood`), same
 prompt byte-for-byte (`docs/dogfood/run4-prompt.md`), same toolchain (vitest
 4.1.11, TypeScript 5.9.3), **Sonnet throughout**. The AGENTS.md operational
 block is byte-identical between arms; one line differs, naming what the
 environment offers.
 
-- **1 · bare** — `~/dev/dogfood-r6-bare`, branch `r6-bare`. One agent, ordinary
+- **1 · bare** — `~/dev/pi-harness-dogfood-bare`, branch `r6-bare`. One agent, ordinary
   tools, no skills. *"Nothing special. Build it with your ordinary tools, the
   way you think it should be built."*
-- **2 · folded** — `~/dev/dogfood-r6-folded`, branch `r6-folded`. Launched with
+- **2 · folded** — `~/dev/pi-harness-dogfood-harnessed`, branch `r6-folded`. Launched with
   `agent/scripts/pi-ticket`, which binds the architect role at launch. *"This
   project is built through the `developer-stage` skill. Invoke it and follow
   it."*
