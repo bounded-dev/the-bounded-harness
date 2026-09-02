@@ -188,8 +188,12 @@ for arm in "$BARE" "$HARNESSED"; do
   [ -r "$arm/PROMPT.md" ] || { echo "dogfood-reset: FATAL — $arm/PROMPT.md unreadable" >&2; exit 1; }
 done
 if [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
-  if [ "$(readlink -f "$BARE/PROMPT.md")" != "$(readlink -f "$HARNESSED/PROMPT.md")" ]; then
-    echo "dogfood-reset: FATAL — arms point at different prompts" >&2; exit 1
+  # Compare CONTENT, not path. Resetting one arm while the other is mid-run
+  # legitimately leaves one a symlink and the other an older copy; what the
+  # experiment requires is that the arms read the same words, not that they
+  # reach them the same way.
+  if ! diff -q "$BARE/PROMPT.md" "$HARNESSED/PROMPT.md" >/dev/null; then
+    echo "dogfood-reset: FATAL — the arms' prompts differ" >&2; exit 1
   fi
   if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
                <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
