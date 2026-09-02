@@ -86,7 +86,7 @@ One of the six named tools the architect runs a gate through (`contract_purity`,
 _Avoid_: gate script (that's the CLI), command
 
 **pi-ticket**:
-The launcher (`agent/bin/pi-ticket`) that starts a pi session bound to the architect role. Role binding happens at launch, from outside the project, so nothing in the session can change it.
+The launcher (`agent/scripts/pi-ticket`) that starts a pi session bound to the architect role. Role binding happens at launch, from outside the project, so nothing in the session can change it.
 _Avoid_: wrapper, alias
 
 **Dispute**:

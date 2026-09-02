@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# pi-ticket — start a pi session bound to the ARCHITECT role, for driving one
+# ticket through the developer stage.
+#
+# Why this exists (issue #12): the path gate learns its role from WHICH
+# extension file the session loads, and that is decided at launch, from outside
+# the project — nothing inside the session can reach it, so an agent cannot
+# choose or change its own role. Subagents get this for free (the parent passes
+# the loader when it spawns them). A session YOU start does not, unless it is
+# started this way.
+#
+# The alternative was a `.pi/dev-stage-role` marker file inside the project,
+# which is a strictly weaker trust class: it lives where the agents work, and a
+# checkout could restore a different one. This keeps one mechanism for every
+# role in the pipeline.
+#
+# Without a launcher nobody would type the full invocation, the ungated path
+# would win by being easier, and the enforcement would quietly become optional.
+#
+#   pi-ticket                 # interactive, in the current project
+#   pi-ticket "build X"       # with an opening prompt
+#   pi-ticket --model …       # any further pi flags pass straight through
+#
+# Being gated means: read anything in the project, write only spec.md and
+# *.contract.ts, no bash, and the gates + git as named tools.
+
+set -euo pipefail
+
+# Lives in agent/scripts/, not agent/bin/ — `bin/` is gitignored as pi's own
+# runtime directory, so a launcher there is silently untracked.
+#
+# Resolve this script's real location so the harness is found whether it was
+# reached directly or through the ~/.pi/agent symlink.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+
+GATE="$HARNESS/extensions/path-gate/architect.ts"
+if [ ! -f "$GATE" ]; then
+  echo "pi-ticket: cannot find the architect path-gate loader at $GATE" >&2
+  exit 2
+fi
+
+exec pi --extension "$GATE" "$@"
