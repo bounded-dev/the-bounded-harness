@@ -112,6 +112,19 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   // this is the one place a step could be skipped — three consecutive dogfood
   // attempts froze the contract and moved on with no spec.
   if (role === "architect" && ev.toolName === "subagent") {
+    // Consulting the retained-children list is what licenses a later cold
+    // launch, so it has to be recorded — the gate's own evidence is the
+    // architect's tool calls.
+    if (ev.input["action"] === "children.list") {
+      logGuardEvent(ev.cwd, {
+        guard: "phase-gate",
+        verdict: "pass",
+        summary: "children.list",
+        detail: { kind: "children-listed" },
+      });
+      return undefined;
+    }
+
     const target = spawnTarget(ev.input);
     if (target !== undefined) {
       const decision = checkSpawnPrecondition(target, gatherEvidence(ev.cwd));
@@ -120,10 +133,18 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
           guard: "phase-gate",
           verdict: "block",
           summary: decision.reason,
-          detail: { role, target },
+          detail: { kind: "spawn-refused", role, target },
         });
         return { block: true, reason: decision.reason };
       }
+      // Record the ALLOWED spawn: a second cold launch of this role is refused
+      // until the architect has consulted children.list.
+      logGuardEvent(ev.cwd, {
+        guard: "phase-gate",
+        verdict: "pass",
+        summary: `commissioned ${target}`,
+        detail: { kind: "spawn", target },
+      });
     }
   }
 

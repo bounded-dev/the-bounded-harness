@@ -53,6 +53,15 @@ const GATED_TARGETS = new Set(["test-writer", "builder"]);
 const ALLOW: Decision = { allow: true };
 const deny = (reason: string): Decision => ({ allow: false, reason });
 
+/** Index of the last event matching a predicate, or -1. */
+function lastIndexWhere(
+  events: readonly LoggedGuardEvent[],
+  pred: (e: LoggedGuardEvent) => boolean,
+): number {
+  for (let i = events.length - 1; i >= 0; i--) if (pred(events[i]!)) return i;
+  return -1;
+}
+
 /** The latest verdict for a guard, or undefined if it never ran. */
 function latestVerdict(
   events: readonly LoggedGuardEvent[],
@@ -124,6 +133,42 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
       `phase-gate: cannot commission the ${target} — the contract is not frozen. Run ` +
         "freeze_contracts, so a contract that moves underneath the workers is detectable rather than silent.",
     );
+  }
+
+  // A cold launch of a role that has already run re-primes an entire context.
+  // Run 6 spent ~1.6M cache-read tokens — about a quarter of the run — starting
+  // over with agents that already knew the task: 1.75M for the first builder,
+  // then 649k, 603k and 362k re-priming its successors.
+  //
+  // pi retains completed children, so a bounce should CONTINUE one rather than
+  // start another. The architect must consult the retained list before it may
+  // launch cold; consulting and then launching is fine, because that is the
+  // legitimate case where the child was not resumable. What is refused is
+  // respawning without looking. `children.list` is itself a subagent call, so
+  // the gate sees it — the evidence is the architect's own tool calls, and no
+  // knowledge of pi's internal state is needed.
+  const lastSpawn = lastIndexWhere(
+    events,
+    (e) => e.guard === "phase-gate" && (e.detail as { kind?: string } | undefined)?.kind === "spawn"
+      && (e.detail as { target?: string }).target === target,
+  );
+  if (lastSpawn !== -1) {
+    const consulted = lastIndexWhere(
+      events,
+      (e) =>
+        e.guard === "phase-gate" &&
+        (e.detail as { kind?: string } | undefined)?.kind === "children-listed",
+    );
+    if (consulted < lastSpawn) {
+      return deny(
+        `phase-gate: a ${target} has already run — do not launch a second one cold. ` +
+          "A cold launch re-primes the whole context; Run 6 spent about a quarter of its tokens " +
+          "re-teaching agents what they already knew. Continue the existing child instead: " +
+          '`{ action: "children.list" }` to find its run id and whether it is resumable, then ' +
+          '`{ action: "resume", id: "<run-id>", message: "<the bounce>" }`. ' +
+          "If children.list reports it not resumable, launch again and it will be allowed.",
+      );
+    }
   }
 
   if (target === "builder" && !passed(events, "red-gate")) {

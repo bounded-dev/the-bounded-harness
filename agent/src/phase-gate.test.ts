@@ -141,3 +141,98 @@ describe("spawns the gate does not govern", () => {
     expect(checkSpawnPrecondition("product-expert", empty).allow).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// One spawn per role. Bounces resume; they do not start over.
+// ---------------------------------------------------------------------------
+
+// Run 6 used FIVE workers for three roles. Every bounce was a cold respawn, and
+// each one re-primed a full context: 1.75M cache-read tokens for the first
+// builder, 649k and 603k for two test-writer respawns, 362k for the second
+// builder. Roughly 1.6M tokens spent re-teaching agents what they already knew,
+// about a quarter of the run's spend.
+//
+// pi retains completed children and can continue one:
+//   { action: "children.list" }                        → run ids + resumable state
+//   { action: "resume", id: "<run-id>", message: "…" } → continue that child
+//
+// So a cold launch of a role that has already run is refused. The architect
+// must consult `children.list` first — which is itself a subagent call, so the
+// gate can see that it happened. Consulting and then launching cold is allowed:
+// that is the legitimate case where the retained child was not resumable. What
+// is refused is respawning WITHOUT looking.
+//
+// Deadlock-free by construction, and it needs no knowledge of pi's internal
+// state: the evidence is the architect's own tool calls.
+
+const spawned = (role: string): LoggedGuardEvent =>
+  ({
+    ts: "2026-09-02T00:00:00.000Z",
+    guard: "phase-gate",
+    verdict: "pass",
+    summary: `commissioned ${role}`,
+    detail: { kind: "spawn", target: role },
+  }) as LoggedGuardEvent;
+
+const listedChildren = (): LoggedGuardEvent =>
+  ({
+    ts: "2026-09-02T00:00:00.000Z",
+    guard: "phase-gate",
+    verdict: "pass",
+    summary: "children.list",
+    detail: { kind: "children-listed" },
+  }) as LoggedGuardEvent;
+
+describe("cold respawn", () => {
+  test("the first spawn of a role is allowed", () => {
+    expect(checkSpawnPrecondition("test-writer", READY).allow).toBe(true);
+  });
+
+  test("a second cold spawn of the same role is refused", () => {
+    const d = checkSpawnPrecondition("test-writer", {
+      ...READY,
+      events: [...READY.events, spawned("test-writer")],
+    });
+    expect(d.allow).toBe(false);
+    if (!d.allow) {
+      expect(d.reason).toContain("children.list");
+      expect(d.reason).toContain("resume");
+    }
+  });
+
+  test("consulting children.list first permits a cold spawn", () => {
+    // The legitimate fallback: it looked, and the retained child was not
+    // resumable. Refusing here would deadlock the loop.
+    const d = checkSpawnPrecondition("test-writer", {
+      ...READY,
+      events: [...READY.events, spawned("test-writer"), listedChildren()],
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  test("a children.list from BEFORE the last spawn does not count", () => {
+    // Otherwise one early listing would license every later respawn.
+    const d = checkSpawnPrecondition("test-writer", {
+      ...READY,
+      events: [...READY.events, listedChildren(), spawned("test-writer")],
+    });
+    expect(d.allow).toBe(false);
+  });
+
+  test("spawning a DIFFERENT role is unaffected by another role's history", () => {
+    const withRed = [
+      ...READY.events,
+      ev("red-gate", "pass", "38 NotImplemented failures"),
+      spawned("test-writer"),
+    ];
+    expect(checkSpawnPrecondition("builder", { ...READY, events: withRed }).allow).toBe(true);
+  });
+
+  test("the refusal names the token cost, so it reads as a reason not a rule", () => {
+    const d = checkSpawnPrecondition("test-writer", {
+      ...READY,
+      events: [...READY.events, spawned("test-writer")],
+    });
+    if (!d.allow) expect(d.reason).toMatch(/re-?prime|context|token/i);
+  });
+});
