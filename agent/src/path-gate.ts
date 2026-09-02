@@ -24,6 +24,46 @@ export function asRole(value: unknown): Role | undefined {
   return typeof value === "string" && ROLE_SET.has(value) ? (value as Role) : undefined;
 }
 
+// --- Bound-role registry (dogfood Run 6) ------------------------------------
+//
+// A subagent installs TWO hooks and neither knows about the other: the BOUND
+// one its frontmatter names, and the AMBIENT one, because extensions/*.ts
+// auto-load in every pi session — a child included — and the ambient gate
+// resolves its role from `.pi/dev-stage-role` in the project cwd, which the
+// child SHARES with its parent.
+//
+// So a parent gated as `architect` through that file silently applied
+// architect's zone on top of every child's. Both hooks run on each tool call
+// and either may block, confining the child to the INTERSECTION. Live result:
+// the test-writer was refused permission to write its own tests — "architect
+// may not write 'tests/start.test.ts'" — and the run deadlocked at its first
+// worker.
+//
+// Restrictions must never leak DOWNWARD. A child's role is decided by its
+// parent at spawn from a file outside the project; that binding is the
+// authority, and the ambient guess stands down in any process where a bound
+// role was installed.
+//
+// Process-scoped, and deliberately one-way: subagents are separate processes,
+// so this flag never crosses between them, and nothing should ever re-enable
+// the ambient gate in a process that has a bound role.
+let boundRoleInstalled = false;
+
+/** Called by a per-role loader; makes the ambient gate inert in this process. */
+export function markBoundRoleInstalled(): void {
+  boundRoleInstalled = true;
+}
+
+/** Whether a bound role has claimed this process. */
+export function isAmbientSuppressed(): boolean {
+  return boundRoleInstalled;
+}
+
+/** Test-only: restore the pristine process state. */
+export function resetPathGateRegistry(): void {
+  boundRoleInstalled = false;
+}
+
 /** Blocking result returned to pi's tool_call hook. */
 export interface GateBlock {
   readonly block: true;
@@ -60,4 +100,18 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
     detail: { role, tool: ev.toolName, path: rawPath ?? null },
   });
   return { block: true, reason: decision.reason };
+}
+
+/**
+ * The AMBIENT gate's decision: identical to `evaluatePathGate`, except that it
+ * stands down entirely once a bound role has claimed this process.
+ *
+ * The ambient hook exists so a session the user starts themselves can be gated
+ * from a `.pi/dev-stage-role` file. That file lives in the project, which every
+ * subagent shares — so without this check the parent's role is applied to each
+ * child on top of its own, and the child is confined to the intersection.
+ */
+export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
+  if (isAmbientSuppressed()) return undefined;
+  return evaluatePathGate(ev);
 }

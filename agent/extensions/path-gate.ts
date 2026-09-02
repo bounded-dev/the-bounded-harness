@@ -42,7 +42,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { asRole, evaluatePathGate } from "../src/path-gate.ts";
+import {
+  asRole,
+  evaluateAmbientPathGate,
+  evaluatePathGate,
+  markBoundRoleInstalled,
+} from "../src/path-gate.ts";
 import type { Role } from "../src/path-policy.ts";
 
 const ROLE_FILE = join(".pi", "dev-stage-role");
@@ -72,18 +77,26 @@ function makeFallbackResolver(): (cwd: string) => Role | undefined {
  * which falls back to env / role file (and stays inactive when neither is set).
  */
 export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
+  // A bound role claims the process, which makes the ambient hook inert — see
+  // the registry in src/path-gate.ts. Without this, a subagent gets its
+  // parent's role (read from the shared `.pi/dev-stage-role`) applied on top of
+  // its own and is confined to the intersection of the two zones. That
+  // deadlocked dogfood Run 6 at its first worker: the test-writer was refused
+  // permission to write its own tests as "architect".
+  if (boundRole) markBoundRoleInstalled();
+
   const fallback = boundRole ? undefined : makeFallbackResolver();
 
   pi.on("tool_call", async (event, ctx) => {
     const role = boundRole ?? fallback!(ctx.cwd);
-    if (!role) return undefined; // inactive: normal / orchestrator session
+    if (!role) return undefined; // inactive: normal session with no role
 
-    return evaluatePathGate({
-      role,
-      toolName: event.toolName,
-      input: event.input as Readonly<Record<string, unknown>>,
-      cwd: ctx.cwd,
-    });
+    const input = event.input as Readonly<Record<string, unknown>>;
+    const ev = { role, toolName: event.toolName, input, cwd: ctx.cwd };
+
+    // Suppression is checked per CALL, not at install: extensions load in an
+    // arbitrary order, and the ambient one may well arrive first.
+    return boundRole ? evaluatePathGate(ev) : evaluateAmbientPathGate(ev);
   });
 }
 
