@@ -231,3 +231,55 @@ describe("green-gate CLI (fixture repos)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// The escape hatch: a test that keeps failing may itself be the defect
+// ---------------------------------------------------------------------------
+
+// Dogfood Run 6 deadlocked here. The last failing test read `invoices[1]` where
+// it needed `invoices[2]` — it had copied the index from a sibling test with no
+// renewal step, so the array was one shorter. The implementation was correct.
+//
+// Every component behaved exactly as specified, and the loop still could not
+// escape: the green gate routed by its rule (a failing test means the code is
+// wrong), the architect obeyed the route as the skill instructs, and the
+// builder cannot fix a test it is blind to. It respawned the builder and hit
+// the identical failure.
+//
+// The rule is right in the common case and unrecoverable in this one, and
+// nothing could tell the two apart. So the FIRST block routes to the builder as
+// before, and a REPEAT of the same failing set routes to the test-writer. Same
+// reasoning as the run_tests non-convergence nudge: repetition is the evidence,
+// and no model judgement is involved.
+
+import { routeAfterRepeat } from "./green-gate.ts";
+
+describe("repeated identical failures reroute to the test-writer", () => {
+  const A = ["changePlan proration after renewal"];
+  const B = ["cancel is idempotent"];
+
+  test("a first failure routes to the builder", () => {
+    expect(routeAfterRepeat(A, [])).toBe("builder");
+  });
+
+  test("a different failure than last time still routes to the builder", () => {
+    expect(routeAfterRepeat(A, [B])).toBe("builder");
+  });
+
+  test("the same failing set twice routes to the test-writer", () => {
+    expect(routeAfterRepeat(A, [A])).toBe("test-writer");
+  });
+
+  test("order within the failing set does not matter", () => {
+    expect(routeAfterRepeat(["a", "b"], [["b", "a"]])).toBe("test-writer");
+  });
+
+  test("an intervening different failure resets the evidence", () => {
+    // Progress happened, so the builder is not stuck against the same wall.
+    expect(routeAfterRepeat(A, [A, B])).toBe("builder");
+  });
+
+  test("an empty failing set never reroutes", () => {
+    expect(routeAfterRepeat([], [[]])).toBe("builder");
+  });
+});

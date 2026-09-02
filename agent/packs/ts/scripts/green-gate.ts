@@ -31,7 +31,7 @@ import { runTests, type RunTestsResult } from "./run-tests.ts";
 import { gateOptionsFromEnv, gateTypecheckOptionsFromEnv, type GateResult } from "./red-gate.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
-import { logGuardEvent } from "../../../src/guard-log.ts";
+import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 
 const GUARD = "green-gate";
 
@@ -79,6 +79,36 @@ function suiteVerdict(run: RunTestsResult): SuiteVerdict | null {
     };
   }
   return null;
+}
+
+/**
+ * Who should fix a failing suite, given what failed last time?
+ *
+ * A failing test normally means the implementation is wrong, so it routes to
+ * the builder. But dogfood Run 6 deadlocked on the opposite case: the test read
+ * `invoices[1]` where it needed `invoices[2]`, having copied the index from a
+ * sibling test with no renewal step. The implementation was correct.
+ *
+ * Every part then behaved as specified and the loop still could not escape —
+ * the gate routed to the builder, the architect obeyed the route as instructed,
+ * and the builder cannot fix a test it is blind to. It respawned the builder
+ * and hit the identical failure.
+ *
+ * Repetition is the evidence, exactly as in the `run_tests` non-convergence
+ * nudge: a builder that has failed twice against the SAME set is not making
+ * progress, and the test is now the likelier defect. No model judgement is
+ * involved — the first block still routes to the builder, and only an identical
+ * repeat reroutes.
+ */
+export function routeAfterRepeat(
+  failing: readonly string[],
+  priorFailures: readonly (readonly string[])[],
+): FixOwner {
+  if (failing.length === 0) return "builder";
+  const key = (names: readonly string[]) => [...names].sort().join("\u0000");
+  const previous = priorFailures[priorFailures.length - 1];
+  if (previous !== undefined && key(previous) === key(failing)) return "test-writer";
+  return "builder";
 }
 
 /**
@@ -138,14 +168,59 @@ export function classifyGreen(run: RunTestsResult, tsc: TypecheckResult): GateRe
  * is worth nothing if the tool is a second, drifting implementation. So the
  * CLI below is a thin wrapper over this function, and so is the tool.
  */
+/** Failing-test-name sets from this project's prior green-gate blocks, oldest→newest. */
+function priorGreenFailures(cwd: string): string[][] {
+  try {
+    return readGuardLog(cwd)
+      .filter((e) => e.guard === GUARD && e.verdict === "block")
+      .map((e) => {
+        const names = (e.detail as { names?: unknown } | undefined)?.names;
+        return Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
+      })
+      .filter((names) => names.length > 0);
+  } catch {
+    return []; // an unreadable log must never break the gate
+  }
+}
+
 export async function runGreenGate(cwd: string): Promise<GateResult> {
   const [run, tsc] = await Promise.all([
     runTests(cwd, gateOptionsFromEnv()),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
   ]);
-  const result = classifyGreen(run, tsc);
+  const base = classifyGreen(run, tsc);
+
+  // Reroute a repeat. classifyGreen stays pure — the history lives in the guard
+  // log, which is where every other convergence check already reads from.
+  const names = (base.detail as { names?: unknown }).names;
+  const failing = Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
+  const result =
+    base.verdict === "block" && failing.length > 0
+      ? rerouteIfRepeated(base, failing, priorGreenFailures(cwd))
+      : base;
+
   logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
   return result;
+}
+
+/** Rewrite the route line when the same tests have failed twice running. */
+function rerouteIfRepeated(
+  base: GateResult,
+  failing: readonly string[],
+  prior: readonly (readonly string[])[],
+): GateResult {
+  const owner = routeAfterRepeat(failing, prior);
+  if (owner !== "test-writer") return base;
+  return {
+    ...base,
+    summary: `${base.summary.replace(/\(route: [^)]*\)/, "")}(route: test-writer, repeated)`.replace(/\s+/g, " ").trim(),
+    lines: [
+      ...base.lines.filter((l) => !l.startsWith(`${GUARD}: route →`)),
+      `${GUARD}: the same ${failing.length === 1 ? "test has" : "tests have"} now failed twice running — the builder is not converging, so the TEST is the likelier defect`,
+      `${GUARD}: route → test-writer`,
+    ],
+    detail: { ...(base.detail as Record<string, unknown>), route: "test-writer", repeated: true },
+  };
 }
 
 async function main(argv: string[]): Promise<number> {
