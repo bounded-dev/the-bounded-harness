@@ -1,6 +1,6 @@
 ---
 name: developer-stage
-description: Build a component or feature test-first, from requirements through to a passing suite. Use for any non-trivial implementation task — "build X", "implement X", "add feature X", "write a component that…" — where the tests should be an independent check rather than written by whoever wrote the code. Runs the developer stage (TN-26-001): you design it and drive it as the architect, commissioning two blind write-capable subagents (test-writer, builder) whose phase transitions are enforced by deterministic gates.
+description: Build a component or feature test-first, from requirements through to a passing suite. Use for any non-trivial implementation task — "build X", "implement X", "add feature X", "write a component that…" — where the tests should be an independent check rather than written by whoever wrote the code. Runs the developer stage (TN-26-001) with you designing and driving as the architect, commissioning two blind write-capable subagents (test-writer, builder) whose phase transitions are enforced by deterministic gates.
 ---
 
 # Developer stage

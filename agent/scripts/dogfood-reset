@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # dogfood-reset — rebuild the two dogfood arms from scratch, ready to run.
 #
-#   dogfood-reset                     # subscription-billing (the default prompt)
+#   dogfood-reset                     # both arms, the default prompt
+#   dogfood-reset --harnessed         # ONLY the harnessed arm
+#   dogfood-reset --bare              # ONLY the bare arm
 #   dogfood-reset <prompt-file>       # any other prompt
+#
+# Reset one arm when the other is mid-run: a run dies for one-sided reasons
+# (wrong model, a broken skill) far more often than for both at once, and
+# wiping a healthy arm to restart a dead one throws away good data.
 #
 # Afterwards there is nothing to configure and no command to remember:
 #
@@ -13,17 +19,19 @@
 # `.pi/dev-stage-role`, so plain `pi` is gated — read anything, write only
 # spec.md and *.contract.ts, no bash. Nothing to launch specially.
 #
-# Both arms get a byte-identical operational AGENTS.md and a byte-identical
-# PROMPT.md. Exactly one line differs, naming what that environment offers —
-# that line is the whole experiment, so keep it the only difference.
+# Both arms get an identical operational AGENTS.md, and PROMPT.md in each arm
+# is a symlink to the SAME canonical prompt — not a copy, so there is nothing
+# to drift. Exactly one line differs between the arms, naming what that
+# environment offers; that line is the whole experiment.
 #
 # Runs are DISPOSABLE. This deletes whatever was in the arms and starts over.
 # If a run is worth keeping, commit it or copy it out before resetting.
 
 set -euo pipefail
 
-BARE="$HOME/dev/pi-harness-dogfood-bare"
-HARNESSED="$HOME/dev/pi-harness-dogfood-harnessed"
+# Overridable so the script can be exercised without destroying a live run.
+BARE="${DOGFOOD_BARE:-$HOME/dev/pi-harness-dogfood-bare}"
+HARNESSED="${DOGFOOD_HARNESSED:-$HOME/dev/pi-harness-dogfood-harnessed}"
 
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
@@ -31,11 +39,34 @@ while [ -L "$SOURCE" ]; do
   SOURCE="$(readlink "$SOURCE")"
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+AGENT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+HARNESS="$AGENT"
 REPO="$(cd -P "$HARNESS/.." && pwd)"
 
-PROMPT_SRC="${1:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
+WHICH=both
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --harnessed) WHICH=harnessed ;;
+    --bare)      WHICH=bare ;;
+    --both)      WHICH=both ;;
+    *)           ARGS+=("$a") ;;
+  esac
+done
+
+PROMPT_SRC="${ARGS[0]:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
 [ -f "$PROMPT_SRC" ] || { echo "dogfood-reset: no prompt at $PROMPT_SRC" >&2; exit 2; }
+
+# The canonical prompt carries an internal <!-- ... --> header explaining that
+# it must not be edited. The arms must see only the prompt, so render a clean
+# copy ONCE, next to the source, and point both arms at that.
+RENDERED_PROMPT="$(dirname "$PROMPT_SRC")/.rendered-$(basename "$PROMPT_SRC")"
+python3 - "$PROMPT_SRC" "$RENDERED_PROMPT" <<'PY'
+import re, sys, pathlib
+src, dst = sys.argv[1], sys.argv[2]
+pathlib.Path(dst).write_text(
+    re.sub(r"^<!--.*?-->\n\n", "", pathlib.Path(src).read_text(), flags=re.S))
+PY
 
 # The operational block is identical in both arms by construction: it is one
 # string, written twice. An arm that quietly gained a different toolchain note
@@ -112,13 +143,10 @@ EOF
 EOF
 
   printf '%s\n%s\n' "$BLOCK" "$line" > "$dir/AGENTS.md"
-  # Strip any internal <!-- ... --> header: the arm must see only the prompt.
-  python3 - "$PROMPT_SRC" "$dir/PROMPT.md" <<'PY'
-import re, sys, pathlib
-src, dst = sys.argv[1], sys.argv[2]
-text = pathlib.Path(src).read_text()
-pathlib.Path(dst).write_text(re.sub(r"^<!--.*?-->\n\n", "", text, flags=re.S))
-PY
+  # PROMPT.md is a SYMLINK to the one canonical prompt, not a copy. Two copies
+  # of a file whose whole purpose is being identical is two things that can
+  # drift; a symlink cannot. Edit the canonical file and both arms change.
+  ln -sfn "$RENDERED_PROMPT" "$dir/PROMPT.md"
   printf 'node_modules/\n' > "$dir/.gitignore"
   touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
 
@@ -127,24 +155,46 @@ PY
       && git commit -q -m "Baseline: empty TypeScript project + prompt" )
 }
 
-echo "dogfood-reset: rebuilding both arms from $PROMPT_SRC"
-scaffold "$BARE" "$BARE_LINE"
-scaffold "$HARNESSED" "$HARNESSED_LINE"
-
-# Only the harnessed arm is gated. The role is read from this file at session
-# start, so a plain `pi` in this directory IS the architect — no launcher, no
-# flag, nothing to remember.
-mkdir -p "$HARNESSED/.pi"
-printf 'architect\n' > "$HARNESSED/.pi/dev-stage-role"
-( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
-
-# Guard the one property the whole comparison rests on.
-if ! diff -q "$BARE/PROMPT.md" "$HARNESSED/PROMPT.md" >/dev/null; then
-  echo "dogfood-reset: FATAL — prompts differ between arms" >&2; exit 1
+# A skill whose frontmatter will not parse does not error — it vanishes from
+# the session's skill list, and the agent improvises the pipeline from memory.
+# That voided a live arm on 2026-09-02. Check before handing over two arms.
+if [ "$WHICH" != "bare" ]; then
+  if ! ( cd "$AGENT" && npx vitest run src/skill-frontmatter.test.ts >/dev/null 2>&1 ); then
+    echo "dogfood-reset: FATAL — a skill's frontmatter is malformed, so pi will" >&2
+    echo "  silently drop it and the harnessed arm will run without its pipeline." >&2
+    echo "  Run: cd $AGENT && npx vitest run src/skill-frontmatter.test.ts" >&2
+    exit 1
+  fi
 fi
-if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
-             <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
-  echo "dogfood-reset: FATAL — operational blocks differ between arms" >&2; exit 1
+
+echo "dogfood-reset: rebuilding ${WHICH} from $PROMPT_SRC"
+[ "$WHICH" = "harnessed" ] || scaffold "$BARE" "$BARE_LINE"
+if [ "$WHICH" != "bare" ]; then
+  scaffold "$HARNESSED" "$HARNESSED_LINE"
+  # Only the harnessed arm is gated. The role is read from this file at session
+  # start, so a plain `pi` in this directory IS the architect — no launcher, no
+  # flag, nothing to remember.
+  mkdir -p "$HARNESSED/.pi"
+  printf 'architect\n' > "$HARNESSED/.pi/dev-stage-role"
+  ( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
+fi
+
+# Guard the one property the whole comparison rests on. The prompt is now the
+# same FILE in both arms, so identity is structural rather than checked — but
+# verify the links actually resolve, since a dangling one would hand an arm
+# nothing at all.
+for arm in "$BARE" "$HARNESSED"; do
+  [ -d "$arm" ] || continue
+  [ -r "$arm/PROMPT.md" ] || { echo "dogfood-reset: FATAL — $arm/PROMPT.md unreadable" >&2; exit 1; }
+done
+if [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
+  if [ "$(readlink -f "$BARE/PROMPT.md")" != "$(readlink -f "$HARNESSED/PROMPT.md")" ]; then
+    echo "dogfood-reset: FATAL — arms point at different prompts" >&2; exit 1
+  fi
+  if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
+               <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
+    echo "dogfood-reset: FATAL — operational blocks differ between arms" >&2; exit 1
+  fi
 fi
 
 cat <<EOF
