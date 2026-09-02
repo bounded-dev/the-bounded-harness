@@ -44,24 +44,36 @@ export function asRole(value: unknown): Role | undefined {
 // authority, and the ambient guess stands down in any process where a bound
 // role was installed.
 //
-// Process-scoped, and deliberately one-way: subagents are separate processes,
-// so this flag never crosses between them, and nothing should ever re-enable
-// the ambient gate in a process that has a bound role.
-let boundRoleInstalled = false;
+// Stored on globalThis, NOT in a module-level `let`.
+//
+// The host loads the ambient extension by auto-discovery and the per-role
+// loader from an explicit `--extension` path. Those arrive through different
+// module registries, so a module-scoped flag set by one is invisible to the
+// other — which is exactly what happened on the first attempt at this fix: the
+// unit tests passed, and a live spawned test-writer was still refused as
+// "architect". globalThis is shared by every module instance in the process,
+// which is the scope this actually needs.
+//
+// Deliberately one-way: nothing should ever re-enable the ambient gate in a
+// process that has a bound role. Subagents are separate processes, so the flag
+// never crosses between them.
+const BOUND_ROLE_KEY = Symbol.for("pi-harness.path-gate.boundRoleInstalled");
+
+type GlobalWithRegistry = typeof globalThis & { [BOUND_ROLE_KEY]?: boolean };
 
 /** Called by a per-role loader; makes the ambient gate inert in this process. */
 export function markBoundRoleInstalled(): void {
-  boundRoleInstalled = true;
+  (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY] = true;
 }
 
 /** Whether a bound role has claimed this process. */
 export function isAmbientSuppressed(): boolean {
-  return boundRoleInstalled;
+  return (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY] === true;
 }
 
 /** Test-only: restore the pristine process state. */
 export function resetPathGateRegistry(): void {
-  boundRoleInstalled = false;
+  delete (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY];
 }
 
 /** Blocking result returned to pi's tool_call hook. */
