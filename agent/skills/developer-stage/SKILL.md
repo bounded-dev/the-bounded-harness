@@ -92,6 +92,21 @@ Read its **output**, not its source — the block line names the sin and the
 responsible role. Both `red_gate` and `green_gate` also run `tsc` (issue #7):
 green means the suite passes *and* the project compiles.
 
+### Bounce by resuming, never by respawning
+
+**Commission each role once.** A bounce continues the worker you already have;
+it does not start another. A cold launch re-primes an entire context — Run 6
+spent about a quarter of its tokens re-teaching agents what they already knew —
+and the phase gate refuses a second cold launch of a role that has already run.
+
+```
+{ action: "children.list" }                             → run ids + resumable state
+{ action: "resume", id: "<run-id>", message: "<bounce>" } → continue that child
+```
+
+If `children.list` reports the child is not resumable, launch again and the
+gate will allow it. What it refuses is respawning *without looking*.
+
 ### Waiting for a worker
 
 **There is no `sleep` to reach for** — you have no shell, which is deliberate:
