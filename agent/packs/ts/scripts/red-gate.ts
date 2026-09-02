@@ -182,6 +182,61 @@ export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env
   return { command, args };
 }
 
+/** What a pristine red-gate project is built from. */
+export interface RedGateSources {
+  /** Project-relative *.contract.ts paths. */
+  readonly contracts: readonly string[];
+  /** Project-relative test file paths. */
+  readonly testFiles: readonly string[];
+  /** Project-relative config the suite needs (package.json, tsconfig.json, …). */
+  readonly configFiles: readonly string[];
+  /** Implementation files that already exist. Never copied; listed only so the
+   *  plan can be asserted to exclude them. */
+  readonly implementationFiles?: readonly string[];
+}
+
+export interface RedGateProjectPlan {
+  /** Files copied verbatim into the pristine project. */
+  readonly copy: readonly string[];
+  /** Contracts to re-scaffold there, producing the throwing skeletons. */
+  readonly regenerate: readonly string[];
+}
+
+/**
+ * Plan a pristine project in which the red gate is valid regardless of what the
+ * builder has done to the real `src/`.
+ *
+ * The red gate asserts every failure is NotImplementedError, which is only
+ * measurable against an UNIMPLEMENTED skeleton — and that is the sole reason
+ * BUILD had to wait for TEST. Once the builder writes code the window shuts
+ * forever.
+ *
+ * But that is an artifact of running against the live tree. `scaffold` is
+ * deterministic and the contracts are checksum-frozen, so the skeleton can be
+ * reproduced at will. Copy the contracts, the tests and the config into a temp
+ * project, regenerate the skeletons there, and run: the verdict holds no matter
+ * what exists in the real src/. That lets the test-writer and the builder work
+ * in parallel, turning the critical path from sum() into max().
+ *
+ * Blindness is untouched — regenerating a skeleton needs the contracts, never
+ * the tests.
+ */
+export function redGateProjectPlan(sources: RedGateSources): RedGateProjectPlan {
+  if (sources.contracts.length === 0) {
+    throw new Error("red-gate: no contracts to regenerate — nothing to run the tests against");
+  }
+  if (sources.testFiles.length === 0) {
+    throw new Error("red-gate: no tests found — a red is a positive claim, and silence is not one");
+  }
+  // Implementation files are deliberately absent: copying one is precisely the
+  // bug this avoids, since it would let a partial implementation turn
+  // NotImplemented failures into ordinary assertion failures.
+  return {
+    copy: [...sources.contracts, ...sources.testFiles, ...sources.configFiles],
+    regenerate: [...sources.contracts],
+  };
+}
+
 /** Run the red gate and return its verdict without printing or exiting.
  *  The `red_gate` tool and the CLI below are both thin wrappers over this, so
  *  there is exactly one implementation of "is this a valid red". */
