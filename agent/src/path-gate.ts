@@ -89,6 +89,8 @@ export interface GateInput {
   readonly input: Readonly<Record<string, unknown>>;
   /** Target project root — paths resolve against it, guard log lands under it. */
   readonly cwd: string;
+  /** Harness config home, so a role may read its own skill instructions. */
+  readonly harnessRoot?: string;
 }
 
 /**
@@ -101,7 +103,10 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   const role = asRole(ev.role);
   if (!role) return undefined; // no pipeline role ⇒ gate inactive
 
-  const decision = decide(role, ev.toolName, ev.input, { cwd: ev.cwd });
+  const decision = decide(role, ev.toolName, ev.input, {
+    cwd: ev.cwd,
+    ...(ev.harnessRoot !== undefined ? { harnessRoot: ev.harnessRoot } : {}),
+  });
   if (decision.allow) return undefined;
 
   const rawPath = ev.input["path"];

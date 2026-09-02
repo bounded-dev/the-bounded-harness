@@ -16,9 +16,41 @@ export type Decision =
 export interface Ctx {
   /** Absolute path of the project root tool paths resolve against. */
   readonly cwd: string;
+  /**
+   * Absolute path of the harness config home (`~/.pi/agent`), when known.
+   *
+   * Only used to let a role READ its own skill instructions. Omit it and
+   * nothing outside the project opens up.
+   */
+  readonly harnessRoot?: string;
 }
 
 const ALLOW: Decision = { allow: true };
+
+// Skill files are the agent's own instructions: they say nothing about the run,
+// so reading one leaks neither the tests nor the implementation. Every dogfood
+// run so far opened with the architect trying to read its own SKILL.md and
+// being refused — a side effect of the generic "outside the project root" rule,
+// never a deliberate policy.
+//
+// Narrow on purpose. The harness root also holds `auth.json` (credentials),
+// `sessions/` (transcripts of every other session on this machine), `missions/`
+// and `run-history.jsonl`, so opening the directory wholesale would be a real
+// leak. Allow the instruction content only, and only for reads.
+const HARNESS_READABLE = ["skills/**", "packs/*/skills/**"] as const;
+
+/** Is `raw` a harness skill file this role may read? Read-only, never write. */
+function isHarnessSkillRead(raw: string, tool: string, ctx: Ctx): boolean {
+  const root = ctx.harnessRoot;
+  if (root === undefined || !READ_TOOLS.has(tool)) return false;
+  const base = root.endsWith("/") ? root.slice(0, -1) : root;
+  if (raw !== base && !raw.startsWith(base + "/")) return false;
+  // Resolve `..` against the harness root before matching, so a path that
+  // merely starts inside skills/ cannot climb out to auth.json.
+  const inner = normalize(raw, base);
+  if (!inner.ok) return false;
+  return matchesAny(HARNESS_READABLE, inner.path);
+}
 const block = (reason: string): Decision => ({ allow: false, reason });
 
 // --- Tool classes -----------------------------------------------------------
@@ -319,6 +351,7 @@ export function decide(
   if (!GATED_TOOLS.has(tool)) return ALLOW;
 
   const raw = input["path"];
+  if (typeof raw === "string" && isHarnessSkillRead(raw, tool, ctx)) return ALLOW;
   if (raw === undefined || raw === null || raw === "") {
     if (SEARCH_TOOLS.has(tool)) {
       return block(

@@ -41,7 +41,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   asRole,
   evaluateAmbientPathGate,
@@ -51,6 +52,11 @@ import {
 import type { Role } from "../src/path-policy.ts";
 
 const ROLE_FILE = join(".pi", "dev-stage-role");
+
+// This file lives at <harness>/extensions/path-gate.ts, so the harness root is
+// its parent's parent. Derived rather than configured: it must stay correct
+// through the ~/.pi/agent symlink and in any checkout.
+const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /** Resolve an ambient fallback role once per session (env, then role file). */
 function makeFallbackResolver(): (cwd: string) => Role | undefined {
@@ -92,7 +98,13 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     if (!role) return undefined; // inactive: normal session with no role
 
     const input = event.input as Readonly<Record<string, unknown>>;
-    const ev = { role, toolName: event.toolName, input, cwd: ctx.cwd };
+    const ev = {
+      role,
+      toolName: event.toolName,
+      input,
+      cwd: ctx.cwd,
+      harnessRoot: HARNESS_ROOT,
+    };
 
     // Suppression is checked per CALL, not at install: extensions load in an
     // arbitrary order, and the ambient one may well arrive first.

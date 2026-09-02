@@ -395,3 +395,68 @@ describe("zone matching is case-insensitive", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reading the harness's own skill files
+// ---------------------------------------------------------------------------
+
+// Every run so far has opened with the architect trying to read
+// `~/.pi/agent/skills/developer-stage/SKILL.md` and being refused — five
+// attempts across four runs, for two different skills. That block was never a
+// deliberate policy: it falls out of the generic "absolute path outside the
+// project root" containment rule.
+//
+// Skill files are the agent's own instructions. They contain nothing about the
+// run, so reading one leaks neither the tests nor the implementation, and the
+// agent asking for them is behaving reasonably.
+//
+// But the harness root is NOT safe to open wholesale: `auth.json` holds
+// credentials and `sessions/` holds transcripts of every other session on the
+// machine. So allow the instruction content specifically, read-only.
+const HARNESS = "/Users/x/.pi/agent";
+const H = (role: Role, tool: string, path: string): Decision =>
+  decide(role, tool, { path }, { cwd: "/repo", harnessRoot: HARNESS });
+
+describe("harness skill files are readable, the rest of the harness is not", () => {
+  const roles: Role[] = ["architect", "test-writer", "builder"];
+
+  for (const role of roles) {
+    test(`${role} may read a top-level skill`, () => {
+      expect(H(role, "read", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(true);
+    });
+    test(`${role} may read a pack skill`, () => {
+      expect(
+        H(role, "read", `${HARNESS}/packs/ts/skills/ts-contract-authoring/SKILL.md`).allow,
+      ).toBe(true);
+    });
+    test(`${role} may read a skill's reference files`, () => {
+      expect(H(role, "read", `${HARNESS}/skills/issue-tracking/references/setup.md`).allow).toBe(
+        true,
+      );
+    });
+
+    // The part that must stay shut.
+    test(`${role} may NOT read harness credentials`, () => {
+      expect(H(role, "read", `${HARNESS}/auth.json`).allow).toBe(false);
+    });
+    test(`${role} may NOT read other sessions' transcripts`, () => {
+      expect(H(role, "read", `${HARNESS}/sessions/whatever.jsonl`).allow).toBe(false);
+    });
+    test(`${role} may NOT read the harness's own source`, () => {
+      expect(H(role, "read", `${HARNESS}/src/path-policy.ts`).allow).toBe(false);
+    });
+    test(`${role} may NOT write a skill file`, () => {
+      expect(H(role, "write", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(false);
+      expect(H(role, "edit", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(false);
+    });
+    // A path that merely mentions the harness must not be a way out.
+    test(`${role} may NOT traverse out of a skills path`, () => {
+      expect(H(role, "read", `${HARNESS}/skills/../auth.json`).allow).toBe(false);
+      expect(H(role, "read", `${HARNESS}/skills/x/../../auth.json`).allow).toBe(false);
+    });
+  }
+
+  test("with no harnessRoot configured, nothing outside the project opens up", () => {
+    expect(d("architect", "read", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(false);
+  });
+});
