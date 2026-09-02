@@ -460,3 +460,41 @@ describe("harness skill files are readable, the rest of the harness is not", () 
     expect(d("architect", "read", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// run_tests is the builder's channel, and only the builder's
+// ---------------------------------------------------------------------------
+
+// Run 6's architect called `run_tests` once. Harmless in that instance — it was
+// diagnosing a blocked red gate — but it revealed a drift: ROLE_TOOLS.architect
+// does not list run_tests, yet nothing enforced that, because run_tests is not
+// a PATH tool and the gate only inspected path tools.
+//
+// The declared allowlist binds subagents through their frontmatter. A session
+// launched from `.pi/dev-stage-role` has no frontmatter, so the allowlist is
+// documentation there and the gate is the only enforcement. It should agree
+// with what ROLE_TOOLS says.
+//
+// run_tests exists as the blind-safe debugging channel for the one role that
+// implements against a suite it cannot read. The architect can read the tests
+// and has red_gate and green_gate; the test-writer has neither need nor
+// business running the implementation.
+describe("run_tests is builder-only", () => {
+  test("the builder may run it — it is the whole point of the tool", () => {
+    expect(decide("builder", "run_tests", {}, CTX).allow).toBe(true);
+  });
+
+  for (const role of ["architect", "test-writer"] as const) {
+    test(`${role} may not run it`, () => {
+      const d = decide(role, "run_tests", {}, CTX);
+      expect(d.allow).toBe(false);
+      if (!d.allow) expect(d.reason).toMatch(/red_gate|green_gate|builder/);
+    });
+  }
+
+  test("every role keeps typecheck — each must confirm its own work compiles", () => {
+    for (const role of ["architect", "test-writer", "builder"] as const) {
+      expect(decide(role, "typecheck", {}, CTX).allow).toBe(true);
+    }
+  });
+});

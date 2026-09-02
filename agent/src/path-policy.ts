@@ -76,12 +76,23 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 // hands the builder the test source in a single call and `git log -p` does it
 // by accident, so full git in a blind role's hands defeats blindness more
 // completely than bash would.
+//   · `run_tests` — the BUILDER's alone. It is the blind-safe debugging channel
+//     for the one role implementing against a suite it cannot read. The
+//     architect can read the tests and holds red_gate and green_gate; the
+//     test-writer has no business running the implementation.
+//
+// That last one closes a drift rather than adding a rule: ROLE_TOOLS has always
+// said run_tests is builder-only, but nothing enforced it, because run_tests is
+// not a PATH tool and the gate only inspected those. The frontmatter allowlist
+// binds subagents; a session launched from `.pi/dev-stage-role` has none, so
+// there the allowlist was documentation and Run 6's architect duly called it.
 const FORBIDDEN_ALL_ROLES = ["bash"] as const;
 const ARCHITECT_ONLY_TOOLS = ["subagent", "git"] as const;
+const BUILDER_ONLY_TOOLS = ["run_tests"] as const;
 
 const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
-  architect: new Set(FORBIDDEN_ALL_ROLES),
-  "test-writer": new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS]),
+  architect: new Set([...FORBIDDEN_ALL_ROLES, ...BUILDER_ONLY_TOOLS]),
+  "test-writer": new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS, ...BUILDER_ONLY_TOOLS]),
   builder: new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS]),
 };
 
@@ -344,9 +355,11 @@ export function decide(
   ctx: Ctx,
 ): Decision {
   if (FORBIDDEN_TOOLS[role].has(tool)) {
-    return block(
-      `path-gate: ${role} may not use '${tool}': forbidden for ${role} (frontmatter allowlist is the primary layer)`,
-    );
+    const why =
+      tool === "run_tests"
+        ? ": run_tests is the builder's blind-safe channel — use red_gate or green_gate, which run the suite and typecheck together"
+        : " (frontmatter allowlist is the primary layer)";
+    return block(`path-gate: ${role} may not use '${tool}': forbidden for ${role}${why}`);
   }
   if (!GATED_TOOLS.has(tool)) return ALLOW;
 
