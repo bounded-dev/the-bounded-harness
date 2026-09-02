@@ -44,6 +44,80 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Run log
 
+### Run 6 — Sonnet · subscription-billing · bare vs FOLDED harness · PLANNED
+
+Pre-registered before either arm runs. **The question is narrow on purpose:
+did folding the orchestrator and the architect into one role (issue #12) cost
+any quality, and did it buy back any of the time?** Run 5's harness arm is the
+yardstick for quality; Run 5's bare arm is the yardstick for whether the
+separation still pays at all.
+
+Same baseline commit as Run 5 (`b6bc308` in `~/dev/dogfood-billing`), same
+prompt byte-for-byte (`docs/dogfood/run4-prompt.md`), same toolchain (vitest
+4.1.11, TypeScript 5.9.3), **Sonnet throughout**. The AGENTS.md operational
+block is byte-identical between arms; one line differs, naming what the
+environment offers.
+
+- **1 · bare** — `~/dev/dogfood-r6-bare`, branch `r6-bare`. One agent, ordinary
+  tools, no skills. *"Nothing special. Build it with your ordinary tools, the
+  way you think it should be built."*
+- **2 · folded** — `~/dev/dogfood-r6-folded`, branch `r6-folded`. Launched with
+  `agent/scripts/pi-ticket`, which binds the architect role at launch. *"This
+  project is built through the `developer-stage` skill. Invoke it and follow
+  it."*
+
+**What changed in the harness since Run 5.** The architect now owns the ticket
+end to end — designs it, commissions the test-writer and builder, runs every
+gate, arbitrates. There is no separate orchestrator and no PLAN phase. It reads
+everything and writes only `spec.md` and `*.contract.ts`. It has no `bash`: six
+gate tools plus `git`, and `--exclude-tools bash` so the tool is not even
+visible to reach for. `.pi/` became write-denied to every role.
+
+**Predictions, recorded now so they can be wrong.**
+
+1. **Quality holds.** Test count in the 80–110 band (Run 5: 95), the ordering
+   tests still present, and no tautological invariant test. If the folded arm
+   drops toward the bare arm's 31, the separate architect was doing something
+   we did not measure.
+2. **Cost falls.** One fewer subagent spawn, no plan document, and no
+   gate-invocation archaeology (Run 4 lost ~3 minutes to it; the tool schemas
+   now carry the invocations). Expect under Run 5's ~33 minutes and under its
+   $2.44, though stalls dominate the wall clock and could swamp the saving.
+3. **The bare arm writes a tautological invariant test again.** It has done so
+   twice, on two different days. A third would make it the most replicated
+   finding in this file.
+
+**The specific risk this run is watching: laundered blindness.** The architect
+can now read `tests/`, which it could not before. It writes the spec *before*
+any test exists, so the first pass is safe — but on a dispute or revision pass
+it may read a test and then revise the spec, and the builder reads the spec.
+That is a path for test detail to reach the builder without either of them
+breaking a rule. **Check every spec revision that happens after the red gate
+against the tests that existed at that moment.** If specifics leak, the fix is
+a narrower rule (no spec edits after red without a logged rationale), not a
+retreat from the fold.
+
+**Second watch item: does it stay in its lane?** The path gate logs every
+refused write. A folded architect that repeatedly tries to edit `tests/` or
+`src/` is telling us the role is uncomfortable, even if the gate holds. Read
+`.pi/guard-log.jsonl` for `path-gate` blocks and count them by target.
+
+**Scored on Run 4's criteria, unchanged:** per-rule coverage, adversarial
+probes run against both arms, naked primitives at the boundary, invariants in
+types vs prose, ports vs ambient time, `npm run check`, whether the tests
+graded their own exam, and cost.
+
+**Pre-flight, run before registering this.** The gated session starts, blocks a
+write to `tests/probe.test.ts` with the expected message, writes that block to
+the guard log, and — after a fix this pre-flight prompted — no longer sees
+`bash` at all. Run 5 lost two attempts to void runs; this is the cheap
+insurance against a third.
+
+**Hygiene.** Arms share one repo on separate worktrees and branches. **Do not
+push to pi-harness main while arm 2 runs** — it resolves gates through
+`~/.pi/agent` → the live checkout, which is how Run 4's harness arm got
+contaminated mid-flight.
+
 ### Run 5 — Sonnet · subscription-billing · bare vs harness · PLANNED
 
 Pre-registered before either arm runs. Same domain as Run 4
@@ -368,6 +442,9 @@ enforced, all on Haiku (orchestrator + all three workers). One component
 
 ## Open threads
 
+- **#12 the strip-down** — the folded shape is built and pushed; Run 6 is its
+  first live test. Still open within it: the review role, the test-checksum
+  freeze, and scripting the inner loop.
 - **#7 GREEN must include typecheck** — a passing suite with tsc errors is a
   false green (Run 3). Highest-priority correctness gap.
 - **#3 value-objects rule** — top design-quality gap; all three runs are evidence.
