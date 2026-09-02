@@ -12,7 +12,11 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent } from "./guard-log.ts";
+import { readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { decide, type Role } from "./path-policy.ts";
+import { readGuardLog } from "./guard-log.ts";
+import { checkSpawnPrecondition, type PhaseEvidence } from "./phase-gate.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
 export const PIPELINE_ROLES = ["architect", "test-writer", "builder"] as const;
@@ -103,6 +107,26 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   const role = asRole(ev.role);
   if (!role) return undefined; // no pipeline role ⇒ gate inactive
 
+  // Commissioning a worker is a phase TRANSITION, and transitions are checked
+  // the same way artifacts are. Only the architect holds `subagent` at all, so
+  // this is the one place a step could be skipped — three consecutive dogfood
+  // attempts froze the contract and moved on with no spec.
+  if (role === "architect" && ev.toolName === "subagent") {
+    const target = spawnTarget(ev.input);
+    if (target !== undefined) {
+      const decision = checkSpawnPrecondition(target, gatherEvidence(ev.cwd));
+      if (!decision.allow) {
+        logGuardEvent(ev.cwd, {
+          guard: "phase-gate",
+          verdict: "block",
+          summary: decision.reason,
+          detail: { role, target },
+        });
+        return { block: true, reason: decision.reason };
+      }
+    }
+  }
+
   const decision = decide(role, ev.toolName, ev.input, {
     cwd: ev.cwd,
     ...(ev.harnessRoot !== undefined ? { harnessRoot: ev.harnessRoot } : {}),
@@ -131,4 +155,58 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
 export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
   if (isAmbientSuppressed()) return undefined;
   return evaluatePathGate(ev);
+}
+
+/** The agent a `subagent` call is trying to start, if it names one. */
+function spawnTarget(input: Readonly<Record<string, unknown>>): string | undefined {
+  // Only a launch has a precondition; status/wait/stop/steer on a running child
+  // must never be refused, or a blocked architect could not even inspect it.
+  const action = input["action"];
+  if (typeof action === "string" && action !== "launch" && action !== "run") return undefined;
+  for (const key of ["agent", "agentName", "name", "type"]) {
+    const v = input[key];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** Read the project's current state: what exists, and what actually ran. */
+function gatherEvidence(cwd: string): PhaseEvidence {
+  let specBytes = 0;
+  try {
+    specBytes = statSync(join(cwd, "spec.md")).size;
+  } catch {
+    specBytes = 0; // absent
+  }
+  let events: PhaseEvidence["events"] = [];
+  try {
+    events = readGuardLog(cwd);
+  } catch {
+    events = []; // an unreadable log must not silently permit a skip
+  }
+  return { contracts: findContracts(cwd), specBytes, events };
+}
+
+/** Project-relative *.contract.ts paths, skipping the obvious noise. */
+function findContracts(root: string): string[] {
+  const out: string[] = [];
+  const skip = new Set(["node_modules", ".git", ".pi", "dist", "build"]);
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 8) return;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (!skip.has(e.name)) walk(join(dir, e.name), depth + 1);
+      } else if (e.name.endsWith(".contract.ts")) {
+        out.push(relative(root, join(dir, e.name)));
+      }
+    }
+  };
+  walk(root, 0);
+  return out;
 }
