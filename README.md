@@ -65,6 +65,7 @@ Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 ```bash
 git clone git@github.com:bounded-dev/pi-harness.git
 ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
+ln -s ~/.pi/agent/scripts/pi-ticket /opt/homebrew/bin/pi-ticket   # the gated launcher
 pi update --extensions                      # install packages from settings.json
 cd pi-harness/agent && npm ci && npm run check
 ```
