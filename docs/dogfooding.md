@@ -28,43 +28,27 @@ Not yet exercised (pending):
 Read the guard log (`<project>/.pi/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
-## Where runs live
-
-**Three directories, forever — not one pair per run.**
-
-- `~/dev/pi-harness-dogfood` — the archive repo. Every arm of every run is a
-  branch here, and `main` is the shared baseline arms branch from.
-- `~/dev/pi-harness-dogfood-bare` — the control arm's worktree.
-- `~/dev/pi-harness-dogfood-harnessed` — the harness arm's worktree.
-
-A worktree is a disposable *view*; the branch is the archive. So a new run does
-not need new directories — in each arm directory, branch from the baseline:
+## Running one
 
 ```bash
-cd ~/dev/pi-harness-dogfood-bare      && git checkout -b r<N>-bare main
-cd ~/dev/pi-harness-dogfood-harnessed && git checkout -b r<N>-harnessed main
+dogfood-reset          # rebuilds both arms from the default prompt
 ```
 
-Earlier runs used a directory per arm, which is why the entries below name
-paths that no longer exist. Their content was committed and imported here, so
-nothing is lost:
+Then walk into each and paste `PROMPT.md`:
 
-| old directory | now the branch |
-|---|---|
-| `dogfood-reading-list-sonnet` (Run 1) | `run1-reading-list-sonnet` |
-| `dogfood-reading-list` (Run 2/3) | `run2-reading-list-haiku` |
-| `dogfood-billing-control` (Run 4 B) | `run4-control` |
-| `dogfood-billing-harness` (Run 4 A) | `run4-harness` |
-| `dogfood-arm1-bare` (Run 5 arm 1) | `arm1-bare` |
-| `dogfood-arm3-harness` (Run 5 arm 3) | `arm3-harness` |
-| `dogfood-arm4-harness-kimi` (Run 5 Kimi) | `arm4-harness-kimi` |
+- `~/dev/pi-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
+- `~/dev/pi-harness-dogfood-harnessed` — pi. Gated as the architect
+  automatically via `.pi/dev-stage-role`; there is no launcher to remember.
 
-**Commit each arm's output to its branch when scoring finishes.** Arms are told
-not to commit *during* a run, so their output sits uncommitted — which means a
-directory reused without committing first silently destroys the previous run.
-Committing at scoring time is what makes the directories reusable. Include
-`.pi/guard-log.jsonl`: it is the evidence trail, and it is the only reason past
-failures were diagnosable.
+Two directories, one `main` branch each, no worktrees. **Runs are disposable**
+— `dogfood-reset` wipes both and starts over, so copy anything worth keeping
+before re-running. Past runs (1–5) live as branches in
+`~/dev/pi-harness-dogfood-archive`.
+
+`dogfood-reset` writes the operational `AGENTS.md` block from a single string
+and then *verifies* both arms got byte-identical prompts and blocks, failing
+loudly if not. That check is the experiment: exactly one line may differ
+between arms, the one naming what the environment offers.
 
 ## Themes so far
 
@@ -90,20 +74,20 @@ any quality, and did it buy back any of the time?** Run 5's harness arm is the
 yardstick for quality; Run 5's bare arm is the yardstick for whether the
 separation still pays at all.
 
-Same baseline commit as Run 5 (`b6bc308` in `~/dev/pi-harness-dogfood`), same
-prompt byte-for-byte (`docs/dogfood/subscription-billing-prompt.md`), same toolchain (vitest
-4.1.11, TypeScript 5.9.3), **Sonnet throughout**. The AGENTS.md operational
-block is byte-identical between arms; one line differs, naming what the
+Same baseline as Run 5, same prompt byte-for-byte
+(`docs/dogfood/subscription-billing-prompt.md`), same toolchain (vitest 4.1.11,
+TypeScript 5.9.3), **Sonnet throughout**. Both arms are built by
+`dogfood-reset`, which verifies the prompt and the operational block are
+byte-identical and fails if they are not; one line differs, naming what the
 environment offers.
 
-- **1 · bare** — `~/dev/pi-harness-dogfood-bare`, branch `r6-bare`. **Claude
+- **1 · bare** — `~/dev/pi-harness-dogfood-bare`. **Claude
   Code**, one agent, ordinary tools, no skills — same as Run 5's arm 1, so the
   control is comparable across runs. *"Nothing special. Build it with your
   ordinary tools, the way you think it should be built."*
-- **2 · folded** — `~/dev/pi-harness-dogfood-harnessed`, branch `r6-folded`.
-  **pi**, launched with `agent/scripts/pi-ticket`, which binds the architect
-  role at launch. *"This project is built through the `developer-stage` skill.
-  Invoke it and follow it."*
+- **2 · folded** — `~/dev/pi-harness-dogfood-harnessed`. **pi**, gated as the
+  architect through the project's `.pi/dev-stage-role`. *"This project is built
+  through the `developer-stage` skill. Invoke it and follow it."*
 
 The two arms therefore run on different agent harnesses (Claude Code vs pi),
 as they did in Runs 4 and 5. That is a confound the comparison has always
@@ -158,8 +142,7 @@ the guard log, and — after a fix this pre-flight prompted — no longer sees
 `bash` at all. Run 5 lost two attempts to void runs; this is the cheap
 insurance against a third.
 
-**Hygiene.** Arms share one repo on separate worktrees and branches. **Do not
-push to pi-harness main while arm 2 runs** — it resolves gates through
+**Hygiene.** **Do not push to pi-harness main while arm 2 runs** — it resolves gates through
 `~/.pi/agent` → the live checkout, which is how Run 4's harness arm got
 contaminated mid-flight.
 

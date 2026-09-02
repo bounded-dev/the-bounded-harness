@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# dogfood-reset — rebuild the two dogfood arms from scratch, ready to run.
+#
+#   dogfood-reset                     # subscription-billing (the default prompt)
+#   dogfood-reset <prompt-file>       # any other prompt
+#
+# Afterwards there is nothing to configure and no command to remember:
+#
+#   cd ~/dev/pi-harness-dogfood-bare        → run Claude Code, paste PROMPT.md
+#   cd ~/dev/pi-harness-dogfood-harnessed   → run pi,           paste PROMPT.md
+#
+# The harnessed arm binds the architect role itself through
+# `.pi/dev-stage-role`, so plain `pi` is gated — read anything, write only
+# spec.md and *.contract.ts, no bash. Nothing to launch specially.
+#
+# Both arms get a byte-identical operational AGENTS.md and a byte-identical
+# PROMPT.md. Exactly one line differs, naming what that environment offers —
+# that line is the whole experiment, so keep it the only difference.
+#
+# Runs are DISPOSABLE. This deletes whatever was in the arms and starts over.
+# If a run is worth keeping, commit it or copy it out before resetting.
+
+set -euo pipefail
+
+BARE="$HOME/dev/pi-harness-dogfood-bare"
+HARNESSED="$HOME/dev/pi-harness-dogfood-harnessed"
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+REPO="$(cd -P "$HARNESS/.." && pwd)"
+
+PROMPT_SRC="${1:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
+[ -f "$PROMPT_SRC" ] || { echo "dogfood-reset: no prompt at $PROMPT_SRC" >&2; exit 2; }
+
+# The operational block is identical in both arms by construction: it is one
+# string, written twice. An arm that quietly gained a different toolchain note
+# or a different definition of done would confound the run silently.
+read -r -d '' BLOCK <<'EOF' || true
+# Working in this repo
+
+## The project
+
+A standalone TypeScript component. Nothing else depends on it yet, so the
+public surface is yours to design.
+
+- **Source** goes in `src/`, **tests** in `tests/`. Keep them separate.
+- **Test runner:** vitest 4.1.11. **TypeScript:** 5.9.3, `strict`, plus
+  `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` — the settings
+  are in `tsconfig.json` and are not up for negotiation.
+- **Commands:**
+  - `npm run check` — `tsc --noEmit` then the full suite. This is the bar.
+  - `npm test` — the suite alone.
+- ESM, `NodeNext` resolution: intra-project imports need the `.js` extension
+  (`import { x } from "./money.js"`) even though the file is `.ts`.
+- Do not add dependencies. Everything needed is installed.
+- Do not commit; leave your work in the working tree.
+
+Done means `npm run check` passes: the suite is green **and** the project
+typechecks.
+
+## How work is done here
+EOF
+
+BARE_LINE='Nothing special. Build it with your ordinary tools, the way you think it
+should be built.'
+HARNESSED_LINE='This project is built through the **`developer-stage`** skill. Invoke it and
+follow it.'
+
+scaffold() {
+  local dir="$1" line="$2"
+  rm -rf "$dir"
+  mkdir -p "$dir/src" "$dir/tests"
+
+  cat > "$dir/package.json" <<'EOF'
+{
+  "name": "dogfood",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && vitest run",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}
+EOF
+
+  cat > "$dir/tsconfig.json" <<'EOF'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
+EOF
+
+  printf '%s\n%s\n' "$BLOCK" "$line" > "$dir/AGENTS.md"
+  # Strip any internal <!-- ... --> header: the arm must see only the prompt.
+  python3 - "$PROMPT_SRC" "$dir/PROMPT.md" <<'PY'
+import re, sys, pathlib
+src, dst = sys.argv[1], sys.argv[2]
+text = pathlib.Path(src).read_text()
+pathlib.Path(dst).write_text(re.sub(r"^<!--.*?-->\n\n", "", text, flags=re.S))
+PY
+  printf 'node_modules/\n' > "$dir/.gitignore"
+  touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
+
+  ( cd "$dir" && npm install --silent >/dev/null 2>&1 )
+  ( cd "$dir" && git init -q && git add -A \
+      && git commit -q -m "Baseline: empty TypeScript project + prompt" )
+}
+
+echo "dogfood-reset: rebuilding both arms from $PROMPT_SRC"
+scaffold "$BARE" "$BARE_LINE"
+scaffold "$HARNESSED" "$HARNESSED_LINE"
+
+# Only the harnessed arm is gated. The role is read from this file at session
+# start, so a plain `pi` in this directory IS the architect — no launcher, no
+# flag, nothing to remember.
+mkdir -p "$HARNESSED/.pi"
+printf 'architect\n' > "$HARNESSED/.pi/dev-stage-role"
+( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
+
+# Guard the one property the whole comparison rests on.
+if ! diff -q "$BARE/PROMPT.md" "$HARNESSED/PROMPT.md" >/dev/null; then
+  echo "dogfood-reset: FATAL — prompts differ between arms" >&2; exit 1
+fi
+if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
+             <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
+  echo "dogfood-reset: FATAL — operational blocks differ between arms" >&2; exit 1
+fi
+
+cat <<EOF
+
+Both arms ready. Prompt and operational block verified identical.
+
+  cd $BARE
+      run Claude Code, paste PROMPT.md
+
+  cd $HARNESSED
+      run pi, paste PROMPT.md          (gated as the architect automatically)
+
+Runs are disposable — re-run dogfood-reset to start over.
+EOF
