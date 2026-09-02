@@ -45,4 +45,12 @@ if [ ! -f "$GATE" ]; then
   exit 2
 fi
 
-exec pi --extension "$GATE" "$@"
+# Drop `bash` from the toolset rather than relying on the gate to refuse it.
+#
+# The path gate DOES block bash for every role, but a blocked call is a wasted
+# turn — and worse, a model that can SEE bash in its toolset plans around it
+# and reaches for it when stuck. A subagent never has this problem: its
+# frontmatter `tools:` list removes bash before the model ever sees it. This
+# flag gives a directly-launched session the same property, so the gate's bash
+# rule stays a backstop instead of doing the work.
+exec pi --extension "$GATE" --exclude-tools bash "$@"
