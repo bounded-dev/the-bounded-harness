@@ -11,6 +11,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 type MessageId =
   | "functionBody"
+  | "missingDeclare"
   | "valueBinding"
   | "classBody"
   | "enumRuntime"
@@ -38,6 +39,7 @@ export const declarationOnly = createRule<[], MessageId>({
     type: "problem",
     messages: {
       functionBody: `${DECLARATION_ONLY} '{{name}}' has a function body — keep only the signature here; the scaffolder generates the throwing skeleton in the sibling .ts and the builder implements there.`,
+      missingDeclare: `${DECLARATION_ONLY} '{{name}}' is a bodiless function signature missing 'declare' — write 'export declare function {{name}}(...): ...;' instead. Without 'declare', tsc treats a bodiless signature as an incomplete implementation (TS2391 "Function implementation is missing or not immediately following the declaration") and the contract fails to compile.`,
       valueBinding: `${DECLARATION_ONLY} '{{name}}' is a value binding and would emit runtime code — declare the shape with 'export declare const {{name}}: …' or move the value into the implementation.`,
       classBody: `${DECLARATION_ONLY} class '{{name}}' has a runtime body — use 'export declare class {{name}}' for the shape and implement in the sibling .ts.`,
       enumRuntime: `${DECLARATION_ONLY} enum '{{name}}' is not allowed (the scaffolder cannot skeleton enums) — use a string-literal union: type {{name}} = 'a' | 'b'.`,
@@ -58,11 +60,28 @@ export const declarationOnly = createRule<[], MessageId>({
         // --- pure declarations: always allowed ---
         case TSESTree.AST_NODE_TYPES.TSInterfaceDeclaration:
         case TSESTree.AST_NODE_TYPES.TSTypeAliasDeclaration:
+          return;
+
+        // A bodiless function signature — `function f(): T;` — always parses
+        // as TSDeclareFunction, whether or not the source wrote `declare`
+        // (FunctionDeclaration only occurs when a body is present). Without
+        // `declare`, tsc requires an implementation to follow immediately
+        // (TS2391); a contract file never provides one, so the signature is
+        // dead on arrival. `node.declare` is the only thing distinguishing
+        // the compiling form from the one that doesn't.
         case TSESTree.AST_NODE_TYPES.TSDeclareFunction:
+          if (node.declare) return;
+          context.report({
+            node,
+            messageId: "missingDeclare",
+            data: { name: node.id ? node.id.name : "default" },
+          });
           return;
 
         case TSESTree.AST_NODE_TYPES.FunctionDeclaration:
-          // A bodiless signature is a declaration (tsc enforces pairing).
+          // FunctionDeclaration always carries a body in this parser (a
+          // bodiless signature is TSDeclareFunction, handled above); this
+          // guard is defensive, not load-bearing.
           if (!node.body) return;
           context.report({
             node,

@@ -19,9 +19,13 @@ ruleTester.run("declaration-only", declarationOnly, {
     "export type Status = 'open' | 'paid';",
     "type Internal = string;", // unexported types are fine
     "export declare function createOrder(input: NewOrder): Order;",
-    "export function parse(s: string): Order;", // bodiless signature (tsc enforces pairing)
     "export declare const DEFAULT_CURRENCY: string;",
     "export declare class OrderId { readonly value: string; }",
+    // declare class members: bodiless method signatures are fine — the class
+    // itself carries `declare`, so its contents never reach the runtime check
+    "export declare class Repo { get(id: string): string; }",
+    // overloads: every signature needs its own `declare`, same as a single one
+    "export declare function find(id: string): Order | undefined;\nexport declare function find(id: number): Order | undefined;",
     "export default interface Config { debug: boolean; }",
     "export {};",
     "",
@@ -51,6 +55,24 @@ ruleTester.run("declaration-only", declarationOnly, {
     {
       code: "function helper() { return 42; }",
       errors: [{ messageId: "functionBody", data: { name: "helper" } }],
+    },
+    // --- bodiless signature missing `declare` (the live dogfood bug: tsc
+    // requires `declare` on a bodiless function or it's TS2391 "Function
+    // implementation is missing or not immediately following the
+    // declaration" — a contract that fails to compile) ---
+    {
+      code: "export function parse(s: string): Order;",
+      errors: [{ messageId: "missingDeclare", data: { name: "parse" } }],
+    },
+    {
+      code: "function helper(s: string): Order;",
+      errors: [{ messageId: "missingDeclare", data: { name: "helper" } }],
+    },
+    // one bare signature poisons an otherwise-declared overload set — every
+    // signature needs its own `declare`
+    {
+      code: "export declare function find(id: string): Order | undefined;\nexport function find(id: number): Order | undefined;",
+      errors: [{ messageId: "missingDeclare", data: { name: "find" } }],
     },
     // --- value bindings emit runtime code ---
     {
