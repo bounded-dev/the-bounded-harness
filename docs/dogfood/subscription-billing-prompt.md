@@ -1,3 +1,13 @@
+<!--
+The subscription-billing dogfood prompt. Used VERBATIM by Runs 4, 5 and 6 —
+the whole point is that it does not change, so arms across runs are
+comparable. It was written for Run 4; it is not Run 4's property.
+
+Copied into each arm as PROMPT.md at setup. Do not edit without starting a new
+prompt file under a new name, or every prior run's numbers stop meaning
+anything.
+-->
+
 Build a **subscription billing** component in TypeScript.
 
 A customer holds one subscription to a plan. A plan has a price and a billing

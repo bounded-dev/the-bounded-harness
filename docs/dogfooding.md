@@ -91,18 +91,25 @@ yardstick for quality; Run 5's bare arm is the yardstick for whether the
 separation still pays at all.
 
 Same baseline commit as Run 5 (`b6bc308` in `~/dev/pi-harness-dogfood`), same
-prompt byte-for-byte (`docs/dogfood/run4-prompt.md`), same toolchain (vitest
+prompt byte-for-byte (`docs/dogfood/subscription-billing-prompt.md`), same toolchain (vitest
 4.1.11, TypeScript 5.9.3), **Sonnet throughout**. The AGENTS.md operational
 block is byte-identical between arms; one line differs, naming what the
 environment offers.
 
-- **1 · bare** — `~/dev/pi-harness-dogfood-bare`, branch `r6-bare`. One agent, ordinary
-  tools, no skills. *"Nothing special. Build it with your ordinary tools, the
-  way you think it should be built."*
-- **2 · folded** — `~/dev/pi-harness-dogfood-harnessed`, branch `r6-folded`. Launched with
-  `agent/scripts/pi-ticket`, which binds the architect role at launch. *"This
-  project is built through the `developer-stage` skill. Invoke it and follow
-  it."*
+- **1 · bare** — `~/dev/pi-harness-dogfood-bare`, branch `r6-bare`. **Claude
+  Code**, one agent, ordinary tools, no skills — same as Run 5's arm 1, so the
+  control is comparable across runs. *"Nothing special. Build it with your
+  ordinary tools, the way you think it should be built."*
+- **2 · folded** — `~/dev/pi-harness-dogfood-harnessed`, branch `r6-folded`.
+  **pi**, launched with `agent/scripts/pi-ticket`, which binds the architect
+  role at launch. *"This project is built through the `developer-stage` skill.
+  Invoke it and follow it."*
+
+The two arms therefore run on different agent harnesses (Claude Code vs pi),
+as they did in Runs 4 and 5. That is a confound the comparison has always
+carried and it is worth restating: the bare arm is not "pi without the
+pipeline", it is a different tool. What survives it is the *test-quality*
+finding, which is about who writes the tests rather than which harness runs.
 
 **What changed in the harness since Run 5.** The architect now owns the ticket
 end to end — designs it, commissions the test-writer and builder, runs every
@@ -159,7 +166,7 @@ contaminated mid-flight.
 ### Run 5 — Sonnet · subscription-billing · bare vs harness · PLANNED
 
 Pre-registered before either arm runs. Same domain as Run 4
-(`docs/dogfood/run4-prompt.md`), **Sonnet throughout**, prompt **byte-identical
+(`docs/dogfood/subscription-billing-prompt.md`), **Sonnet throughout**, prompt **byte-identical
 in both arms** — the only variable is the environment.
 
 Layout: one repo, `~/dev/dogfood-billing`, two git worktrees on branches off a
@@ -306,7 +313,7 @@ pipeline holds a weak model up; this asks the harder question.
   line of guidance ("Keep the code clean and well separated. Write it
   test-first."). Arm A's extra guidance comes only from the harness's own
   skills — which is precisely the variable. The exact text is committed at
-  `docs/dogfood/run4-prompt.md` so the runs are reproducible.
+  `docs/dogfood/subscription-billing-prompt.md` so the runs are reproducible.
 - **Domain:** subscription billing with mid-period plan changes. Chosen for
   scope for error, not size: money + currency, dates and whole-day proration,
   rounding to the smallest unit, a capped charge, idempotency under a caller
