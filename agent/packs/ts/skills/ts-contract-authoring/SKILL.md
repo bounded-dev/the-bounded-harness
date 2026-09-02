@@ -127,8 +127,22 @@ the code belongs):
   nothing checks.
 - **Explicit types live here.** This is the framework level: annotate
   everything. Implementations will infer from these declarations.
-- Side effects (time, IO, network, randomness) are **ports**: an interface in
-  the contract, injected into the component; the test-writer fakes them.
+- **Design for testability before you scaffold.** The test-writer works
+  through this contract and nothing else — no implementation, nothing past
+  the interface. Before running `scaffold-contract.ts`, check every exported
+  operation against these; a failure means revise the contract, not the
+  tests:
+  1. **Single purpose** — one reason to exist, one behaviour to name.
+  2. **Pure where possible** — output determined solely by input: no hidden
+     state, no mutation of an argument, no reliance on module-level or global
+     state.
+  3. **Side effects are ports, not ambient calls** — time, IO, network,
+     randomness, persistence each declared as an interface here and
+     injected; never reached directly (`Date.now()`, a bare `fetch`, a
+     module-level singleton).
+  4. **Callable through the contract alone** — if testing an operation would
+     need anything the interface doesn't expose, that's a design defect in
+     the contract, not a gap in the tests.
 
 ## Worked example
 

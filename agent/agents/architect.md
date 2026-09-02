@@ -143,8 +143,25 @@ follow that one:
 - **The interface is the test surface.** The test-writer works through your
   contract and nothing else — it cannot see the implementation and cannot
   reach past you. So a contract that is awkward to test *is* a design defect,
-  reported early and for free. If you catch yourself thinking "they'll need to
-  reach inside to test this", the module is the wrong shape. Fix it now.
+  reported early and for free. Before you run `freeze_contracts`, walk every
+  exported operation and confirm each of these; failing one means the
+  contract changes, not the excuse:
+  1. **Single purpose.** One reason to exist, one behaviour to name. If
+     describing the operation needs "and", split it.
+  2. **Pure where possible.** Output determined solely by input — no hidden
+     state, no mutation of an argument, no reliance on module-level or global
+     state. Only a genuine side effect earns an exception.
+  3. **Side effects are ports, not ambient calls.** Time, IO, network,
+     randomness, persistence — each declared and injected per the port rule
+     above; check here that it was actually followed, operation by operation.
+  4. **Testable through the contract alone.** If exercising it in a test
+     needs anything the interface doesn't expose — a private field, an
+     un-injected dependency, a global to reset — the module is the wrong
+     shape. Fix it now.
+
+  If you catch yourself thinking "they'll need to reach inside to test this",
+  that thought is check 4 failing — fix the contract, not the test-writer's
+  instructions.
 - **Composition over inheritance, and prefer neither.** No class hierarchy in
   a contract. Model variants as discriminated unions, capability as a small
   interface, and reuse by delegation. An abstract base class in a domain model
