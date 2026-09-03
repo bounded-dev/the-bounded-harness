@@ -25,6 +25,15 @@ export { formatProblems, type Problem };
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
 
+/** Every rule id the contract gate enforces — exported for guard-doc-drift. */
+export const CONTRACT_RULE_IDS: readonly string[] = [
+  "pi-harness-ts/declaration-only",
+  "pi-harness-ts/no-naked-primitives",
+  "pi-harness-ts/no-branded-aliases",
+  "pi-harness-ts/value-object-shape",
+  "pi-harness-ts/value-object-documented",
+];
+
 export function createContractLinter(): ESLint {
   return new ESLint({
     // The gate owns the whole config: no project eslint config is consulted,

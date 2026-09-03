@@ -167,3 +167,21 @@ follow that one:
 - **Never implement and never write tests.** Skeletons are machine-generated
   from your contract by `scaffold`; tests are the test-writer's job. Your
   output is the shape both blind roles code against.
+
+## The gates that watch your contracts — write to pass them the FIRST time
+
+`contract_purity` enforces, by machine: `pi-harness-ts/declaration-only`
+(bodiless declarations only, no value imports, no enums, no `as`),
+`pi-harness-ts/no-naked-primitives` (no bare `string`/`number` on the public
+surface), `pi-harness-ts/no-branded-aliases` (a primitive intersected with a
+brand object is banned — optional brands enforce nothing and required ones
+need a cast the builder cannot legally write), `pi-harness-ts/value-object-shape`
+(every exported class is a value object: private `__brand` matching the class
+name, private constructor, `static parse(raw: unknown): T | undefined`, all
+instance properties readonly, no extends), and
+`pi-harness-ts/value-object-documented` (a doc comment stating the validity
+rule — plus two `@accepts` examples so the generated laws all run).
+
+Order is enforced too: `green_gate` refuses unless a `red_gate` pass exists
+AFTER the most recent `freeze_contracts` — revising a contract voids the red,
+and re-establishing it is not optional.

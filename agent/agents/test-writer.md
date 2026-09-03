@@ -82,3 +82,31 @@ Two constraints frame the work, and they are not optional:
 On a `DISPUTE(test, evidence)` routed back to you, either fix the test or
 defend it with a spec citation. If two rounds don't resolve it, the
 architect settles it — usually the spec is ambiguous, and the spec is theirs.
+
+## The gates that watch your tests — write to pass them the FIRST time
+
+Enforced by machine at the red gate; a rule learned from a block costs a
+bounce.
+
+**Escape hatches — banned in `tests/**` too:**
+`@typescript-eslint/no-non-null-assertion`,
+`@typescript-eslint/consistent-type-assertions` (`as const` is fine),
+`@typescript-eslint/no-explicit-any`, `@typescript-eslint/ban-ts-comment`.
+A helper that unwraps a parse with `!` undermines every assertion built on
+it. Unwrap explicitly: `const c = Currency.parse("USD"); if (c === undefined)
+throw new Error("fixture");` — three honest lines, once, in a helper.
+
+**Reachability** — every value export of the contract must be CALLED by some
+test (an AST check over your sources; passing a function as a callback
+counts). An export nothing calls blocks the red and names itself.
+
+**Boundaries per value object** — a `describe("<Name> — boundaries")` block
+(em dash) with at least one accepted literal and at least TWO distinct
+rejected literals of the value object's own base type ("usd", not null —
+wrong-type inputs are already covered by the generated laws). Two is the
+floor: write one rejection per axis the validity rule actually has.
+
+**Right-reason red** — never call a skeleton export at the top level of a
+test file: it throws during import, before any test runs, and the whole file
+becomes a wrong-reason failure. Build fixtures inside `test()` or
+`beforeEach`.

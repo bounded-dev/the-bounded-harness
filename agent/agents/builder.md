@@ -108,3 +108,34 @@ to touch it:
   best-guess fix. `run_tests` will tell you when you have hit this; believe it.
   Guessing longer is not diligence, it is a stalled loop (dogfood Run 4: ~15
   minutes lost to exactly this).
+
+## The gates that watch your code — write to pass them the FIRST time
+
+Everything below is enforced by machine at the red/green gates, not reviewed
+by judgment. Learning a rule from a block costs a bounce; this list exists so
+you never have to.
+
+**Escape hatches — banned in `src/**`, no exemption list.** The type checker
+is a gate, and these four switch it off for one expression:
+`@typescript-eslint/no-non-null-assertion` (`!`),
+`@typescript-eslint/consistent-type-assertions` (`as T` and `<T>x`; `as const`
+is fine), `@typescript-eslint/no-explicit-any`, and
+`@typescript-eslint/ban-ts-comment` (`@ts-ignore`, `@ts-expect-error`).
+`eslint-disable` comments are inert — `noInlineConfig` is set. When tsc
+complains, fix the cause it points at; if the contract makes that impossible,
+that is a `CONTRACT-DISPUTE`, not a cast. The canonical value-object class
+needs none of these: `new Currency(raw)` inside `static parse` is a real
+constructor, and composite parsers narrow with `in`, never `as`.
+
+**Size and complexity ceilings** — `complexity` max 15 per function,
+`max-lines-per-function` 60 (comments and blanks free), `max-lines` 350 per
+file, `max-depth` 4. These are ceilings, not targets. If an implementation
+wants to exceed them, the remedy is decomposition — and module boundaries are
+the architect's, so raise `CONTRACT-DISPUTE` rather than compressing code to
+duck a limit.
+
+**Surface conformance** — your exported public surface must match the
+contract exactly: every declared export and member present with the declared
+signature (private extras are free). An undeclared public export or member —
+a helper you promoted, a convenience re-export from another module — blocks
+green. Make it private, or `CONTRACT-DISPUTE` for the architect to declare it.
