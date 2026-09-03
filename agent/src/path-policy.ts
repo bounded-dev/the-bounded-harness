@@ -19,8 +19,9 @@ export interface Ctx {
   /**
    * Absolute path of the harness config home (`~/.pi/agent`), when known.
    *
-   * Only used to let a role READ its own skill instructions. Omit it and
-   * nothing outside the project opens up.
+   * Only used to let a role READ skill instructions — its own, and those
+   * shipped by installed packs and extensions. Omit it and nothing outside the
+   * project opens up.
    */
   readonly harnessRoot?: string;
 }
@@ -37,7 +38,26 @@ const ALLOW: Decision = { allow: true };
 // `sessions/` (transcripts of every other session on this machine), `missions/`
 // and `run-history.jsonl`, so opening the directory wholesale would be a real
 // leak. Allow the instruction content only, and only for reads.
-const HARNESS_READABLE = ["skills/**", "packs/*/skills/**"] as const;
+//
+// Run 7 found the other half of the same block. The architect read
+// `packs/ts/skills/ts-contract-authoring/SKILL.md` from an absolute path
+// happily, then asked for `npm/node_modules/pi-subagents/skills/pi-subagents/
+// SKILL.md` — the documentation for the `subagent` tool it drives the entire
+// pipeline with — and was refused, because an INSTALLED pack lives under
+// node_modules rather than `packs/`. Same kind of file, same read-only need,
+// opposite answer; it then spent two turns guessing `runs.run` and resume
+// semantics out loud rather than looking them up.
+//
+// The installed arm is deliberately narrower than the harness's own `skills/**`.
+// node_modules is a code tree, so it allows PROSE only (`.md`) and only under a
+// `skills/` directory: a dependency's source stays as shut as the harness's own
+// source. `**` before `skills/` is what admits scoped packages (`@acme/pack`).
+const HARNESS_READABLE = [
+  "skills/**",
+  "packs/*/skills/**",
+  "npm/node_modules/**/skills/**/*.md",
+  "extensions/**/skills/**/*.md",
+] as const;
 
 /** Is `raw` a harness skill file this role may read? Read-only, never write. */
 function isHarnessSkillRead(raw: string, tool: string, ctx: Ctx): boolean {
@@ -133,6 +153,11 @@ export const GATE_TOOLS: readonly string[] = [
   "check_drift",
   "red_gate",
   "green_gate",
+  // Green is not the terminal verdict: after it passes the architect records
+  // what it saw reading both sides, and an empty list is a valid answer. Run 7
+  // found a real defect in its closing turn and shipped anyway, because a gate
+  // verdict was the only way the loop could end.
+  "sign_off",
 ];
 
 export const ROLE_TOOLS: Record<Role, readonly string[]> = {
@@ -162,6 +187,38 @@ const ALWAYS_DENY = [".git", ".git/**"] as const;
 // something the accused can edit. The gates write these files through plain
 // `fs`, which never passes through the tool hook, so they are unaffected.
 const ALWAYS_WRITE_DENY = [".pi", ".pi/**"] as const;
+
+// Denied for every role on WRITE, the test-writer included — and the test-writer
+// is the whole reason this is stated rather than inherited, because `tests/**`
+// is its write zone.
+//
+// `tests/generated/**` is the value-object law suite: generated from the
+// contract by the pack's `value-object-laws.ts`, asserting what is true of
+// EVERY value object (parse refuses `null`/`[]`/`42`/`""`, equality is by
+// value, parsing is deterministic). Nobody hand-writes it for the same reason
+// nobody hand-writes a skeleton — an
+// edit to a generated file is a claim the next regeneration silently discards,
+// and a test suite that quietly reverts is worse than no suite. Reads are
+// untouched: whoever can read `tests/` can read this.
+const GENERATED_WRITE_DENY = ["tests/generated", "tests/generated/**"] as const;
+
+/** Write-denied for every role, whatever their zone says. Consulted by both
+ *  decide() and ownerOfPath(), so routing can never name a role the gate would
+ *  then refuse. */
+function alwaysWriteDenied(path: string): { readonly reason: string } | null {
+  if (matchesAny(ALWAYS_WRITE_DENY, path)) {
+    return {
+      reason: "'.pi' is the guard log and checksum manifest — read-only for every role",
+    };
+  }
+  if (matchesAny(GENERATED_WRITE_DENY, path)) {
+    return {
+      reason:
+        "'tests/generated' is machine-generated — the value-object law suite, written by the pack's value-object-laws.ts from the contract. Regenerate it; a hand edit is discarded, never merged",
+    };
+  }
+  return null;
+}
 
 // --- Zones (v1: hardcoded globs, per TN-26-001) ------------------------------
 
@@ -332,6 +389,9 @@ export function ownerOfPath(path: string): Role | null {
   if (path.startsWith("/")) return null;
   const n = normalize(path, "/");
   if (!n.ok || n.path === ".") return null;
+  // A file no role may write is unowned however well it matches a write zone —
+  // routing a generated law suite to the test-writer would deadlock the loop.
+  if (alwaysWriteDenied(n.path) !== null) return null;
   return (
     ROLES_UPSTREAM_FIRST.find((role) => {
       const zone = ZONES[role];
@@ -397,11 +457,9 @@ export function decide(
   };
 
   if (WRITE_TOOLS.has(tool)) {
-    const alwaysDenied = ALWAYS_WRITE_DENY.find((g) => matchGlob(g, t));
-    if (alwaysDenied !== undefined) {
-      return block(
-        `path-gate: ${role} may not write '${t}': '.pi' is the guard log and checksum manifest — read-only for every role`,
-      );
+    const alwaysDenied = alwaysWriteDenied(t);
+    if (alwaysDenied !== null) {
+      return block(`path-gate: ${role} may not write '${t}': ${alwaysDenied.reason}`);
     }
     const denied = zone.writeDeny.find((g) => matchGlob(g, t));
     if (denied) {

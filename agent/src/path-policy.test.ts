@@ -204,6 +204,57 @@ describe(".pi is write-denied for every role, read-allowed for all", () => {
 });
 
 // ---------------------------------------------------------------------------
+// tests/generated/** — machine-written, like the skeletons
+// ---------------------------------------------------------------------------
+
+// The value-object law suite is generated from the contract: it asserts what is
+// true of EVERY value object (parse refuses null/[]/42/"", equality is by value,
+// parsing is deterministic). Nobody hand-writes it, for the same reason nobody
+// hand-writes a skeleton — an edited generated file is a lie that survives until
+// the next regeneration silently discards it.
+//
+// The test-writer is the interesting case: `tests/**` is its write zone, so this
+// is the one deny that has to be stated rather than inherited.
+describe("tests/generated is write-denied for every role, test-writer included", () => {
+  const roles: Role[] = ["architect", "test-writer", "builder"];
+  for (const role of roles) {
+    test(`${role} may not write under tests/generated`, () => {
+      for (const tool of WRITE_TOOLS) {
+        expect(d(role, tool, "tests/generated/currency.laws.test.ts").allow).toBe(false);
+        expect(d(role, tool, "tests/generated/nested/deep.test.ts").allow).toBe(false);
+        expect(d(role, tool, "tests/generated").allow).toBe(false);
+      }
+    });
+  }
+
+  test("the block says it is machine-generated and names what regenerates it", () => {
+    const r = d("test-writer", "write", "tests/generated/currency.laws.test.ts");
+    expect(r.allow).toBe(false);
+    if (!r.allow) {
+      expect(r.reason).toMatch(/machine-generated/);
+      expect(r.reason).toMatch(/value-object-laws\.ts/);
+    }
+  });
+
+  test("hand-written tests next to it are still the test-writer's to write", () => {
+    expect(d("test-writer", "write", "tests/generatedish/x.test.ts").allow).toBe(true);
+    expect(d("test-writer", "write", "tests/currency.test.ts").allow).toBe(true);
+  });
+
+  test("reads are unchanged — whoever could read tests still can", () => {
+    expect(d("test-writer", "read", "tests/generated/currency.laws.test.ts").allow).toBe(true);
+    expect(d("architect", "read", "tests/generated/currency.laws.test.ts").allow).toBe(true);
+    // …and the builder still cannot, because it is still tests.
+    expect(d("builder", "read", "tests/generated/currency.laws.test.ts").allow).toBe(false);
+  });
+
+  test("no role owns it, so a gate routes its failures to the orchestrator", () => {
+    expect(ownerOfPath("tests/generated/currency.laws.test.ts")).toBe(null);
+    expect(ownerOfPath("tests/currency.test.ts")).toBe("test-writer");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Ungated tools — this module only governs path tools
 // ---------------------------------------------------------------------------
 
@@ -458,6 +509,79 @@ describe("harness skill files are readable, the rest of the harness is not", () 
 
   test("with no harnessRoot configured, nothing outside the project opens up", () => {
     expect(d("architect", "read", `${HARNESS}/skills/developer-stage/SKILL.md`).allow).toBe(false);
+  });
+});
+
+// Run 7 found the other half of the same block. The architect read
+// `packs/ts/skills/ts-contract-authoring/SKILL.md` from an absolute path
+// happily, then asked for pi-subagents' SKILL.md — the documentation for the
+// `subagent` tool it drives the whole pipeline with — and was refused, because
+// an INSTALLED pack lives under `npm/node_modules/`, not `packs/`. Same kind of
+// file, same read-only need, opposite answer.
+//
+// The cost was visible: it could not look up `runs.run`, the gate semantics or
+// resume, and spent two turns guessing out loud instead.
+//
+// node_modules is a code tree, so this arm is narrower than the harness's own
+// `skills/**`: prose only (`.md`), and only under a `skills/` directory. A
+// dependency's source stays as shut as the harness's own source.
+describe("skills shipped by installed packs and extensions are readable too", () => {
+  const PI_SUBAGENTS = `${HARNESS}/npm/node_modules/pi-subagents/skills/pi-subagents/SKILL.md`;
+
+  for (const role of ["architect", "test-writer", "builder"] as const) {
+    test(`${role} may read an installed pack's skill`, () => {
+      expect(H(role, "read", PI_SUBAGENTS).allow).toBe(true);
+    });
+  }
+
+  test("a scoped package's skill works the same way", () => {
+    expect(
+      H("architect", "read", `${HARNESS}/npm/node_modules/@acme/pack/skills/thing/SKILL.md`).allow,
+    ).toBe(true);
+  });
+
+  test("a skill's reference prose comes with it", () => {
+    expect(
+      H("architect", "read", `${HARNESS}/npm/node_modules/pi-subagents/skills/pi-subagents/references/gates.md`)
+        .allow,
+    ).toBe(true);
+  });
+
+  test("an extension's skill is readable on the same terms", () => {
+    expect(H("architect", "read", `${HARNESS}/extensions/dev-stage/skills/x/SKILL.md`).allow).toBe(
+      true,
+    );
+  });
+
+  // The rest of the dependency tree stays shut.
+  test("a non-skill file under the same node_modules tree is still refused", () => {
+    expect(H("architect", "read", `${HARNESS}/npm/node_modules/pi-subagents/dist/index.js`).allow).toBe(
+      false,
+    );
+    expect(H("architect", "read", `${HARNESS}/npm/node_modules/pi-subagents/package.json`).allow).toBe(
+      false,
+    );
+    // Code inside a skills/ directory is code, not instructions.
+    expect(
+      H("architect", "read", `${HARNESS}/npm/node_modules/pi-subagents/skills/pi-subagents/run.js`)
+        .allow,
+    ).toBe(false);
+    expect(H("architect", "read", `${HARNESS}/npm/node_modules/.bin/pi`).allow).toBe(false);
+  });
+
+  test("unrelated absolute paths are still refused", () => {
+    expect(H("architect", "read", "/etc/passwd").allow).toBe(false);
+    expect(H("architect", "read", "/Users/x/other-project/README.md").allow).toBe(false);
+    expect(H("architect", "read", "/Users/x/.pi/agent-other/skills/x/SKILL.md").allow).toBe(false);
+    expect(H("architect", "read", `${HARNESS}/auth.json`).allow).toBe(false);
+  });
+
+  test("still read-only, and still no way to climb out", () => {
+    expect(H("architect", "write", PI_SUBAGENTS).allow).toBe(false);
+    expect(H("architect", "edit", PI_SUBAGENTS).allow).toBe(false);
+    expect(
+      H("architect", "read", `${HARNESS}/npm/node_modules/p/skills/../../../../auth.json`).allow,
+    ).toBe(false);
   });
 });
 
