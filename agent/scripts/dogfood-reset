@@ -12,17 +12,18 @@
 #
 # Afterwards there is nothing to configure and no command to remember:
 #
-#   cd ~/dev/pi-harness-dogfood-bare        → run Claude Code, paste PROMPT.md
-#   cd ~/dev/pi-harness-dogfood-harnessed   → run pi,           paste PROMPT.md
+#   cd ~/dev/pi-harness-dogfood-bare        → run Claude Code
+#   cd ~/dev/pi-harness-dogfood-harnessed   → run pi
+#   …and paste the canonical prompt from docs/dogfood/ into either.
 #
 # The harnessed arm binds the architect role itself through
 # `.pi/dev-stage-role`, so plain `pi` is gated — read anything, write only
 # spec.md and *.contract.ts, no bash. Nothing to launch specially.
 #
-# Both arms get an identical operational AGENTS.md, and PROMPT.md in each arm
-# is a symlink to the SAME canonical prompt — not a copy, so there is nothing
-# to drift. Exactly one line differs between the arms, naming what that
-# environment offers; that line is the whole experiment.
+# Both arms get an identical operational AGENTS.md. The prompt lives ONLY in
+# docs/dogfood/ — the arms carry no copy, so there is nothing to drift and
+# nothing a reset can resurrect. Exactly one line differs between the arms,
+# naming what that environment offers; that line is the whole experiment.
 #
 # Runs are DISPOSABLE. This deletes whatever was in the arms and starts over.
 # If a run is worth keeping, commit it or copy it out before resetting.
@@ -143,10 +144,10 @@ EOF
 EOF
 
   printf '%s\n%s\n' "$BLOCK" "$line" > "$dir/AGENTS.md"
-  # PROMPT.md is a SYMLINK to the one canonical prompt, not a copy. Two copies
-  # of a file whose whole purpose is being identical is two things that can
-  # drift; a symlink cannot. Edit the canonical file and both arms change.
-  ln -sfn "$RENDERED_PROMPT" "$dir/PROMPT.md"
+  # No PROMPT.md in the arms: the user pastes from the one canonical rendered
+  # prompt in docs/dogfood/. A per-arm copy (or symlink) was one more thing to
+  # keep identical, and deleting it here without deleting it there meant every
+  # reset resurrected it.
   printf 'node_modules/\n' > "$dir/.gitignore"
   touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
 
@@ -179,22 +180,12 @@ if [ "$WHICH" != "bare" ]; then
   ( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
 fi
 
-# Guard the one property the whole comparison rests on. The prompt is now the
-# same FILE in both arms, so identity is structural rather than checked — but
-# verify the links actually resolve, since a dangling one would hand an arm
-# nothing at all.
-for arm in "$BARE" "$HARNESSED"; do
-  [ -d "$arm" ] || continue
-  [ -r "$arm/PROMPT.md" ] || { echo "dogfood-reset: FATAL — $arm/PROMPT.md unreadable" >&2; exit 1; }
-done
+# Guard the property the comparison rests on. The prompt lives only in
+# docs/dogfood/ now — the arms carry no copy, so prompt identity is structural.
+# Verify the canonical rendered prompt exists and is non-empty, since pasting
+# from a missing file hands an arm nothing at all.
+[ -s "$RENDERED_PROMPT" ] || { echo "dogfood-reset: FATAL — $RENDERED_PROMPT missing or empty" >&2; exit 1; }
 if [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
-  # Compare CONTENT, not path. Resetting one arm while the other is mid-run
-  # legitimately leaves one a symlink and the other an older copy; what the
-  # experiment requires is that the arms read the same words, not that they
-  # reach them the same way.
-  if ! diff -q "$BARE/PROMPT.md" "$HARNESSED/PROMPT.md" >/dev/null; then
-    echo "dogfood-reset: FATAL — the arms' prompts differ" >&2; exit 1
-  fi
   if ! diff -q <(sed '/^## How work is done here$/q' "$BARE/AGENTS.md") \
                <(sed '/^## How work is done here$/q' "$HARNESSED/AGENTS.md") >/dev/null; then
     echo "dogfood-reset: FATAL — operational blocks differ between arms" >&2; exit 1
@@ -203,13 +194,14 @@ fi
 
 cat <<EOF
 
-Both arms ready. Prompt and operational block verified identical.
+Both arms ready. Operational blocks verified identical.
 
   cd $BARE
-      run Claude Code, paste PROMPT.md
-
+      run Claude Code
   cd $HARNESSED
-      run pi, paste PROMPT.md          (gated as the architect automatically)
+      run pi                (gated as the architect automatically)
+
+  Paste the prompt from: $RENDERED_PROMPT
 
 Runs are disposable — re-run dogfood-reset to start over.
 EOF
