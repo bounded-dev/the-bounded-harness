@@ -44,11 +44,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import {
   boundaryRemedyLines,
+  calledNames,
   checkBoundaryBlocks,
   declaredExports,
   reachedNames,
   readContracts,
   readHandWrittenTests,
+  readAllTests,
   unreachedExports,
   unreachedRemedyLines,
   valueObjectClasses,
@@ -398,7 +400,14 @@ function withObligations(cwd: string, base: GateResult, run: RunTestsResult): Ga
     return base; // an unreadable tree must never turn a valid red into a block
   }
 
-  const reached = reachedNames(run.results.filter((r) => r.status === "failed").map((r) => r.message));
+  // Call sites in the test sources are the PRIMARY reachability evidence;
+  // red-phase failure names only corroborate. An export whose inputs come from
+  // other exports can never surface in a red failure — every test dies at the
+  // first skeleton call — and Run 9 jammed five bounces deep on exactly that.
+  const reached = new Set([
+    ...reachedNames(run.results.filter((r) => r.status === "failed").map((r) => r.message)),
+    ...calledNames(readAllTests(cwd)),
+  ]);
   const unreached = unreachedExports(declaredExports(contracts), reached);
   const boundaries = checkBoundaryBlocks(valueObjectClasses(contracts), tests);
   if (unreached.length === 0 && boundaries.length === 0) return base;

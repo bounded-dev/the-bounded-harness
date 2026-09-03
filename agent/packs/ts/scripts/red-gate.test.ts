@@ -557,3 +557,48 @@ describe("collection-time NotImplemented", () => {
     expect(r.lines.join("\n")).not.toMatch(/COLLECTION/);
   });
 });
+
+// Run 9 regression: an export whose inputs come from other exports can never
+// surface in a red failure — every test dies at the first skeleton call. The
+// gate jammed five bounces deep demanding a proof that was impossible by
+// construction. Call sites in the test sources are the primary evidence now.
+
+describe("red-gate CLI: downstream exports are reached by call site", () => {
+  test("getInvoices called after applySubscriptionOperation is NOT unreached", () => {
+    const dir = mkdtempSync(join(tmpdir(), "red-downstream-"));
+    tmpDirs.push(dir);
+    writeFileSync(
+      join(dir, "run.json"),
+      vitestJson([
+        { name: "start", status: "failed", message: "NotImplementedError: NotImplemented: applySubscriptionOperation" },
+      ]),
+    );
+    writeFileSync(join(dir, "tsc.txt"), "");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    mkdirSync(join(dir, "tests"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "billing.contract.ts"),
+      [
+        "export interface State { readonly n: number }",
+        "export declare function applySubscriptionOperation(s: State | null): State;",
+        "export declare function getInvoices(s: State): readonly number[];",
+      ].join("\n") + "\n",
+    );
+    writeFileSync(
+      join(dir, "tests", "billing.test.ts"),
+      [
+        'import { applySubscriptionOperation, getInvoices } from "../src/billing.js";',
+        'describe("invoices", () => {',
+        '  it("lists invoices", () => {',
+        "    const s = applySubscriptionOperation(null);",
+        "    expect(getInvoices(s)).toEqual([]);",
+        "  });",
+        "});",
+      ].join("\n") + "\n",
+    );
+    writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/red-gate: OK/);
+  });
+});

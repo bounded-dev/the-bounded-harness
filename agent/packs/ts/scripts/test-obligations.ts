@@ -131,6 +131,57 @@ export function reachedName(message: string | undefined): string | undefined {
   return name;
 }
 
+/**
+ * Every export name CALLED anywhere in the given test sources, by AST walk.
+ *
+ * This — not red-phase failure names — is the primary reachability evidence.
+ * Run 9 jammed on the difference: `getInvoices(state)` takes a state only
+ * `applySubscriptionOperation` can produce, so in the red phase every test
+ * that uses both dies at the first skeleton call and `getInvoices` can NEVER
+ * appear in a failure message. The test-writer had three tests calling it and
+ * the gate demanded a fourth kind of proof that was impossible by
+ * construction. A call site is the honest question ("does any test exercise
+ * this export?") and it still catches Run 7's real failure — nine parsers
+ * with ZERO call sites anywhere.
+ *
+ * Both direct calls (`getInvoices(x)`) and member calls (`Currency.parse(x)`)
+ * count, as does passing the export as a value (`expect(fn).toThrow` style
+ * callbacks). Generated law suites count too: reachability asks whether the
+ * export is exercised at all; the boundaries obligation separately demands
+ * hand-written attention where it matters.
+ */
+export function calledNames(tests: readonly SourceText[]): Set<string> {
+  const called = new Set<string>();
+  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
+  for (const { file, source } of tests) {
+    const sf = project.createSourceFile(`called-${file.replace(/\W+/g, "_")}.ts`, source, { overwrite: true });
+    sf.forEachDescendant((node) => {
+      if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
+        const callee = node.getExpression();
+        if (Node.isIdentifier(callee)) {
+          called.add(callee.getText());
+        } else if (Node.isPropertyAccessExpression(callee)) {
+          const base = callee.getExpression();
+          if (Node.isIdentifier(base)) {
+            called.add(base.getText());
+            called.add(`${base.getText()}.${callee.getName()}`);
+          }
+        }
+      } else if (Node.isIdentifier(node)) {
+        // An export passed as a VALUE (a callback, an expect() subject) is
+        // exercised by whatever receives it; require only that the identifier
+        // appears as a call argument, not merely in an import statement.
+        const parent = node.getParent();
+        if (parent !== undefined && (Node.isCallExpression(parent) || Node.isNewExpression(parent))) {
+          const args: readonly unknown[] = parent.getArguments();
+          if ((args as readonly Node[]).includes(node)) called.add(node.getText());
+        }
+      }
+    });
+  }
+  return called;
+}
+
 /** Every distinct name reached across a run's failure messages, sorted. */
 export function reachedNames(messages: Iterable<string | undefined>): string[] {
   const names = new Set<string>();
@@ -660,6 +711,25 @@ export function readContracts(root: string): SourceText[] {
     file: relPosix(root, path),
     source: readFileSync(path, "utf8"),
   }));
+}
+
+/** Every test file under root, generated laws included — reachability asks
+ *  whether an export is exercised AT ALL; only the boundaries obligation
+ *  insists on hand-written attention. */
+export function readAllTests(root: string): SourceText[] {
+  const out: SourceText[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORE_DIRS.has(entry.name)) walk(path);
+      } else if (entry.isFile() && TEST_FILE.test(entry.name)) {
+        out.push({ file: relPosix(root, path), source: readFileSync(path, "utf8") });
+      }
+    }
+  };
+  walk(root);
+  return out;
 }
 
 /** Every hand-written test file under root — `tests/generated/**` excluded. */
