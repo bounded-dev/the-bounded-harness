@@ -20,6 +20,7 @@
     "@earendil-works/pi-coding-agent": "0.84.2",
     "@types/node": "^24.0.0",
     "@types/picomatch": "4.0.3",
+    "@typescript-eslint/eslint-plugin": "8.68.0",
     "@typescript-eslint/parser": "8.68.0",
     "@typescript-eslint/rule-tester": "8.68.0",
     "@typescript-eslint/utils": "8.68.0",

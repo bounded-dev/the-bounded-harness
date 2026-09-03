@@ -32,6 +32,7 @@ import { gateOptionsFromEnv, gateTypecheckOptionsFromEnv, type GateResult } from
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import { lintSrc } from "./lint-src.ts";
 
 const GUARD = "green-gate";
 
@@ -115,11 +116,19 @@ export function routeAfterRepeat(
  * Classify a run against the green-gate contract. Pure: no I/O, no logging.
  * Green requires BOTH a fully passing suite and a type-clean project (#7).
  */
-export function classifyGreen(run: RunTestsResult, tsc: TypecheckResult): GateResult {
+export function classifyGreen(
+  run: RunTestsResult,
+  tsc: TypecheckResult,
+  /** Escape-hatch problems in src/** (see lint-src.ts). A `!`, an `as`, an
+   *  `any` or a `@ts-expect-error` is the type checker being switched off for
+   *  one expression, so it is a gate failure exactly like a type error, never
+   *  an advisory note. Always the builder's: src/** is its write zone. */
+  lint: readonly string[] = [],
+): GateResult {
   const suite = suiteVerdict(run);
   const types = routeTypecheck(tsc.diagnostics);
 
-  if (suite === null && types.errorCount === 0) {
+  if (suite === null && types.errorCount === 0 && lint.length === 0) {
     return {
       code: 0,
       verdict: "pass",
@@ -135,11 +144,23 @@ export function classifyGreen(run: RunTestsResult, tsc: TypecheckResult): GateRe
   // Run 3 false green — and the headline says so, so the log is unambiguous.
   const headline =
     suite?.lines ??
-    [
-      `green-gate: FAIL — ${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the project is not type-clean`,
-    ];
-  const route = mostUpstream([...(suite ? [suite.owner] : []), ...types.owners]);
-  const summary = [suite?.summary, types.errorCount > 0 ? `${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}` : undefined]
+    (types.errorCount > 0
+      ? [
+          `green-gate: FAIL — ${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the project is not type-clean`,
+        ]
+      : [
+          `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in src/; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
+        ]);
+  const lintLines =
+    lint.length > 0
+      ? [...lint, "green-gate: a non-null assertion, cast, any or ts-comment is a gate failure, not a style note — fix the cause the type checker was pointing at"]
+      : [];
+  const route = mostUpstream([...(suite ? [suite.owner] : []), ...types.owners, ...(lint.length > 0 ? ["builder" as const] : [])]);
+  const summary = [
+    suite?.summary,
+    types.errorCount > 0 ? `${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}` : undefined,
+    lint.length > 0 ? `${lint.length} escape hatch${lint.length === 1 ? "" : "es"}` : undefined,
+  ]
     .filter((s) => s !== undefined)
     .join(" + ");
 
@@ -147,10 +168,15 @@ export function classifyGreen(run: RunTestsResult, tsc: TypecheckResult): GateRe
     code: 1,
     verdict: "block",
     summary: `${summary} (route: ${route})`,
-    lines: [...headline, ...typecheckLines(types), `green-gate: route → ${route}`],
+    lines: [...headline, ...typecheckLines(types), ...lintLines, `green-gate: route → ${route}`],
     detail: {
-      ...(suite?.detail ?? { reason: "type-errors", passed: run.passed, total: run.total }),
+      ...(suite?.detail ?? {
+        reason: types.errorCount > 0 ? "type-errors" : "escape-hatches",
+        passed: run.passed,
+        total: run.total,
+      }),
       typeErrors: types.errorCount,
+      escapeHatches: lint.length,
       route,
       typeErrorOwners: types.owners,
     },
@@ -184,11 +210,14 @@ function priorGreenFailures(cwd: string): string[][] {
 }
 
 export async function runGreenGate(cwd: string): Promise<GateResult> {
-  const [run, tsc] = await Promise.all([
+  const [run, tsc, lint] = await Promise.all([
     runTests(cwd, gateOptionsFromEnv()),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
+    lintSrc(cwd),
   ]);
-  const base = classifyGreen(run, tsc);
+  // A lint ERROR (no files matched) is not a finding: an empty src/ is the
+  // builder's problem to have, and the suite verdict already says so.
+  const base = classifyGreen(run, tsc, lint.code === 1 ? lint.lines.slice(0, -1) : []);
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard
   // log, which is where every other convergence check already reads from.

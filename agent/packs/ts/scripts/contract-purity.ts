@@ -19,6 +19,8 @@ import { relative } from "node:path";
 import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
+import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
+export { formatProblems, type Problem };
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
@@ -38,18 +40,16 @@ export function createContractLinter(): ESLint {
         rules: {
           "pi-harness-ts/declaration-only": "error",
           "pi-harness-ts/no-naked-primitives": "error",
+          // The value object rules. no-naked-primitives says a primitive may
+          // not cross the boundary; these two say what must be there instead,
+          // and that its validity rule is written down where the test-writer
+          // (which reads only spec.md and the contract) can see it.
+          "pi-harness-ts/value-object-shape": "error",
+          "pi-harness-ts/value-object-documented": "error",
         },
       },
     ],
   });
-}
-
-export interface Problem {
-  filePath: string;
-  line: number;
-  column: number;
-  ruleId: string;
-  message: string;
 }
 
 export async function lintContractSource(source: string, fileName: string): Promise<Problem[]> {
@@ -57,26 +57,7 @@ export async function lintContractSource(source: string, fileName: string): Prom
   return toProblems(results);
 }
 
-function toProblems(results: ESLint.LintResult[]): Problem[] {
-  return results.flatMap((r) =>
-    r.messages
-      .filter((m) => m.severity === 2)
-      .map((m) => ({
-        filePath: r.filePath,
-        line: m.line,
-        column: m.column,
-        ruleId: m.ruleId ?? "<parse>",
-        message: m.message,
-      })),
-  );
-}
-
 /** One greppable line per problem: path:line:col  rule  message */
-export function formatProblems(results: ESLint.LintResult[], cwd: string): string[] {
-  return toProblems(results).map(
-    (p) => `${relative(cwd, p.filePath)}:${p.line}:${p.column}  ${p.ruleId}  ${p.message}`,
-  );
-}
 
 /** Verdict of one contract-purity run: exit code plus the lines the CLI prints. */
 export interface PurityRun {

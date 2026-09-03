@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,6 +7,12 @@ import { classifyGreen } from "./green-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+
+/** The gate's own entry. The green gate also runs the src escape-hatch lint,
+ *  which logs its own line, so "the last entry" is no longer the gate's. */
+function greenEntry(dir: string) {
+  return readGuardLog(dir).find((e) => e.guard === "green-gate");
+}
 
 function vitestJson(cases: { name: string; status: string; message?: string }[]): string {
   return JSON.stringify({
@@ -196,7 +202,7 @@ describe("green-gate CLI (fixture repos)", () => {
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/green-gate: OK — 2 passed, 2 total/);
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "green-gate", verdict: "pass" });
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
   });
 
   test("failing target → exit 1, names the failure, logs a block", () => {
@@ -211,7 +217,7 @@ describe("green-gate CLI (fixture repos)", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/1 failing test of 2/);
     expect(r.stdout).toContain("failed: cancel order");
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "green-gate", verdict: "block" });
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block" });
   });
 
   test("passing suite + test-file type errors → exit 1, routed, logged as a block (#7)", () => {
@@ -224,7 +230,7 @@ describe("green-gate CLI (fixture repos)", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/green-gate: FAIL — 1 type error/);
     expect(r.stdout).toContain("green-gate: route → test-writer");
-    expect(readGuardLog(dir)[0]).toMatchObject({
+    expect(greenEntry(dir)).toMatchObject({
       guard: "green-gate",
       verdict: "block",
       detail: { route: "test-writer", typeErrors: 1 },
@@ -281,5 +287,46 @@ describe("repeated identical failures reroute to the test-writer", () => {
 
   test("an empty failing set never reroutes", () => {
     expect(routeAfterRepeat([], [[]])).toBe("builder");
+  });
+});
+
+// --- Escape hatches are a gate failure, not a style note --------------------------
+//
+// Dogfood Run 7: tsc correctly rejected `findInvoiceByOperationId(...)` as
+// `Invoice | undefined` and the builder wrote `!` to silence it. The suite was
+// 32/32 and the project was type-clean, so the green gate passed and a runtime
+// contract violation shipped. A passing suite reached by switching the type
+// checker off is the same class of false green as a passing suite that does not
+// compile.
+
+describe("green-gate CLI: src escape hatches", () => {
+  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
+
+  test("a non-null assertion in src/ blocks the green and routes to the builder", () => {
+    const dir = fixtureRepo("green-hatch-", allPassing);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "billing.ts"),
+      [
+        "interface Invoice { id: string }",
+        "function find(xs: Invoice[], id: string): Invoice | undefined { return xs.find(i => i.id === id); }",
+        "export function renew(xs: Invoice[], id: string): Invoice { return find(xs, id)!; }",
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/the type checker was switched off to get there/);
+    expect(r.stdout).toContain("no-non-null-assertion");
+    expect(r.stdout).toContain("green-gate: route → builder");
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block", detail: { escapeHatches: 1 } });
+  });
+
+  test("a clean src/ still passes", () => {
+    const dir = fixtureRepo("green-clean-", allPassing);
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "billing.ts"), "export const rate = { pct: 5 } as const;\n");
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
   });
 });
