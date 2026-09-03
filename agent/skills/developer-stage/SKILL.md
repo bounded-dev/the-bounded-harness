@@ -53,7 +53,13 @@ waited.
    a plan, a spec and a contract describing the same domain at three altitudes
    was duplication that drifted, so think it through and write it once. Use
    `scout` if you want read-only investigation of an unfamiliar codebase.
-   - **Checkpoint (interactive):** the user approves the design.
+   - **Do not stop for approval. The default is to proceed.** Summarize the
+     design in two or three lines as you continue — the user can interrupt if
+     they disagree; an interrupt costs them one message, while a run parked on
+     a question costs the whole session's clock (Run 9 sat frozen for 90
+     minutes at exactly this point). Stop and ask ONLY if the user explicitly
+     requested a design review, or a genuine product decision — not a design
+     choice — is yours to guess at.
    - **Gate:** `contract_purity` (declaration-only *and* free of naked
      primitives on the public surface), then `scaffold` (generates the throwing
      skeletons from every contract — machine-generated, never agent-written).
