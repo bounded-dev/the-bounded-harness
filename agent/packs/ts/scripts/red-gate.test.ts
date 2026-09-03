@@ -268,7 +268,8 @@ describe("red-gate CLI (fixture repos)", () => {
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/red-gate: OK — 1 NotImplemented failure/);
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "red-gate", verdict: "pass" });
+    // The gate now also lints test sources, which logs its own entry first.
+    expect(readGuardLog(dir).find((e) => e.guard === "red-gate")).toMatchObject({ guard: "red-gate", verdict: "pass" });
   });
 
   test("wrong-reason red (import error) → exit 1 and a logged block", () => {
@@ -279,7 +280,7 @@ describe("red-gate CLI (fixture repos)", () => {
     const r = runGate(dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/wrong-reason red/);
-    const ev = readGuardLog(dir)[0];
+    const ev = readGuardLog(dir).find((e) => e.guard === "red-gate")!;
     expect(ev).toMatchObject({ guard: "red-gate", verdict: "block" });
     expect(ev.summary).toMatch(/wrong-reason/);
   });
@@ -309,7 +310,7 @@ describe("red-gate CLI (fixture repos)", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/red-gate: FAIL — 1 type error/);
     expect(r.stdout).toContain("red-gate: route → test-writer");
-    expect(readGuardLog(dir)[0]).toMatchObject({
+    expect(readGuardLog(dir).find((e) => e.guard === "red-gate")).toMatchObject({
       guard: "red-gate",
       verdict: "block",
       detail: { route: "test-writer", typeErrors: 1 },
@@ -600,5 +601,31 @@ describe("red-gate CLI: downstream exports are reached by call site", () => {
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/red-gate: OK/);
+  });
+});
+
+// Run 10: kimi's test helpers used `!` freely because only src/** was linted.
+// A suite that silences the type checker can assert its way past anything.
+
+describe("red-gate CLI: escape hatches in test sources", () => {
+  test("a non-null assertion in a test helper blocks an otherwise valid red", () => {
+    const dir = fixtureRepo("red-testhatch-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    writeFileSync(
+      join(dir, "tests", "helpers.ts"),
+      "export function d(x: string | undefined): string { return x!; }\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/test sources switch the type checker off/);
+    expect(r.stdout).toContain("no-non-null-assertion");
+    expect(r.stdout).toContain("red-gate: route → test-writer");
+  });
+
+  test("generated laws are exempt — the generator answers for them", () => {
+    const dir = fixtureRepo("red-genhatch-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    mkdirSync(join(dir, "tests", "generated"), { recursive: true });
+    writeFileSync(join(dir, "tests", "generated", "x.laws.test.ts"), "export const n: number = 1 as number;\n");
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
   });
 });

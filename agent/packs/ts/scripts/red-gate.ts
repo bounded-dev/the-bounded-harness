@@ -62,6 +62,7 @@ import {
   skeletonPathFor,
 } from "./scaffold-contract.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
+import { lintTests } from "./lint-src.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
@@ -469,11 +470,30 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   }
 
   try {
-    const [run, tsc] = await Promise.all([
+    const [run, tsc, testLint] = await Promise.all([
       runTests(dir, gateOptionsFromEnv()),
       typecheck(dir, gateTypecheckOptionsFromEnv()),
+      // Escape hatches in TEST sources: a suite that silences the type
+      // checker can assert its way past anything, and Run 10's helpers used
+      // `!` freely because only src/** was watched. Checked here because this
+      // is the last gate where the fix is cheap and the test-writer is live.
+      lintTests(cwd),
     ]);
-    const base = classifyRed(run, tsc);
+    let base = classifyRed(run, tsc);
+    if (base.code === 0 && testLint.code === 1) {
+      base = {
+        code: 1,
+        verdict: "block",
+        summary: `${testLint.summary} in tests (route: test-writer)`,
+        lines: [
+          `red-gate: FAIL — the red is valid but the test sources switch the type checker off (${testLint.summary})`,
+          ...testLint.lines.slice(0, -1),
+          "red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it",
+          "red-gate: route → test-writer",
+        ],
+        detail: { reason: "test-escape-hatches", ...testLint.detail, route: "test-writer" },
+      };
+    }
     // Obligations are only meaningful once the red itself is valid: against a
     // broken suite "nothing reached parseCurrency" is noise, not a finding.
     const result = base.code === 0 ? withObligations(cwd, base, run) : base;

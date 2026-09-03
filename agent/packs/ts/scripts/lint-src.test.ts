@@ -267,3 +267,32 @@ describe("lint-src CLI", () => {
     expect(r.stdout).toMatch(/lint-src: OK/);
   });
 });
+
+// Size and complexity ceilings (Run 10: kimi's 483-line module vs opus's four
+// focused ones — a ceiling is mechanical even though decomposition taste is not).
+
+describe("size and complexity ceilings", () => {
+  test("a function over 60 real lines is blocked", async () => {
+    const body = Array.from({ length: 65 }, (_, i) => `  const v${i} = ${i};`).join("\n");
+    const problems = await lintSrcText(`export function big(): void {\n${body}\n}\n`, "src/big.ts");
+    expect(problems.map((p) => p.ruleId)).toContain("max-lines-per-function");
+  });
+
+  test("a file over 350 real lines is blocked", async () => {
+    const lines = Array.from({ length: 360 }, (_, i) => `export const c${i} = ${i};`).join("\n");
+    const problems = await lintSrcText(lines + "\n", "src/huge.ts");
+    expect(problems.map((p) => p.ruleId)).toContain("max-lines");
+  });
+
+  test("cyclomatic complexity over 15 is blocked", async () => {
+    const branches = Array.from({ length: 20 }, (_, i) => `  if (n === ${i}) return ${i};`).join("\n");
+    const problems = await lintSrcText(`export function f(n: number): number {\n${branches}\n  return -1;\n}\n`, "src/f.ts");
+    expect(problems.map((p) => p.ruleId)).toContain("complexity");
+  });
+
+  test("comments and blank lines do not count against the ceilings", async () => {
+    const body = Array.from({ length: 50 }, (_, i) => `  const v${i} = ${i};\n  // note\n`).join("");
+    const problems = await lintSrcText(`export function ok(): void {\n${body}}\n`, "src/ok.ts");
+    expect(problems.filter((p) => p.ruleId === "max-lines-per-function")).toEqual([]);
+  });
+});

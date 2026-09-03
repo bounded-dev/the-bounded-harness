@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyGreen } from "./green-gate.ts";
+import { classifyGreen, redPassStandsForCurrentContracts } from "./green-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
@@ -175,6 +175,16 @@ function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   tmpDirs.push(dir);
   writeFileSync(join(dir, "run.json"), runJson);
   writeFileSync(join(dir, "tsc.txt"), tscOutput);
+  // Green refuses without a red pass since the last freeze (Run 10). Seed the
+  // normal history: frozen, then a valid red.
+  mkdirSync(join(dir, ".pi"), { recursive: true });
+  writeFileSync(
+    join(dir, ".pi", "guard-log.jsonl"),
+    [
+      JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
+      JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
+    ].join("\n") + "\n",
+  );
   return dir;
 }
 
@@ -405,5 +415,47 @@ describe("green-gate CLI: surface violations", () => {
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
+  });
+});
+
+// Run 10 (kimi): contract re-frozen mid-loop, red never re-established, green
+// ran anyway and passed 148/148 — with the sign-off admitting the red could
+// not pass. The ordering was prose; now it refuses.
+
+describe("green requires a red for the CURRENT contracts", () => {
+  test("no red at all → green refuses before running anything", () => {
+    const dir = fixtureRepo("green-nored-", vitestJson([{ name: "ok", status: "passed" }]));
+    writeFileSync(join(dir, ".pi", "guard-log.jsonl"), "");
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/no red-gate pass since the contracts were last frozen/);
+    expect(r.stdout).toContain("green-gate: route → architect");
+  });
+
+  test("a red pass BEFORE the latest freeze is stale — refused", () => {
+    const dir = fixtureRepo("green-stalered-", vitestJson([{ name: "ok", status: "passed" }]));
+    writeFileSync(
+      join(dir, ".pi", "guard-log.jsonl"),
+      [
+        JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
+        JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (2 contract files)" }),
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/no red-gate pass since the contracts were last frozen/);
+  });
+
+  test("redPassStandsForCurrentContracts: pure ordering check", () => {
+    const freeze = { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" };
+    const red = { guard: "red-gate", verdict: "pass", summary: "RED OK" };
+    const redBlock = { guard: "red-gate", verdict: "block", summary: "1 wrong-reason failure" };
+    expect(redPassStandsForCurrentContracts([freeze, red])).toBe(true);
+    expect(redPassStandsForCurrentContracts([red, freeze])).toBe(false);
+    expect(redPassStandsForCurrentContracts([freeze, redBlock])).toBe(false);
+    expect(redPassStandsForCurrentContracts([freeze, red, freeze])).toBe(false);
+    // A checksum VERIFY (no drift) is not a freeze — it must not void the red.
+    const verify = { guard: "checksum-gate", verdict: "pass", summary: "OK (1 contract file, no drift)" };
+    expect(redPassStandsForCurrentContracts([freeze, red, verify])).toBe(true);
   });
 });

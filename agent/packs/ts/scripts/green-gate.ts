@@ -224,7 +224,50 @@ function priorGreenFailures(cwd: string): string[][] {
   }
 }
 
+/**
+ * Green requires a valid red for the CURRENT contracts — enforced, not asked.
+ *
+ * Run 10 (kimi): the architect revised its contract mid-loop, re-froze, never
+ * got a red pass for the new shape, ran green anyway, and green passed 148/148
+ * — then its own sign-off admitted "the red gate cannot pass with this
+ * contract shape". A green over a never-validated suite is exactly the failure
+ * the pipeline exists to prevent: without a red, nothing proves the 148 tests
+ * CAN fail. The skill said the ordering in prose; prose executed unreliably,
+ * as it always does. So: the guard log must contain a red-gate pass AFTER the
+ * most recent contract freeze (checksum-gate "wrote manifest"), or green
+ * refuses before running anything.
+ */
+export function redPassStandsForCurrentContracts(
+  events: readonly { guard: string; verdict: string; summary: string }[],
+): boolean {
+  let lastFreeze = -1;
+  let lastRedPass = -1;
+  events.forEach((e, i) => {
+    if (e.guard === "checksum-gate" && e.verdict === "pass" && e.summary.includes("wrote manifest")) lastFreeze = i;
+    if (e.guard === "red-gate" && e.verdict === "pass") lastRedPass = i;
+  });
+  return lastRedPass > lastFreeze;
+}
+
 export async function runGreenGate(cwd: string): Promise<GateResult> {
+  if (!redPassStandsForCurrentContracts(readGuardLog(cwd))) {
+    const result: GateResult = {
+      code: 1,
+      verdict: "block",
+      summary: "no valid red for the current contracts",
+      lines: [
+        "green-gate: FAIL — no red-gate pass since the contracts were last frozen",
+        "  A green over a never-validated suite proves nothing: without a red, nothing",
+        "  shows these tests CAN fail. Run red_gate first; if you revised a contract,",
+        "  the red must be re-established for the new shape.",
+        "green-gate: route → architect",
+      ],
+      detail: { reason: "no-red", route: "architect" },
+    };
+    logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
+    return result;
+  }
+
   const [run, tsc, lint] = await Promise.all([
     runTests(cwd, gateOptionsFromEnv()),
     typecheck(cwd, gateTypecheckOptionsFromEnv()),

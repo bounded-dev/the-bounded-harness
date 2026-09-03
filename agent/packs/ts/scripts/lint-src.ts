@@ -57,6 +57,33 @@ const NOTHING_TO_LINT = /No files matching|are ignored/;
 /** What the gate walks when no explicit patterns are given. */
 export const DEFAULT_PATTERNS: readonly string[] = ["src/**/*.ts"];
 
+/** Test sources get the same escape-hatch ban — Run 10's test helpers used `!`
+ *  freely because only src/** was watched, and a suite that silences the type
+ *  checker can assert its way past anything. Size ceilings deliberately do NOT
+ *  apply here: a thorough suite legitimately runs long, and a describe block
+ *  is one "function" to max-lines-per-function. */
+export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts"];
+const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
+
+/** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
+ *  can require each one to be named in builder.md. The deterministic-check
+ *  principle runs both ways: everything guarded must also be TOLD to the
+ *  agent, so it can get it right the first time instead of learning the rule
+ *  from a block. */
+export const SRC_RULE_IDS: readonly string[] = [
+  "complexity",
+  "max-lines-per-function",
+  "max-lines",
+  "max-depth",
+  "@typescript-eslint/no-non-null-assertion",
+  "@typescript-eslint/consistent-type-assertions",
+  "@typescript-eslint/no-explicit-any",
+  "@typescript-eslint/ban-ts-comment",
+];
+
+/** The subset enforced on tests/** (size ceilings excluded). */
+export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter((r) => !SIZE_RULES.has(r));
+
 export function createSrcLinter(cwd?: string): ESLint {
   return new ESLint({
     // The gate owns the whole config: no project eslint config is consulted,
@@ -78,6 +105,23 @@ export function createSrcLinter(cwd?: string): ESLint {
         // inspected: no eslint-disable, no inline severity override.
         linterOptions: { noInlineConfig: true },
         rules: {
+          // --- Size and complexity ceilings -------------------------------
+          // Run 10: kimi produced a 483-line single-module implementation and
+          // a 148-test monolith; opus, same prompt and gates, produced four
+          // focused modules. Decomposition quality tracks the model — but a
+          // CEILING is mechanical, and these are core ESLint rules (the
+          // complexity half of the CRAP metric; its coverage half is
+          // deliberately absent — an assertion-blind coverage signal is the
+          // exact lie test-obligations.ts exists to close).
+          // Thresholds are ceilings, not targets: generous enough that a
+          // correct design never meets them, low enough that a god-module
+          // cannot ship. A block's remedy is decomposition, and for a builder
+          // that usually means CONTRACT-DISPUTE — the architect owns the
+          // module boundaries.
+          complexity: ["error", { max: 15 }],
+          "max-lines-per-function": ["error", { max: 60, skipBlankLines: true, skipComments: true }],
+          "max-lines": ["error", { max: 350, skipBlankLines: true, skipComments: true }],
+          "max-depth": ["error", { max: 4 }],
           "@typescript-eslint/no-non-null-assertion": "error",
           // "never" bans both `x as T` and `<T>x`, and exempts `as const`.
           "@typescript-eslint/consistent-type-assertions": [
@@ -142,7 +186,23 @@ export async function lintSrc(
   return result;
 }
 
-async function classify(cwd: string, patterns: string[]): Promise<LintSrcResult> {
+/**
+ * The tests/** variant: same escape-hatch rules, size ceilings filtered out,
+ * `tests/generated/**` excluded (machine-written; the generator is trusted the
+ * way the scaffolder is). Run inside the red gate, so an offending helper is
+ * the test-writer's to fix at the moment fixing is cheap.
+ */
+export async function lintTests(cwd: string): Promise<LintSrcResult> {
+  const base = await classify(cwd, [...TEST_PATTERNS], { dropSizeRules: true });
+  const result = base.code === 2
+    ? // No test files yet is a legitimate state mid-loop, not a broken gate.
+      { ...base, code: 0 as const, verdict: "pass" as const, summary: "no test files yet", lines: [`${GUARD}: no test files yet`] }
+    : base;
+  logGuardEvent(cwd, { guard: "lint-tests", verdict: result.verdict, summary: result.summary, detail: result.detail });
+  return result;
+}
+
+async function classify(cwd: string, patterns: string[], options: { dropSizeRules?: boolean } = {}): Promise<LintSrcResult> {
   // ESLint throws its own wording when a pattern matches nothing — two
   // wordings, in fact: "No files matching …" when the glob found nothing at
   // all, and "All files matched … are ignored" when src/ holds only contract
@@ -168,6 +228,16 @@ async function classify(cwd: string, patterns: string[]): Promise<LintSrcResult>
   const fileCount = results.length;
   if (fileCount === 0) return noMatch();
 
+  if (options.dropSizeRules) {
+    for (const r of results) {
+      r.messages = r.messages.filter((m) => m.ruleId === null || !SIZE_RULES.has(m.ruleId));
+    }
+  }
+  if (options.dropSizeRules) {
+    // Machine-written laws are excluded the way scaffolded skeletons are:
+    // the generator, not the test-writer, answers for them.
+    results = results.filter((r) => !/tests[\/\\]generated[\/\\]/.test(r.filePath));
+  }
   const lines = formatSrcProblems(results, cwd);
   const files = `${fileCount} file${fileCount === 1 ? "" : "s"}`;
   if (lines.length > 0) {
