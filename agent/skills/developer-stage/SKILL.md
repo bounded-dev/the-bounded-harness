@@ -30,8 +30,21 @@ Loop granularity is **per component**, not per feature.
 
 ## Phases
 
-Drive these in order. Each transition is a gate you run; a red gate blocks the
-transition and names the role that must fix it.
+**DESIGN is a phase; TEST and BUILD are not.** Design alone, then commission
+both workers and let them run **concurrently** off the frozen contract. Each is
+gated independently — a gate is a check on one worker's output, not a turnstile
+the other has to queue behind — so the critical path is max(TEST, BUILD) rather
+than the sum.
+
+What makes that safe is where the red gate runs. It no longer inspects the live
+tree: it copies the contracts, the tests and the config into a **pristine
+project**, regenerates the skeletons there, and runs *that*
+(`redGateProjectPlan` in `red-gate.ts` copies no implementation file, on
+purpose — one copied `src/` file would turn `NotImplementedError` failures into
+ordinary assertion failures and the red would lie). So a half-written `src/`
+cannot spoil a red, and there is nothing for the test-writer to wait behind.
+The builder is blind to the tests anyway; it was never reading them while it
+waited.
 
 1. **DESIGN** — you decide the approach and write `spec.md` plus the
    component's contract files (`src/**/*.contract.ts` — as many as the design
@@ -47,20 +60,33 @@ transition and names the role that must fix it.
    - Then `freeze_contracts` to record the checksum manifest, so drift under
      you later is detectable rather than silent.
 
-2. **TEST** — spawn the **test-writer** with the spec + contract *in the
-   prompt*. It writes `tests/**`, blind to `src/`, faking side effects against
-   the contract's ports.
-   - **Gate:** `red_gate`. Valid red = the project typechecks, the suite runs,
-     and every failure is `NotImplementedError`. Wrong-reason red
+2. **COMMISSION BOTH** — once the contract is frozen, spawn the
+   **test-writer** and the **builder**, each with the spec + contract *in the
+   prompt*. Neither needs anything the other produces:
+   - the test-writer writes `tests/**`, blind to `src/`, faking side effects
+     against the contract's ports;
+   - the builder implements `src/**` (except contracts), blind to test source,
+     debugging through the sanitized `run_tests` tool.
+
+   Commission them in one turn. If you commission the builder only after the
+   red passes, you have paid for the sequencing and bought nothing.
+
+3. **GATE EACH INDEPENDENTLY** — one worker finishing is one gate to run, not a
+   phase transition for both.
+   - **Test-writer done → `red_gate`.** Valid red = the project typechecks, the
+     suite runs, and every failure is `NotImplementedError`. Wrong-reason red
      (import/type/config errors, ordinary assertion failures, or a fully-green
      suite) is rejected, and so is a red on a project that does not compile.
-
-3. **BUILD** — spawn the **builder** with the spec + contract. It implements
-   `src/**` (except contracts), blind to test source; it debugs through the
-   sanitized `run_tests` tool.
-   - **Gate:** `green_gate`, from *your own* invocation. Every test passes
-     **and the project typechecks**, or the gate fails and names each failing
-     test and each type error.
+     Because it runs against the pristine project, a builder mid-flight cannot
+     affect this verdict.
+   - **Builder done → `green_gate`**, from *your own* invocation. Every test
+     passes **and the project typechecks**, or the gate fails and names each
+     failing test and each type error.
+   - **The one ordering that survives: green requires a passed red.** If the
+     builder lands first, wait — a green over a suite no red gate ever
+     validated is a green over tests that may assert nothing, which is the
+     failure this whole pipeline exists to prevent. Concurrency removes the
+     *waiting*, never the *evidence*.
 
 4. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
    green yourself; you arbitrate disputes (below).
@@ -71,9 +97,10 @@ Never eyeball a phase transition. Call the gate and read its verdict. Per
 transition:
 
 - **After DESIGN:** `contract_purity`, then `scaffold`, then `freeze_contracts`.
-- **After TEST:** `red_gate` (fails unless red-for-the-right-reason *and*
-  type-clean).
-- **After BUILD:** `green_gate` (green from your own invocation).
+- **When the test-writer returns:** `red_gate` (fails unless
+  red-for-the-right-reason *and* type-clean).
+- **When the builder returns:** `green_gate` (green from your own invocation),
+  and not before the red has passed.
 - **Any time the contract may have moved mid-loop:** `check_drift` (drift is a
   compile-time-fatal event, not a silent one).
 
@@ -118,6 +145,20 @@ appears wedged, `subagent({action: "steer", id, message})` reaches a live child;
 `{action: "stop", id}` ends it. Polling the filesystem for a worker's output is
 never the right move — you cannot tell "not finished" from "finished badly".
 
+**Wait on both children, not one at a time.** With the workers running
+concurrently, `subagent_wait` over both ids returns whichever finishes first;
+gate that one, then wait on the other. Waiting on the test-writer alone, then
+starting to think about the builder, re-serializes by hand what the pristine
+red gate just made parallel.
+
+**`subagent_wait` is correct here, whatever its result text says.** The tool's
+own output tells an interactive session not to call it and to hand control back
+to the user instead — and then names the exception: a run-to-completion loop.
+That is exactly what this is. You were commissioned to drive one ticket to a
+green gate; returning to the user with two children mid-flight abandons the
+loop rather than reporting it. Run 7's architect spent a turn arbitrating this
+with itself; don't re-derive it. Wait.
+
 ## Green means tests pass AND the project compiles
 
 A passing suite on a project that does not typecheck is a **false green** — the
@@ -135,7 +176,18 @@ for you: a failing gate prints exactly one
 
 line naming the **furthest-upstream** role that may repair what it found —
 derived from the same write zones the path gate enforces, so the target can
-always actually make the fix. Bounce to that role; do not improvise a target.
+always actually make the fix. **Follow the printed route by default**; you are
+not free to improvise a target because bouncing feels wrong.
+
+**You may override a route you can see is wrong** — and you are the only one
+who can, because you are the only role that reads both sides. Run 6 escaped a
+deadlock precisely this way: the route named a role whose write zone could not
+reach the file, and the architect sent the bounce elsewhere rather than
+watching it ricochet. The bar is *evidence*, not preference: name the file, the
+zone that excludes the routed role, and where you sent it instead, in the
+bounce and in your escalation trail. A route you merely disagree with is one
+you follow.
+
 In particular:
 
 - Type errors in `tests/**` → **test-writer**. The builder is blind to test
