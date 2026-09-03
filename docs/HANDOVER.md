@@ -1,4 +1,15 @@
-# Handover — pi-harness developer stage, after dogfood Run 6
+# Handover — pi-harness developer stage, after dogfood Run 12
+
+2026-09-04 addendum: Runs 7-12 are written up in docs/dogfooding.md (the
+six-cell experiment section is the state of the evidence). Standing state:
+main green at 877+ tests; every gate has fired live at least once; the
+six-cell grid (opus/sonnet/kimi x harness/guidance) is archived as r10-*..r12-*
+with gradings in the branch commit messages. The mutation matrix says blind
+test-first buys ordering coverage, in-run adversarial pressure, and evidence —
+not raw assertion quality. Open next: timing (target <20 min), composite
+design gate, pi-ticket default, mutation-score gate.
+
+# Original handover (Run 6) — the method below still holds
 
 Written 2026-09-02. State: `main` at `2d2268b`, 598 tests green, live checkout
 synced. Read `docs/dogfooding.md` (Run 6 section) and issue #12 first — this
