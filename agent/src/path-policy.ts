@@ -77,7 +77,13 @@ const block = (reason: string): Decision => ({ allow: false, reason });
 
 const SEARCH_TOOLS = new Set(["grep", "find", "ls"]);
 const READ_TOOLS = new Set(["read", ...SEARCH_TOOLS]);
-const WRITE_TOOLS = new Set(["write", "edit"]);
+// `remove` is write-class: deleting a file mutates the tree exactly like
+// overwriting it, so it obeys the same write zones. It exists because Run 8's
+// test-writer, asked to delete its own broken test file, COULD NOT — write and
+// edit cannot remove — and the architect fell back to `git clean -f` on a file
+// in another role's zone, which is worse than either role deleting inside its
+// own.
+const WRITE_TOOLS = new Set(["write", "edit", "remove"]);
 const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 
 // Backup layer under the frontmatter allowlist. Two tiers, because the roles
@@ -158,6 +164,9 @@ export const GATE_TOOLS: readonly string[] = [
   // found a real defect in its closing turn and shipped anyway, because a gate
   // verdict was the only way the loop could end.
   "sign_off",
+  // The delivery pass: the produced repo must not ship red-phase scaffolding
+  // and must enforce its own contracts once the harness is gone.
+  "deliver",
 ];
 
 export const ROLE_TOOLS: Record<Role, readonly string[]> = {
@@ -168,13 +177,14 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
     "ls",
     "write",
     "edit",
+    "remove",
     "typecheck",
     "subagent",
     "git",
     ...GATE_TOOLS,
   ],
-  "test-writer": ["read", "grep", "find", "ls", "write", "edit", "typecheck"],
-  builder: ["read", "grep", "find", "ls", "write", "edit", "run_tests", "typecheck"],
+  "test-writer": ["read", "grep", "find", "ls", "write", "edit", "remove", "typecheck"],
+  builder: ["read", "grep", "find", "ls", "write", "edit", "remove", "run_tests", "typecheck"],
 };
 
 // Denied for every role, both directions.

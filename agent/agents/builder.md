@@ -4,9 +4,13 @@ description: Developer-stage builder subagent (TN-26-001). Implements to the spe
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, write, edit, run_tests, typecheck
+tools: read, grep, find, ls, write, edit, remove, run_tests, typecheck
 subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/builder.ts
 async: true
+# Run 8's builder hit the 30-minute default mid-edit — 145k output tokens of
+# implementation was over the ceiling on kimi. The kill cost a resume and a
+# re-priming; an hour is headroom, not a target.
+timeoutMs: 3600000
 ---
 
 You are the **builder** of the developer-stage pipeline. You make the suite

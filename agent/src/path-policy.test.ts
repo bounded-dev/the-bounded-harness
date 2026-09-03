@@ -622,3 +622,31 @@ describe("run_tests is builder-only", () => {
     }
   });
 });
+
+// `remove` is write-class: Run 8's test-writer could not delete its own broken
+// test file, and the architect fell back to `git clean -f` in someone else's
+// zone. Deleting must obey exactly the write zones.
+
+describe("remove obeys write zones", () => {
+  const ctx = { cwd: "/proj" };
+
+  test("test-writer may remove its own test file", () => {
+    expect(decide("test-writer", "remove", { path: "tests/values-boundaries.test.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("test-writer may not remove implementation or generated laws", () => {
+    expect(decide("test-writer", "remove", { path: "src/money.ts" }, ctx).allow).toBe(false);
+    expect(decide("test-writer", "remove", { path: "tests/generated/money.laws.test.ts" }, ctx).allow).toBe(false);
+  });
+
+  test("builder may remove inside src but never a contract", () => {
+    expect(decide("builder", "remove", { path: "src/shared/errors.ts" }, ctx).allow).toBe(true);
+    expect(decide("builder", "remove", { path: "src/money.contract.ts" }, ctx).allow).toBe(false);
+    expect(decide("builder", "remove", { path: "tests/money.test.ts" }, ctx).allow).toBe(false);
+  });
+
+  test("architect may remove only what it may write", () => {
+    expect(decide("architect", "remove", { path: "src/orders/orders.contract.ts" }, ctx).allow).toBe(true);
+    expect(decide("architect", "remove", { path: "tests/money.test.ts" }, ctx).allow).toBe(false);
+  });
+});

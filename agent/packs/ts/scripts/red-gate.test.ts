@@ -531,3 +531,29 @@ describe("red-gate CLI: obligations", () => {
     expect(r.stdout).toMatch(/red-gate: OK/);
   });
 });
+
+// A NotImplemented thrown at IMPORT time reads as a contradiction ("the right
+// error is the wrong reason?") and cost Run 8's architect 25 minutes. The gate
+// must say the throw happened during collection and name the fix.
+
+describe("collection-time NotImplemented", () => {
+  test("a file-level NotImplemented failure explains itself", () => {
+    const r = classifyRed(
+      run({ failed: 1, total: 1, results: [{ name: "(test file)", status: "failed", message: "NotImplemented: Currency.parse" }] }),
+      TYPE_CLEAN,
+    );
+    expect(r.code).toBe(1);
+    const out = r.lines.join("\n");
+    expect(out).toMatch(/IMPORT\/COLLECTION/);
+    expect(out).toMatch(/Move every such call inside a/);
+  });
+
+  test("an ordinary assertion failure gets no collection hint", () => {
+    const r = classifyRed(
+      run({ failed: 1, total: 1, results: [{ name: "adds", status: "failed", message: "expected 2 to be 3" }] }),
+      TYPE_CLEAN,
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).not.toMatch(/COLLECTION/);
+  });
+});

@@ -130,6 +130,17 @@ function classifySuite(run: RunTestsResult): GateResult {
   // Every failure must be a NotImplementedError.
   const offenders = run.results.filter((r) => r.status === "failed" && !isNotImplementedFailure(r.message));
   if (offenders.length > 0) {
+    // A FILE-level failure whose message mentions NotImplemented reads as a
+    // contradiction — "the right error is the wrong reason?" — and it cost
+    // Run 8's architect 25 minutes and five bounces against the wrong
+    // hypothesis. It is not a contradiction: the throw happened during
+    // import/collection, before any test ran. A skeleton call at the top
+    // level of a test file (building fixtures outside `test()`) throws while
+    // vitest is still collecting, so no test ever gets to fail for the right
+    // reason. The gate is correct to block; the message must say WHY.
+    const collectionFailures = offenders.filter(
+      (o) => o.name === "(test file)" && o.message !== undefined && /NotImplemented/.test(o.message),
+    );
     return {
       code: 1,
       verdict: "block",
@@ -137,10 +148,19 @@ function classifySuite(run: RunTestsResult): GateResult {
       lines: [
         `red-gate: FAIL — ${offenders.length} failure${offenders.length === 1 ? "" : "s"} not caused by NotImplementedError (wrong-reason red)`,
         ...offenders.map((o) => `  wrong-reason: ${o.name} — ${firstLine(o.message)}`),
+        ...(collectionFailures.length > 0
+          ? [
+              "red-gate: a NotImplemented thrown by '(test file)' happened during IMPORT/COLLECTION, not in a test:",
+              "  something calls a skeleton export at the top level of a test file (e.g. building a",
+              "  fixture with Currency.parse(...) outside test()). Move every such call inside a",
+              "  test() or a beforeEach — the file must be importable while nothing is implemented.",
+            ]
+          : []),
       ],
       detail: {
         reason: "wrong-reason",
         offenders: offenders.map((o) => ({ name: o.name, message: firstLine(o.message) })),
+        ...(collectionFailures.length > 0 ? { collectionFailures: collectionFailures.length } : {}),
       },
     };
   }

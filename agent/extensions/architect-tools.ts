@@ -41,6 +41,7 @@ import { runGreenGate } from "../packs/ts/scripts/green-gate.ts";
 import { runRedGate } from "../packs/ts/scripts/red-gate.ts";
 import { runScaffold } from "../packs/ts/scripts/scaffold-contract.ts";
 import { runSignOff } from "../packs/ts/scripts/sign-off.ts";
+import { runDeliver } from "../packs/ts/scripts/deliver.ts";
 import { logGuardEvent } from "../src/guard-log.ts";
 
 const CWD_PARAM = Type.Object({
@@ -210,6 +211,20 @@ export default function (pi: ExtensionAPI): void {
       const cwd = targetCwd(ctx.cwd, params.cwd);
       const r = runSignOff(cwd, params.findings);
       return gateOutput("sign-off", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "deliver",
+    label: "Deliver",
+    description:
+      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script, gitignore .pi/, and add the README Contracts section. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError.",
+    promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
+    parameters: CWD_PARAM,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runDeliver(cwd);
+      return gateOutput("deliver", r.code, r.lines);
     },
   });
 

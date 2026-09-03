@@ -208,12 +208,22 @@ the code belongs):
 
   For the test-writer to choose these deliberately rather than guess, the rule
   must be visible to it: it reads `spec.md` and the contract, nothing else.
-  Give every value object a doc comment stating what makes it valid.
+  Give every value object a doc comment stating what makes it valid — and **two
+  `@accepts` tags with distinct valid examples**:
 
   ```ts
-  /** ISO-4217 alphabetic code: exactly three uppercase letters. */
+  /** ISO-4217 alphabetic code: exactly three uppercase letters.
+   * @accepts "USD"
+   * @accepts "EUR"
+   */
   export declare class Currency { … }
   ```
+
+  The generated law suite needs one example to run its equality and
+  determinism laws and a second, different one to run "equals discriminates".
+  With one tag that law is emitted as a skip; Run 8 shipped with 9 skipped law
+  tests for exactly this reason. Two tags costs you ten seconds at design time
+  and buys a law per value object.
 
   Without it the test-writer invents a rule, the builder invents a different
   one, and they agree only by luck — the same failure as an unstated

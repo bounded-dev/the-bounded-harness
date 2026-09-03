@@ -21,6 +21,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { lstatSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
 import { formatRunTests, runTests,
@@ -59,6 +60,38 @@ function priorFailureSets(cwd: string): string[][] {
 }
 
 export default function (pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "remove",
+    label: "Remove File",
+    description:
+      "Delete one file. Subject to the same write zones as write/edit — you can only remove files you could have written. Directories are refused.",
+    promptSnippet: "Delete a file inside your write zones.",
+    parameters: Type.Object({
+      path: Type.String({ description: "File to delete (relative to the project root, or absolute)." }),
+      cwd: Type.Optional(Type.String({ description: "Project root override." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // The path gate has already vetoed out-of-zone paths before this runs;
+      // what remains is mechanics. Deleting a directory is refused because no
+      // role's job ever requires it — a recursive delete is a blast radius, not
+      // a capability.
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const target = isAbsolute(params.path) ? params.path : resolve(cwd, params.path);
+      let st;
+      try {
+        st = lstatSync(target);
+      } catch {
+        return { content: [{ type: "text" as const, text: `remove: '${params.path}' does not exist (nothing to do)` }], details: { ok: true, existed: false } };
+      }
+      if (st.isDirectory()) {
+        return { content: [{ type: "text" as const, text: `remove: '${params.path}' is a directory — remove refuses directories; delete files one by one` }], details: { ok: false } };
+      }
+      rmSync(target);
+      logGuardEvent(cwd, { guard: "remove", verdict: "pass", summary: `removed ${params.path}`, detail: { path: params.path } });
+      return { content: [{ type: "text" as const, text: `remove: deleted ${params.path}` }], details: { ok: true, existed: true } };
+    },
+  });
+
   pi.registerTool({
     name: "run_tests",
     label: "Run Tests",

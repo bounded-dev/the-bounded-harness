@@ -89,7 +89,18 @@ waited.
      *waiting*, never the *evidence*.
 
 4. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
-   green yourself; you arbitrate disputes (below).
+   green yourself; you arbitrate disputes (below). A passing green is not the
+   end: call `sign_off` with what you saw reading both sides — an empty list is
+   a valid answer, a silent green is not.
+
+5. **DELIVER** — after sign-off, run `deliver`. It strips the red-phase
+   scaffolding (the unused shared errors module, `__conformance` blobs), writes
+   the `src/index.ts` barrel, ships `scripts/surface-check.ts` with a
+   `check:surface` npm script so the repo enforces its own contracts after this
+   pipeline is gone, gitignores `.pi/`, and adds a README section explaining
+   the contract convention. Idempotent; it blocks if any unimplemented export
+   survived to delivery. The output of this stage is a repo you would hand a
+   colleague, not a lab bench.
 
 ## Gates are tools, not judgment
 

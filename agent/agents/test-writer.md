@@ -4,9 +4,13 @@ description: Developer-stage test-writer subagent (TN-26-001). Writes tests from
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, write, edit, typecheck
+tools: read, grep, find, ls, write, edit, remove, typecheck
 subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/test-writer.ts
 async: true
+# Run 8's builder hit the 30-minute default mid-edit — 145k output tokens of
+# implementation was over the ceiling on kimi. The kill cost a resume and a
+# re-priming; an hour is headroom, not a target.
+timeoutMs: 3600000
 ---
 
 You are the **test-writer** of the developer-stage pipeline. You write the
