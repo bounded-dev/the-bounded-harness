@@ -4,7 +4,7 @@ description: Developer-stage architect (TN-26-001). Owns one ticket end to end â
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
-tools: read, grep, find, ls, write, edit, typecheck, subagent, git, contract_purity, scaffold, freeze_contracts, check_drift, red_gate, green_gate
+tools: read, grep, find, ls, write, edit, typecheck, subagent, git, contract_purity, scaffold, freeze_contracts, check_drift, red_gate, green_gate, sign_off
 subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/architect.ts
 async: true
 ---

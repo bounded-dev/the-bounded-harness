@@ -40,6 +40,7 @@ import { runChecksumGate } from "../packs/ts/scripts/checksum-gate.ts";
 import { runGreenGate } from "../packs/ts/scripts/green-gate.ts";
 import { runRedGate } from "../packs/ts/scripts/red-gate.ts";
 import { runScaffold } from "../packs/ts/scripts/scaffold-contract.ts";
+import { runSignOff } from "../packs/ts/scripts/sign-off.ts";
 import { logGuardEvent } from "../src/guard-log.ts";
 
 const CWD_PARAM = Type.Object({
@@ -165,7 +166,50 @@ export default function (pi: ExtensionAPI): void {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const cwd = targetCwd(ctx.cwd, params.cwd);
       const r = await runGreenGate(cwd);
-      return gateOutput("green-gate", r.code, r.lines);
+      // Green is not the terminal verdict. Run 7's architect found a real
+      // defect in its closing turn and shipped anyway, because a gate verdict
+      // was the only way the loop could end.
+      const lines =
+        r.code === 0
+          ? [
+              ...r.lines,
+              "green-gate: GREEN is not the terminal verdict — call sign_off with what you saw reading the code (an empty list is a valid answer).",
+            ]
+          : r.lines;
+      return gateOutput("green-gate", r.code, lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "sign_off",
+    label: "Sign Off",
+    description:
+      "End the loop. After a passing green gate, record what you saw reading the implementation and the tests — you are the only role that can read both. An EMPTY findings list is a valid and expected answer; recording it explicitly is the point, because a silence cannot be audited later. This gate never judges a finding, it records the claim. Refuses if no green gate has passed.",
+    promptSnippet: "Sign off on the green: what did you see?",
+    promptGuidelines: [
+      "Call this after green_gate passes and before telling the user the work is done.",
+      "Record anything the gates could not see: a type-system escape hatch, an untested export, behaviour the spec left unstated, an ordering two roles agreed on only by luck.",
+      "severity: 'blocker' means do not ship it as clean; 'concern' means worth a look; 'note' is an observation.",
+    ],
+    parameters: Type.Object({
+      findings: Type.Array(
+        Type.Object({
+          severity: Type.Union([Type.Literal("blocker"), Type.Literal("concern"), Type.Literal("note")], {
+            description: "blocker | concern | note",
+          }),
+          summary: Type.String({ description: "One line: what is wrong." }),
+          evidence: Type.Optional(
+            Type.String({ description: "Where to look — a path, a symbol, a test name." }),
+          ),
+        }),
+        { description: "What you saw. Pass [] to record that you found nothing." },
+      ),
+      cwd: CWD_PARAM.properties.cwd,
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runSignOff(cwd, params.findings);
+      return gateOutput("sign-off", r.code, r.lines);
     },
   });
 
