@@ -1,9 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyRed, isNotImplementedFailure, redGateProjectPlan } from "./red-gate.ts";
+import {
+  classifyRed,
+  collectRedGateSources,
+  isNotImplementedFailure,
+  materializePristineProject,
+  redGateProjectPlan,
+} from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
@@ -206,6 +212,14 @@ describe("classifyRed", () => {
   });
 });
 
+const CONTRACT = `export declare class Currency {
+  private readonly __brand: "Currency";
+  private constructor();
+  readonly code: string;
+  static parse(raw: unknown): Currency | undefined;
+}
+`;
+
 // --- CLI (fixture-repo): real subprocess, real exit codes, real guard log -----
 
 const SCRIPT = join(import.meta.dirname, "red-gate.ts");
@@ -213,12 +227,23 @@ const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** A target project whose "test suite" is `cat run.json` (canned vitest JSON),
- *  wired via the PI_GATE_TEST_CMD seam so no real vitest install is needed. */
+ *  wired via the PI_GATE_TEST_CMD seam so no real vitest install is needed.
+ *
+ *  The repo also carries a real contract and a real test file, because the gate
+ *  now builds a PRISTINE project before running anything and a project with no
+ *  contracts (or no tests) cannot produce a valid red at all. The canned files
+ *  are addressed absolutely, since the suite runs in the pristine copy rather
+ *  than here. */
 function fixtureRepo(prefix: string, runJson: string, file = "run.json", tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tmpDirs.push(dir);
   writeFileSync(join(dir, file), runJson);
   writeFileSync(join(dir, "tsc.txt"), tscOutput);
+  mkdirSync(join(dir, "src", "money"), { recursive: true });
+  mkdirSync(join(dir, "tests"), { recursive: true });
+  writeFileSync(join(dir, "src", "money", "money.contract.ts"), "export declare function create(): void;\n");
+  writeFileSync(join(dir, "tests", "money.test.ts"), "// canned\n");
+  writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
   return dir;
 }
 
@@ -229,10 +254,10 @@ function runGate(dir: string, file = "run.json", typeErrors = false) {
     env: {
       ...process.env,
       PI_GATE_TEST_CMD: "cat",
-      PI_GATE_TEST_ARGS: JSON.stringify([file]),
+      PI_GATE_TEST_ARGS: JSON.stringify([join(dir, file)]),
       // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
       PI_GATE_TSC_CMD: "sh",
-      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
+      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat ${join(dir, "tsc.txt")}; exit ${typeErrors ? 2 : 0}`]),
     },
   });
 }
@@ -351,5 +376,158 @@ describe("redGateProjectPlan", () => {
     expect(() =>
       redGateProjectPlan({ contracts: [], testFiles: ["tests/x.test.ts"], configFiles: [] }),
     ).toThrow(/no contract/i);
+  });
+});
+
+// --- The pristine project (the plan, materialized) --------------------------------
+//
+// The point of these: the red verdict must not depend on what the builder has
+// done to the live src/. Everything below builds a tree in which the builder has
+// ALREADY written a full implementation, and asserts the gate's project is
+// untouched by it.
+
+function liveTree(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pi-red-live-"));
+  mkdirSync(join(dir, "src", "money"), { recursive: true });
+  mkdirSync(join(dir, "tests", "generated"), { recursive: true });
+  writeFileSync(join(dir, "src", "money", "money.contract.ts"), CONTRACT);
+  // The builder, working in parallel, has already finished.
+  writeFileSync(join(dir, "src", "money", "money.ts"), "export class Currency { static parse() { return undefined; } }\n");
+  writeFileSync(join(dir, "src", "shared", "errors.ts".replace("errors.ts", "")) + "errors.ts", "// stale\n");
+  writeFileSync(join(dir, "tests", "money.test.ts"), "// test\n");
+  writeFileSync(join(dir, "tests", "generated", "money.laws.test.ts"), "// generated laws\n");
+  writeFileSync(join(dir, "package.json"), '{"name":"x"}\n');
+  writeFileSync(join(dir, "tsconfig.json"), "{}\n");
+  return dir;
+}
+
+describe("collectRedGateSources", () => {
+  const dir = liveTree();
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("separates contracts from the implementation the builder wrote", () => {
+    const sources = collectRedGateSources(dir);
+    expect(sources.contracts).toEqual(["src/money/money.contract.ts"]);
+    expect(sources.implementationFiles).toContain("src/money/money.ts");
+    expect(sources.implementationFiles).not.toContain("src/money/money.contract.ts");
+  });
+
+  test("takes the generated law suite as well as the hand-written tests", () => {
+    const sources = collectRedGateSources(dir);
+    expect(sources.testFiles).toContain("tests/money.test.ts");
+    expect(sources.testFiles).toContain("tests/generated/money.laws.test.ts");
+  });
+
+  test("takes only the config files that exist", () => {
+    const sources = collectRedGateSources(dir);
+    expect(sources.configFiles).toEqual(["package.json", "tsconfig.json"]);
+  });
+});
+
+describe("materializePristineProject", () => {
+  const live = liveTree();
+  const pristine = materializePristineProject(live, redGateProjectPlan(collectRedGateSources(live)));
+  afterAll(() => {
+    rmSync(live, { recursive: true, force: true });
+    rmSync(pristine, { recursive: true, force: true });
+  });
+
+  test("regenerates the skeleton instead of copying the implementation", () => {
+    const skeleton = readFileSync(join(pristine, "src", "money", "money.ts"), "utf8");
+    expect(skeleton).toContain("GENERATED from money.contract.ts");
+    expect(skeleton).toContain('throw new NotImplementedError("Currency.parse")');
+    // The builder's real implementation must not have reached the copy: it is
+    // what turns NotImplemented failures into ordinary assertion failures.
+    expect(skeleton).not.toContain("static parse() { return undefined; }");
+  });
+
+  test("regenerates the shared errors module rather than trusting the live one", () => {
+    const errors = readFileSync(join(pristine, "src", "shared", "errors.ts"), "utf8");
+    expect(errors).toContain("class NotImplementedError");
+    expect(errors).not.toContain("stale");
+  });
+
+  test("carries the tests and the config across verbatim", () => {
+    expect(readFileSync(join(pristine, "tests", "money.test.ts"), "utf8")).toContain("// test");
+    expect(readFileSync(join(pristine, "tests", "generated", "money.laws.test.ts"), "utf8")).toContain("laws");
+    expect(existsSync(join(pristine, "package.json"))).toBe(true);
+    expect(existsSync(join(pristine, "tsconfig.json"))).toBe(true);
+  });
+
+  test("leaves the live tree alone", () => {
+    // The gate must never write into the project it is judging.
+    expect(readFileSync(join(live, "src", "money", "money.ts"), "utf8")).toContain("static parse() { return undefined; }");
+  });
+});
+
+// --- Obligations: a valid red that covers nothing ---------------------------------
+//
+// Dogfood Run 7's suite was a right-reason red, type-clean, 32 tests — and it
+// never called 9 of the contract's 15 exports. Both checks below would have
+// blocked it, at the one moment when fixing it costs the test-writer 30 seconds.
+
+function obligationsRepo(prefix: string, testSource: string, failures: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(dir);
+  writeFileSync(
+    join(dir, "run.json"),
+    vitestJson(failures.map((f, i) => ({ name: `t${i}`, status: "failed", message: `NotImplementedError: ${f}` }))),
+  );
+  writeFileSync(join(dir, "tsc.txt"), "");
+  mkdirSync(join(dir, "src", "money"), { recursive: true });
+  mkdirSync(join(dir, "tests"), { recursive: true });
+  writeFileSync(
+    join(dir, "src", "money", "money.contract.ts"),
+    CONTRACT + "\nexport declare function formatMoney(c: Currency): string;\n",
+  );
+  writeFileSync(join(dir, "tests", "money.test.ts"), testSource);
+  writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
+  return dir;
+}
+
+const BOUNDARIES_BLOCK = `import { describe, it, expect } from "vitest";
+import { Currency } from "../src/money/money.js";
+describe("Currency ${"\u2014"} boundaries", () => {
+  it("accepts a well-formed code", () => { expect(Currency.parse("USD")).toBeDefined(); });
+  it("rejects lowercase", () => { expect(Currency.parse("usd")).toBeUndefined(); });
+  it("rejects two letters", () => { expect(Currency.parse("US")).toBeUndefined(); });
+});
+`;
+
+describe("red-gate CLI: obligations", () => {
+  test("an export no failure names is an export no test called", () => {
+    // Currency is reached through its member; formatMoney is never called.
+    // (Reachability is per EXPORT: a member throw discharges its owner.)
+    const dir = obligationsRepo("red-unreached-", BOUNDARIES_BLOCK, ["Currency.parse"]);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/the red is valid but incomplete/);
+    expect(r.stdout).toContain("red-gate: route → test-writer");
+  });
+
+  test("a value object with no boundaries block blocks the red", () => {
+    const dir = obligationsRepo("red-noboundaries-", "// nothing\n", ["Currency.parse", "formatMoney"]);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/Currency/);
+    expect(r.stdout).toContain("red-gate: route → test-writer");
+  });
+
+  test("one rejection is not two — the floor is two distinct wrong-value literals", () => {
+    const oneRejection = BOUNDARIES_BLOCK.replace(
+      '  it("rejects two letters", () => { expect(Currency.parse("US")).toBeUndefined(); });\n',
+      "",
+    );
+    const dir = obligationsRepo("red-onereject-", oneRejection, ["Currency.parse", "formatMoney"]);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("red-gate: route → test-writer");
+  });
+
+  test("everything reached and the boundaries discharged → the red stands", () => {
+    const dir = obligationsRepo("red-obliged-", BOUNDARIES_BLOCK, ["Currency.parse", "formatMoney"]);
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/red-gate: OK/);
   });
 });

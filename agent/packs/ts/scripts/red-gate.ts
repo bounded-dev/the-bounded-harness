@@ -28,7 +28,37 @@
 // defaults are `npx vitest run --reporter=json` and `npx tsc --noEmit`.
 
 import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, sep } from "node:path";
+import {
+  boundaryRemedyLines,
+  checkBoundaryBlocks,
+  declaredExports,
+  reachedNames,
+  readContracts,
+  readHandWrittenTests,
+  unreachedExports,
+  unreachedRemedyLines,
+  valueObjectClasses,
+} from "./test-obligations.ts";
+import {
+  ERRORS_MODULE_SOURCE,
+  errorsModuleFor,
+  scaffoldContract,
+  skeletonPathFor,
+} from "./scaffold-contract.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
@@ -237,17 +267,200 @@ export function redGateProjectPlan(sources: RedGateSources): RedGateProjectPlan 
   };
 }
 
+// --- Building the pristine project ----------------------------------------------
+
+const CONFIG_CANDIDATES = [
+  "package.json",
+  "tsconfig.json",
+  "vitest.config.ts",
+  "vitest.config.js",
+  "vitest.config.mts",
+] as const;
+
+/** Project-relative paths, POSIX separators, of every *.ts under `dir`. */
+function walkTs(root: string, dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walkTs(root, full, out);
+    else if (entry.name.endsWith(".ts")) out.push(relative(root, full).split(sep).join("/"));
+  }
+  return out;
+}
+
+/** What a pristine project is built from, read off the live tree. Contracts and
+ *  tests are found the same way the rest of the pack finds them; implementation
+ *  files are listed only so the plan can be asserted to exclude them. */
+export function collectRedGateSources(cwd: string): RedGateSources {
+  const src = walkTs(cwd, join(cwd, "src"));
+  return {
+    contracts: src.filter((f) => f.endsWith(".contract.ts")),
+    testFiles: walkTs(cwd, join(cwd, "tests")),
+    configFiles: CONFIG_CANDIDATES.filter((f) => existsSync(join(cwd, f))),
+    implementationFiles: src.filter((f) => !f.endsWith(".contract.ts")),
+  };
+}
+
+/**
+ * Materialize a plan into a throwaway directory and return its path.
+ *
+ * `node_modules` is symlinked rather than copied: the suite needs vitest and
+ * typescript, and a copy would cost more than the gate saves.
+ *
+ * The skeletons are REGENERATED here, never copied — that is the whole point.
+ * `scaffold` is deterministic and the contracts are checksum-frozen, so the
+ * unimplemented skeleton can be reproduced at any moment, which is what makes
+ * the verdict independent of whatever the builder has done to the real src/.
+ */
+export function materializePristineProject(cwd: string, plan: RedGateProjectPlan): string {
+  const dir = mkdtempSync(join(tmpdir(), "pi-red-gate-"));
+
+  for (const rel of plan.copy) {
+    const to = join(dir, rel);
+    mkdirSync(dirname(to), { recursive: true });
+    copyFileSync(join(cwd, rel), to);
+  }
+
+  const modules = join(cwd, "node_modules");
+  if (existsSync(modules)) {
+    try {
+      symlinkSync(modules, join(dir, "node_modules"), "dir");
+    } catch {
+      // A missing symlink is not fatal on its own — the suite will fail to run
+      // and classifySuite reports that as a wrong-reason red, which is true.
+    }
+  }
+
+  for (const rel of plan.regenerate) {
+    const source = readFileSync(join(cwd, rel), "utf8");
+    const skeleton = join(dir, skeletonPathFor(rel));
+    mkdirSync(dirname(skeleton), { recursive: true });
+    writeFileSync(skeleton, scaffoldContract(source, rel), "utf8");
+
+    const errors = join(dir, errorsModuleFor(rel) + ".ts");
+    if (!existsSync(errors)) {
+      mkdirSync(dirname(errors), { recursive: true });
+      writeFileSync(errors, ERRORS_MODULE_SOURCE, "utf8");
+    }
+  }
+
+  return dir;
+}
+
+/**
+ * The two obligations a red must ALSO discharge, checked only once the red is
+ * otherwise valid.
+ *
+ * Dogfood Run 7 is why both exist. Its suite was a right-reason red, type-clean,
+ * 32 tests — and it never called 9 of the contract's 15 exports. Every value
+ * object parser went untested through a red gate and a green gate, because the
+ * gates asked whether the failures were the right KIND and never whether they
+ * covered the SURFACE. The measurement was already in hand: the scaffolder
+ * writes the export's own name into each NotImplementedError, and the gate was
+ * throwing that name away.
+ *
+ *   · REACHABILITY is exact and free — set difference over data already parsed.
+ *     An export no failure names is an export no test called.
+ *   · BOUNDARIES is a fingerprint, not a measurement. It eliminates OMISSION —
+ *     nine parsers, zero assertions, no intent involved — and not evasion; a
+ *     lazy pair of rejections satisfies it. Claim no more for it than that.
+ *
+ * Both are the test-writer's to fix, and this is the last gate where fixing
+ * them is cheap.
+ */
+function withObligations(cwd: string, base: GateResult, run: RunTestsResult): GateResult {
+  let contracts, tests;
+  try {
+    contracts = readContracts(cwd);
+    tests = readHandWrittenTests(cwd);
+  } catch {
+    return base; // an unreadable tree must never turn a valid red into a block
+  }
+
+  const reached = reachedNames(run.results.filter((r) => r.status === "failed").map((r) => r.message));
+  const unreached = unreachedExports(declaredExports(contracts), reached);
+  const boundaries = checkBoundaryBlocks(valueObjectClasses(contracts), tests);
+  if (unreached.length === 0 && boundaries.length === 0) return base;
+
+  const counts = [
+    unreached.length > 0 ? `${unreached.length} unreached export${unreached.length === 1 ? "" : "s"}` : undefined,
+    boundaries.length > 0 ? `${boundaries.length} boundaries gap${boundaries.length === 1 ? "" : "s"}` : undefined,
+  ].filter((c) => c !== undefined);
+
+  return {
+    code: 1,
+    verdict: "block",
+    summary: `${counts.join(" + ")} (route: test-writer)`,
+    lines: [
+      `red-gate: FAIL — the red is valid but incomplete: ${counts.join(", ")}`,
+      ...(unreached.length > 0 ? unreachedRemedyLines(unreached) : []),
+      ...boundaries.flatMap((v) => boundaryRemedyLines(v)),
+      "red-gate: route → test-writer",
+    ],
+    detail: {
+      reason: "obligations",
+      unreached: unreached.map((u) => u.name),
+      boundaries: boundaries.map((v) => ({ className: v.className, kind: v.kind })),
+      route: "test-writer",
+    },
+  };
+}
+
 /** Run the red gate and return its verdict without printing or exiting.
  *  The `red_gate` tool and the CLI below are both thin wrappers over this, so
- *  there is exactly one implementation of "is this a valid red". */
+ *  there is exactly one implementation of "is this a valid red".
+ *
+ *  The suite runs against a PRISTINE regenerated copy of the project, not the
+ *  live tree. A valid red asserts every failure is NotImplementedError, which
+ *  is only measurable against an unimplemented skeleton — running against the
+ *  live tree is what forced BUILD to wait for TEST, because the window shut the
+ *  moment the builder wrote anything. Against a regenerated copy the verdict
+ *  holds regardless, so the test-writer and the builder can run concurrently.
+ *
+ *  Blindness is untouched: regenerating a skeleton needs the contracts, never
+ *  the tests. */
 export async function runRedGate(cwd: string): Promise<GateResult> {
-  const [run, tsc] = await Promise.all([
-    runTests(cwd, gateOptionsFromEnv()),
-    typecheck(cwd, gateTypecheckOptionsFromEnv()),
-  ]);
-  const result = classifyRed(run, tsc);
-  logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
-  return result;
+  let dir: string;
+  let plan: RedGateProjectPlan;
+  try {
+    plan = redGateProjectPlan(collectRedGateSources(cwd));
+    dir = materializePristineProject(cwd, plan);
+  } catch (e) {
+    const summary = e instanceof Error ? e.message : String(e);
+    const result: GateResult = {
+      code: 2,
+      verdict: "error",
+      summary,
+      lines: [`red-gate: ERROR — ${summary}`],
+      detail: { reason: "pristine-project" },
+    };
+    logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary, detail: result.detail });
+    return result;
+  }
+
+  try {
+    const [run, tsc] = await Promise.all([
+      runTests(dir, gateOptionsFromEnv()),
+      typecheck(dir, gateTypecheckOptionsFromEnv()),
+    ]);
+    const base = classifyRed(run, tsc);
+    // Obligations are only meaningful once the red itself is valid: against a
+    // broken suite "nothing reached parseCurrency" is noise, not a finding.
+    const result = base.code === 0 ? withObligations(cwd, base, run) : base;
+    logGuardEvent(cwd, {
+      guard: GUARD,
+      verdict: result.verdict,
+      summary: result.summary,
+      detail: { ...result.detail, pristine: true, contracts: plan.regenerate.length },
+    });
+    return result;
+  } finally {
+    // PI_GATE_KEEP_PRISTINE leaves the directory behind: when a red is invalid
+    // for a reason the output does not explain, the project it ran against is
+    // the first thing worth looking at.
+    if (!process.env["PI_GATE_KEEP_PRISTINE"]) rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 async function main(argv: string[]): Promise<number> {
