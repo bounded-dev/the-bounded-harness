@@ -1,4 +1,5 @@
 import { declarationOnly } from "./rules/declaration-only.ts";
+import { noBrandedAliases } from "./rules/no-branded-aliases.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
 import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
@@ -13,6 +14,7 @@ export const plugin = {
   rules: {
     "declaration-only": declarationOnly,
     "no-naked-primitives": noNakedPrimitives,
+    "no-branded-aliases": noBrandedAliases,
     "value-object-shape": valueObjectShape,
     "value-object-documented": valueObjectDocumented,
   },

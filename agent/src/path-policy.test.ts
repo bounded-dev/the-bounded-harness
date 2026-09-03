@@ -337,7 +337,7 @@ describe("block reasons", () => {
       "path-gate: builder may not write 'src/x.contract.ts': denied for builder (matches 'src/**/*.contract.ts')",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
-      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones (spec.md, src/**/*.contract.ts)",
+      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones (spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts)",
     );
     expect(reason("test-writer", "grep")).toBe(
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
@@ -373,10 +373,12 @@ describe("ownerOfPath", () => {
     ["tests/fakes/clock.ts", "test-writer"],
     ["src/orders/orders.ts", "builder"],
     ["src/shared/errors.ts", "builder"],
-    // Outside every write zone: nobody in the pipeline may fix it.
-    ["vitest.config.ts", null],
-    ["package.json", null],
-    ["tsconfig.json", null],
+    // Config files route to the architect — the skill's "orchestrator" case
+    // was always "also you", and Run 9's gate refused the write it promised.
+    ["vitest.config.ts", "architect"],
+    ["package.json", "architect"],
+    ["tsconfig.json", "architect"],
+    // Genuinely outside every zone: nobody in the pipeline may fix it.
     ["docs/notes.md", null],
   ];
   for (const [path, owner] of cases) {
@@ -648,5 +650,21 @@ describe("remove obeys write zones", () => {
   test("architect may remove only what it may write", () => {
     expect(decide("architect", "remove", { path: "src/orders/orders.contract.ts" }, ctx).allow).toBe(true);
     expect(decide("architect", "remove", { path: "tests/money.test.ts" }, ctx).allow).toBe(false);
+  });
+});
+
+// The "orchestrator" route's destination: the skill promises the architect may
+// repair config files, and Run 9's gate refused the write it promised.
+
+describe("architect may write config files (the orchestrator route)", () => {
+  const ctx = { cwd: "/proj" };
+  test("tsconfig, package.json and vitest config are writable", () => {
+    expect(decide("architect", "write", { path: "tsconfig.json" }, ctx).allow).toBe(true);
+    expect(decide("architect", "write", { path: "package.json" }, ctx).allow).toBe(true);
+    expect(decide("architect", "write", { path: "vitest.config.ts" }, ctx).allow).toBe(true);
+  });
+  test("the workers still may not", () => {
+    expect(decide("builder", "write", { path: "tsconfig.json" }, ctx).allow).toBe(false);
+    expect(decide("test-writer", "write", { path: "package.json" }, ctx).allow).toBe(false);
   });
 });

@@ -40,4 +40,3 @@ Rules:
 - A subscription's invoices, summed, must always equal the total the customer
   has actually been charged — no operation may leave the two out of step.
 
-Keep the code clean and well separated. Write it test-first.

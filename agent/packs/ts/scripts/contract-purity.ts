@@ -40,6 +40,10 @@ export function createContractLinter(): ESLint {
         rules: {
           "pi-harness-ts/declaration-only": "error",
           "pi-harness-ts/no-naked-primitives": "error",
+          // Run 9: a branded ALIAS with an optional brand passed every gate
+          // and enforced nothing; the required form cannot be built without a
+          // cast the src lint bans. Classes only.
+          "pi-harness-ts/no-branded-aliases": "error",
           // The value object rules. no-naked-primitives says a primitive may
           // not cross the boundary; these two say what must be there instead,
           // and that its validity rule is written down where the test-writer

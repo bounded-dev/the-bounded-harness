@@ -132,15 +132,23 @@ the code belongs):
   `as`, no `!`, and no `@ts-expect-error` anywhere. There is no exemption list
   to reason toward — see "Escape hatches" below.
 
-  ### The branded alias, for a scalar with no behaviour
+  ### Branded aliases are banned — the class is the only form
 
   ```ts
-  export type Isbn = string & { readonly __brand: "Isbn" };
-  export interface Book { readonly isbn: Isbn }
+  export type Isbn = string & { readonly __brand: "Isbn" };   // BLOCKED
+  export type Id = string & { readonly __brand?: "Id" };      // BLOCKED
+  export type Isbn = string;                                  // BLOCKED
   ```
 
-  Note `export type Isbn = string` (a bare alias) is *also* blocked — it is
-  assignable from every other string, so it buys nothing.
+  `contract-purity` runs `no-branded-aliases`, and the reasons are Run 9's:
+  the **optional** brand is a costume — every bare string is assignable, and
+  because no class exists, no law suite is generated and the boundaries
+  obligation never fires, so a question mark disarms the whole coverage
+  machinery. The **required** brand is incoherent under the escape-hatch ban:
+  `raw as Isbn` is its only constructor and `as` is blocked in `src/` with no
+  exemption list, so the contract would demand what the builder cannot legally
+  write. The class has a real constructor; it is the only value-object shape
+  that needs no escape hatch.
 
   Don't hand-write either form — the one typo that matters is invisible (a
   brand string that doesn't match the type name silently gives you two

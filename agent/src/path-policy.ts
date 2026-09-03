@@ -280,7 +280,21 @@ export const ZONES: Record<Role, Zone> = {
   // `.git` overlap alone, which wants result filtering rather than a wider
   // zone.
   architect: {
-    writeAllow: ["spec.md", "src/**/*.contract.ts"],
+    // Config files are the "orchestrator" route's destination: the skill has
+    // always said type errors in tsconfig/package/vitest config are "also
+    // you, acting outside the pipeline's zones" — but Run 9's gate refused
+    // the write the skill promised, and the architect burned turns on the
+    // contradiction. The gates run their own commands (never npm scripts),
+    // so an architect editing package.json cannot weaken a gate.
+    writeAllow: [
+      "spec.md",
+      "src/**/*.contract.ts",
+      "tsconfig.json",
+      "package.json",
+      "vitest.config.ts",
+      "vitest.config.js",
+      "vitest.config.mts",
+    ],
     writeDeny: [],
     readDeny: [],
     readExcept: [],

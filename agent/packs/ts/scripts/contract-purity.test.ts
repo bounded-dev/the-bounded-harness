@@ -11,7 +11,7 @@ import { readGuardLog } from "../../../src/guard-log.ts";
 describe("lintContractSource", () => {
   test("a clean contract produces no problems", async () => {
     const problems = await lintContractSource(
-      'export type OrderId = string & { readonly __brand: "OrderId" };\n' +
+      '/** OrderId: a valid value. */\nexport declare class OrderId {\n  private readonly __brand: "OrderId";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): OrderId | undefined;\n}\n' +
         "export interface Order { id: OrderId }\n" +
         "export declare function create(o: Order): void;",
       "orders.contract.ts",
@@ -54,9 +54,9 @@ describe("lintContractSource", () => {
 
   test("the value-object version of the same contract is clean", async () => {
     const problems = await lintContractSource(
-      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        'export type AuthorName = string & { readonly __brand: "AuthorName" };\n' +
-        'export type PagesRead = number & { readonly __brand: "PagesRead" };\n' +
+      '/** Isbn: a valid value. */\nexport declare class Isbn {\n  private readonly __brand: "Isbn";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): Isbn | undefined;\n}\n' +
+        '/** AuthorName: a valid value. */\nexport declare class AuthorName {\n  private readonly __brand: "AuthorName";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): AuthorName | undefined;\n}\n' +
+        '/** PagesRead: a valid value. */\nexport declare class PagesRead {\n  private readonly __brand: "PagesRead";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): PagesRead | undefined;\n}\n' +
         "export interface Book { readonly isbn: Isbn; readonly authors: readonly [AuthorName, ...AuthorName[]] }\n" +
         "export interface ProgressEvent { readonly pagesRead: PagesRead }\n" +
         "export interface ReadingListStore { save(book: Book): Promise<void>; load(): Promise<readonly Book[]> }",
@@ -84,7 +84,7 @@ describe("formatProblems (one greppable line per problem)", () => {
 
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
 const GOOD_CONTRACT =
-  'export type Px = number & { readonly __brand: "Px" };\nexport interface P { x: Px }\n';
+  '/** Px: a valid value. */\nexport declare class Px {\n  private readonly __brand: "Px";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): Px | undefined;\n}\n/** px */\nexport interface P { x: Px }\n';
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
