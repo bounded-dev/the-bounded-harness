@@ -330,3 +330,80 @@ describe("green-gate CLI: src escape hatches", () => {
     expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
   });
 });
+
+// The contract must bind at green, not just at scaffold. Run 8 shipped
+// Money.signed and nine undeclared re-exports through a green gate that only
+// asked about tests and types.
+
+describe("green-gate CLI: surface violations", () => {
+  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
+
+  test("an undeclared public member blocks the green and routes to the builder", () => {
+    const dir = fixtureRepo("green-surface-", allPassing);
+    mkdirSync(join(dir, "src", "shared"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "shared", "money.contract.ts"),
+      [
+        "export declare class Money {",
+        '  private readonly __brand: "Money";',
+        "  private constructor();",
+        "  readonly minorUnits: number;",
+        "  static parse(raw: unknown): Money | undefined;",
+        "}",
+      ].join("\n") + "\n",
+    );
+    writeFileSync(
+      join(dir, "src", "shared", "money.ts"),
+      [
+        'export type * from "./money.contract.js";',
+        "export class Money {",
+        '  declare private readonly __brand: "Money";',
+        "  private constructor(readonly minorUnits: number) {}",
+        "  static parse(raw: unknown): Money | undefined {",
+        '    return typeof raw === "number" ? new Money(raw) : undefined;',
+        "  }",
+        "  // Undeclared public surface — the Run 8 case.",
+        "  static signed(n: number): number { return n; }",
+        "}",
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/public surface does not match the contract/);
+    expect(r.stdout).toContain("Money.signed");
+    expect(r.stdout).toContain("green-gate: route → builder");
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "block", detail: { surfaceViolations: 1 } });
+  });
+
+  test("a conforming surface still passes", () => {
+    const dir = fixtureRepo("green-surface-ok-", allPassing);
+    mkdirSync(join(dir, "src", "shared"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "shared", "money.contract.ts"),
+      [
+        "export declare class Money {",
+        '  private readonly __brand: "Money";',
+        "  private constructor();",
+        "  readonly minorUnits: number;",
+        "  static parse(raw: unknown): Money | undefined;",
+        "}",
+      ].join("\n") + "\n",
+    );
+    writeFileSync(
+      join(dir, "src", "shared", "money.ts"),
+      [
+        'export type * from "./money.contract.js";',
+        "export class Money {",
+        '  declare private readonly __brand: "Money";',
+        "  private constructor(readonly minorUnits: number) {}",
+        "  static parse(raw: unknown): Money | undefined {",
+        '    return typeof raw === "number" ? new Money(raw) : undefined;',
+        "  }",
+        "}",
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
+  });
+});

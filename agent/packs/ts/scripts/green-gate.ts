@@ -33,6 +33,7 @@ import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import { lintSrc } from "./lint-src.ts";
+import { checkProjectSurfaces } from "./surface-check.ts";
 
 const GUARD = "green-gate";
 
@@ -124,11 +125,18 @@ export function classifyGreen(
    *  one expression, so it is a gate failure exactly like a type error, never
    *  an advisory note. Always the builder's: src/** is its write zone. */
   lint: readonly string[] = [],
+  /** Surface violations from surface-check.ts: public exports or members the
+   *  contract does not declare, or declared surface the implementation
+   *  dropped. Run 8 shipped Money.signed plus nine undeclared re-exports this
+   *  way — a contract that binds only at scaffold time is a compile step, not
+   *  a contract. Always the builder's: the remedy is "make it private" or a
+   *  CONTRACT-DISPUTE, both of which start with the builder. */
+  surface: readonly string[] = [],
 ): GateResult {
   const suite = suiteVerdict(run);
   const types = routeTypecheck(tsc.diagnostics);
 
-  if (suite === null && types.errorCount === 0 && lint.length === 0) {
+  if (suite === null && types.errorCount === 0 && lint.length === 0 && surface.length === 0) {
     return {
       code: 0,
       verdict: "pass",
@@ -148,18 +156,24 @@ export function classifyGreen(
       ? [
           `green-gate: FAIL — ${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the project is not type-clean`,
         ]
-      : [
-          `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in src/; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
-        ]);
+      : lint.length > 0
+        ? [
+            `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in src/; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
+          ]
+        : [
+            `green-gate: FAIL — ${surface.length} surface violation${surface.length === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the public surface does not match the contract`,
+          ]);
   const lintLines =
     lint.length > 0
       ? [...lint, "green-gate: a non-null assertion, cast, any or ts-comment is a gate failure, not a style note — fix the cause the type checker was pointing at"]
       : [];
-  const route = mostUpstream([...(suite ? [suite.owner] : []), ...types.owners, ...(lint.length > 0 ? ["builder" as const] : [])]);
+  const surfaceLines = surface.length > 0 ? [...surface] : [];
+  const route = mostUpstream([...(suite ? [suite.owner] : []), ...types.owners, ...(lint.length > 0 || surface.length > 0 ? ["builder" as const] : [])]);
   const summary = [
     suite?.summary,
     types.errorCount > 0 ? `${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}` : undefined,
     lint.length > 0 ? `${lint.length} escape hatch${lint.length === 1 ? "" : "es"}` : undefined,
+    surface.length > 0 ? `${surface.length} surface violation${surface.length === 1 ? "" : "s"}` : undefined,
   ]
     .filter((s) => s !== undefined)
     .join(" + ");
@@ -168,15 +182,16 @@ export function classifyGreen(
     code: 1,
     verdict: "block",
     summary: `${summary} (route: ${route})`,
-    lines: [...headline, ...typecheckLines(types), ...lintLines, `green-gate: route → ${route}`],
+    lines: [...headline, ...typecheckLines(types), ...lintLines, ...surfaceLines, `green-gate: route → ${route}`],
     detail: {
       ...(suite?.detail ?? {
-        reason: types.errorCount > 0 ? "type-errors" : "escape-hatches",
+        reason: types.errorCount > 0 ? "type-errors" : lint.length > 0 ? "escape-hatches" : "surface",
         passed: run.passed,
         total: run.total,
       }),
       typeErrors: types.errorCount,
       escapeHatches: lint.length,
+      surfaceViolations: surface.length,
       route,
       typeErrorOwners: types.owners,
     },
@@ -215,9 +230,18 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     typecheck(cwd, gateTypecheckOptionsFromEnv()),
     lintSrc(cwd),
   ]);
+  // Surface check is synchronous ts-morph work; a code-2 (no contracts, or a
+  // missing implementation file) is not a finding here — the suite and
+  // typecheck verdicts already own those failure modes.
+  const surfaces = checkProjectSurfaces(cwd);
   // A lint ERROR (no files matched) is not a finding: an empty src/ is the
   // builder's problem to have, and the suite verdict already says so.
-  const base = classifyGreen(run, tsc, lint.code === 1 ? lint.lines.slice(0, -1) : []);
+  const base = classifyGreen(
+    run,
+    tsc,
+    lint.code === 1 ? lint.lines.slice(0, -1) : [],
+    surfaces.code === 1 ? surfaces.lines.slice(0, -1) : [],
+  );
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard
   // log, which is where every other convergence check already reads from.
