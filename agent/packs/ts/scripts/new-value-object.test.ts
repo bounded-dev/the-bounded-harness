@@ -6,6 +6,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import {
   ValueObjectError,
   addValueObjects,
+  parseArgv,
   parseSpec,
   renderValueObject,
 } from "./new-value-object.ts";
@@ -14,35 +15,51 @@ import { readGuardLog } from "../../../src/guard-log.ts";
 
 const CONTRACT = "src/reading-list/book.contract.ts";
 
-// --- spec parsing ---------------------------------------------------------------
-
-describe("parseSpec", () => {
-  test("Name=base, with string as the default base", () => {
-    expect(parseSpec("Isbn=string")).toEqual({ name: "Isbn", base: "string" });
-    expect(parseSpec("PagesRead=number")).toEqual({ name: "PagesRead", base: "number" });
-    expect(parseSpec("Isbn")).toEqual({ name: "Isbn", base: "string" });
-  });
-
-  test("rejects a non-PascalCase name (type names are PascalCase)", () => {
-    expect(() => parseSpec("isbn")).toThrow(ValueObjectError);
-    expect(() => parseSpec("isbn")).toThrow(/PascalCase/);
-  });
-
-  test("rejects a base the value-object rule does not police", () => {
-    expect(() => parseSpec("Active=boolean")).toThrow(/boolean/);
-  });
-});
-
 // --- rendering ------------------------------------------------------------------
 
+// The canonical shape (ts-contract-authoring, "The canonical shape is a nominal
+// class"). Written out literally here rather than built from the generator's own
+// helpers: a test that renders the thing it is checking checks nothing.
+const ISBN = [
+  "/** Isbn: state what makes it valid. */",
+  "export declare class Isbn {",
+  '  private readonly __brand: "Isbn";',
+  "  private constructor();",
+  "  readonly value: string;",
+  "  static parse(raw: unknown): Isbn | undefined;",
+  "  equals(other: Isbn): boolean;",
+  "}",
+].join("\n");
+
+const clsFor = (name: string, base = "string"): string =>
+  ISBN.replace(/Isbn/g, name).replace("readonly value: string", `readonly value: ${base}`);
+
 describe("renderValueObject", () => {
+  test("emits the nominal class, brand included", () => {
+    expect(renderValueObject({ name: "Isbn", base: "string" })).toBe(ISBN);
+  });
+
   test("the brand string always matches the type name (the typo that silently splits a type)", () => {
-    expect(renderValueObject({ name: "Isbn", base: "string" })).toBe(
-      'export type Isbn = string & { readonly __brand: "Isbn" };',
+    const out = renderValueObject({ name: "PagesRead", base: "number" });
+    expect(out).toContain('private readonly __brand: "PagesRead";');
+    expect(out).toBe(clsFor("PagesRead", "number"));
+  });
+
+  test("a number base carries a number, under the same field name", () => {
+    expect(renderValueObject({ name: "PagesRead", base: "number" })).toContain(
+      "readonly value: number;",
     );
-    expect(renderValueObject({ name: "PagesRead", base: "number" })).toBe(
-      'export type PagesRead = number & { readonly __brand: "PagesRead" };',
-    );
+  });
+
+  test("every member the shape depends on is present", () => {
+    const out = renderValueObject({ name: "Currency", base: "string" });
+    // private constructor: no `new Currency("usd")` past validation.
+    expect(out).toContain("private constructor();");
+    // unknown: parse faces parsed JSON directly.
+    expect(out).toContain("static parse(raw: unknown): Currency | undefined;");
+    // behaviour lives on the class — the whole reason to prefer it to an alias.
+    expect(out).toContain("equals(other: Currency): boolean;");
+    expect(out.startsWith("/** Currency: state what makes it valid. */")).toBe(true);
   });
 });
 
@@ -60,26 +77,19 @@ describe("addValueObjects", () => {
     expect(out.source).toBe(
       'import type { Money } from "../shared/money.contract.js";\n' +
         "\n" +
-        'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        "\n" +
+        ISBN +
+        "\n\n" +
         "export interface Book { isbn: string; price: Money }\n",
     );
     expect(out.added).toEqual(["Isbn"]);
   });
 
-  test("groups with the existing value objects when there are already some", () => {
-    const out = addValueObjects(
-      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        "\n" +
-        "export interface Book { isbn: Isbn }\n",
-      CONTRACT,
-      [{ name: "AuthorName", base: "string" }],
-    );
+  test("lands after the value objects already there, not on top of them", () => {
+    const out = addValueObjects(ISBN + "\n\nexport interface Book { isbn: Isbn }\n", CONTRACT, [
+      { name: "AuthorName", base: "string" },
+    ]);
     expect(out.source).toBe(
-      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        'export type AuthorName = string & { readonly __brand: "AuthorName" };\n' +
-        "\n" +
-        "export interface Book { isbn: Isbn }\n",
+      ISBN + "\n\n" + clsFor("AuthorName") + "\n\n" + "export interface Book { isbn: Isbn }\n",
     );
   });
 
@@ -96,8 +106,8 @@ describe("addValueObjects", () => {
       "// src/reading-list/book.contract.ts\n" +
         "// The reading list's public surface.\n" +
         "\n" +
-        'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        "\n" +
+        ISBN +
+        "\n\n" +
         "export interface Book { isbn: string }\n",
     );
   });
@@ -109,22 +119,46 @@ describe("addValueObjects", () => {
       { name: "PagesRead", base: "number" },
     ]);
     expect(out.added).toEqual(["Isbn", "AuthorName", "PagesRead"]);
-    expect(out.source.split("\n").slice(0, 3)).toEqual([
-      'export type Isbn = string & { readonly __brand: "Isbn" };',
-      'export type AuthorName = string & { readonly __brand: "AuthorName" };',
-      'export type PagesRead = number & { readonly __brand: "PagesRead" };',
-    ]);
+    expect(out.source).toBe(
+      [ISBN, clsFor("AuthorName"), clsFor("PagesRead", "number")].join("\n\n") +
+        "\n\nexport interface Book { isbn: string }\n",
+    );
   });
 
-  test("is idempotent: an already-branded value object is left alone", () => {
-    const source =
-      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-      "\n" +
-      "export interface Book { isbn: Isbn }\n";
+  test("is idempotent: an already-canonical value object is left alone", () => {
+    const source = ISBN + "\n\nexport interface Book { isbn: Isbn }\n";
     const out = addValueObjects(source, CONTRACT, [{ name: "Isbn", base: "string" }]);
     expect(out.source).toBe(source);
     expect(out.added).toEqual([]);
     expect(out.unchanged).toEqual(["Isbn"]);
+  });
+
+  test("idempotent through a full round trip, batch included", () => {
+    const specs = [
+      { name: "Isbn", base: "string" as const },
+      { name: "PagesRead", base: "number" as const },
+    ];
+    const once = addValueObjects("export interface Book { isbn: string }\n", CONTRACT, specs);
+    const twice = addValueObjects(once.source, CONTRACT, specs);
+    expect(twice.source).toBe(once.source);
+    expect(twice.added).toEqual([]);
+    expect(twice.unchanged).toEqual(["Isbn", "PagesRead"]);
+  });
+
+  test("leaves a class the architect has extended alone — the body is theirs", () => {
+    const extended =
+      "/** ISO-4217: exactly three uppercase letters. */\n" +
+      "export declare class Currency {\n" +
+      '  private readonly __brand: "Currency";\n' +
+      "  private constructor();\n" +
+      "  readonly code: string;\n" +
+      "  static parse(raw: unknown): Currency | undefined;\n" +
+      "  static of(code: string): Currency;\n" +
+      "  equals(other: Currency): boolean;\n" +
+      "}\n";
+    const out = addValueObjects(extended, CONTRACT, [{ name: "Currency", base: "string" }]);
+    expect(out.source).toBe(extended);
+    expect(out.unchanged).toEqual(["Currency"]);
   });
 
   test("upgrades a bare alias in place — the primitiveAlias violation, fixed", () => {
@@ -133,20 +167,44 @@ describe("addValueObjects", () => {
       CONTRACT,
       [{ name: "Isbn", base: "string" }],
     );
-    expect(out.source).toBe(
-      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
-        "\n" +
-        "export interface Book { isbn: Isbn }\n",
-    );
+    expect(out.source).toBe(ISBN + "\n\nexport interface Book { isbn: Isbn }\n");
     expect(out.upgraded).toEqual(["Isbn"]);
     expect(out.added).toEqual([]);
+  });
+
+  test("upgrades a branded alias in place — this generator's own old output", () => {
+    const out = addValueObjects(
+      'export type Isbn = string & { readonly __brand: "Isbn" };\n' +
+        "\nexport interface Book { isbn: Isbn }\n",
+      CONTRACT,
+      [{ name: "Isbn", base: "string" }],
+    );
+    expect(out.source).toBe(ISBN + "\n\nexport interface Book { isbn: Isbn }\n");
+    expect(out.upgraded).toEqual(["Isbn"]);
+    // Upgraded, not duplicated: exactly one declaration of the name survives.
+    expect(out.source.match(/Isbn =/g)).toBe(null);
+    expect(out.source.match(/class Isbn/g)).toHaveLength(1);
+  });
+
+  test("an upgrade keeps a doc comment the architect already wrote", () => {
+    const out = addValueObjects(
+      "/** ISBN-13: exactly thirteen digits. */\nexport type Isbn = string;\n",
+      CONTRACT,
+      [{ name: "Isbn", base: "string" }],
+    );
+    expect(out.source).toBe(
+      "/** ISBN-13: exactly thirteen digits. */\n" +
+        ISBN.split("\n").slice(1).join("\n") +
+        "\n",
+    );
+    expect(out.source).not.toContain("state what makes it valid");
   });
 
   test("exports an unexported alias while upgrading it", () => {
     const out = addValueObjects("type Isbn = string;\n", CONTRACT, [
       { name: "Isbn", base: "string" },
     ]);
-    expect(out.source).toBe('export type Isbn = string & { readonly __brand: "Isbn" };\n');
+    expect(out.source).toBe(ISBN + "\n");
   });
 
   test("refuses to clobber a name that is already something else", () => {
@@ -157,12 +215,25 @@ describe("addValueObjects", () => {
     ).toThrow(/'Isbn' is already declared/);
   });
 
+  test("refuses a class that is not a value object — no brand, not ours to overwrite", () => {
+    expect(() =>
+      addValueObjects("export declare class Isbn { readonly value: string; }\n", CONTRACT, [
+        { name: "Isbn", base: "string" },
+      ]),
+    ).toThrow(/already declared .* as a class without the private brand/);
+  });
+
   test("refuses to rebase an existing value object", () => {
     expect(() =>
       addValueObjects('export type Isbn = number & { readonly __brand: "Isbn" };\n', CONTRACT, [
         { name: "Isbn", base: "string" },
       ]),
     ).toThrow(/already a value object over 'number'/);
+    expect(() =>
+      addValueObjects("export type Isbn = number;\n", CONTRACT, [
+        { name: "Isbn", base: "string" },
+      ]),
+    ).toThrow(/already an alias for 'number'/);
   });
 
   test("refuses a path that is not a contract", () => {
@@ -173,25 +244,6 @@ describe("addValueObjects", () => {
     ).toThrow(/not a \*\.contract\.ts path/);
   });
 
-  test("--parse adds the smart constructor: the rule's parse boundary, declared", () => {
-    const out = addValueObjects("export interface Book { isbn: string }\n", CONTRACT, [
-      { name: "Isbn", base: "string", parse: true },
-    ]);
-    expect(out.source).toContain(
-      "export declare function parseIsbn(raw: string): Isbn | undefined;",
-    );
-  });
-
-  test("--parse is idempotent too", () => {
-    const once = addValueObjects("export interface Book { isbn: Isbn }\n", CONTRACT, [
-      { name: "Isbn", base: "string", parse: true },
-    ]);
-    const twice = addValueObjects(once.source, CONTRACT, [
-      { name: "Isbn", base: "string", parse: true },
-    ]);
-    expect(twice.source).toBe(once.source);
-  });
-
   // The round trip that matters: what this writes must satisfy the gate that
   // sent the architect here.
   test("everything it generates passes contract-purity", async () => {
@@ -200,11 +252,32 @@ describe("addValueObjects", () => {
         "\nexport interface Book { readonly price: Money }\n",
       CONTRACT,
       [
-        { name: "Isbn", base: "string", parse: true },
-        { name: "PagesRead", base: "number", parse: true },
+        { name: "Isbn", base: "string" },
+        { name: "PagesRead", base: "number" },
       ],
     );
     expect(await lintContractSource(out.source, CONTRACT)).toEqual([]);
+  });
+});
+
+// --- argv -------------------------------------------------------------------------
+
+describe("parseArgv", () => {
+  test("names and bases", () => {
+    expect(parseArgv([CONTRACT, "Isbn", "PagesRead=number"])).toEqual({
+      contractPath: CONTRACT,
+      specs: [
+        { name: "Isbn", base: "string" },
+        { name: "PagesRead", base: "number" },
+      ],
+      retired: [],
+    });
+  });
+
+  test("--parse is accepted and ignored — static parse is part of the shape now", () => {
+    const out = parseArgv([CONTRACT, "Isbn", "--parse"]);
+    expect(out.specs).toEqual([{ name: "Isbn", base: "string" }]);
+    expect(out.retired).toEqual(["--parse"]);
   });
 });
 
@@ -232,21 +305,36 @@ describe("new-value-object CLI", () => {
     const r = runCli(dir, [path, "Isbn=string", "PagesRead=number"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/new-value-object: declared Isbn, PagesRead in/);
-    expect(readFileSync(path, "utf8")).toContain(
-      'export type Isbn = string & { readonly __brand: "Isbn" };',
-    );
+    const written = readFileSync(path, "utf8");
+    expect(written).toContain("export declare class Isbn {");
+    expect(written).toContain('private readonly __brand: "PagesRead";');
+    expect(written).toContain("readonly value: number;");
     const events = readGuardLog(dir);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ guard: "new-value-object", verdict: "pass" });
   });
 
-  test("--parse declares the smart constructor as well", () => {
+  test("--parse still works, and says why it no longer does anything", () => {
     const { dir, path } = fixture("vo-parse-", "export interface Book { isbn: string }\n");
     const r = runCli(dir, [path, "Isbn", "--parse"]);
     expect(r.status).toBe(0);
-    expect(readFileSync(path, "utf8")).toContain(
-      "export declare function parseIsbn(raw: string): Isbn | undefined;",
+    expect(r.stdout).toMatch(/ignoring --parse/);
+    const written = readFileSync(path, "utf8");
+    expect(written).toContain("static parse(raw: unknown): Isbn | undefined;");
+    expect(written).not.toContain("export declare function parseIsbn");
+  });
+
+  test("upgrades an old branded alias on disk, without duplicating it", () => {
+    const { dir, path } = fixture(
+      "vo-upgrade-",
+      'export type Isbn = string & { readonly __brand: "Isbn" };\n',
     );
+    const r = runCli(dir, [path, "Isbn"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/upgraded Isbn/);
+    const written = readFileSync(path, "utf8");
+    expect(written).toContain("export declare class Isbn {");
+    expect(written).not.toContain("export type Isbn");
   });
 
   test("re-running changes nothing (safe to repeat)", () => {

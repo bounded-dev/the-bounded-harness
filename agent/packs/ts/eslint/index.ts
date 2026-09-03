@@ -1,5 +1,7 @@
 import { declarationOnly } from "./rules/declaration-only.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
+import { valueObjectDocumented } from "./rules/value-object-documented.ts";
+import { valueObjectShape } from "./rules/value-object-shape.ts";
 
 // pi-harness-ts ESLint plugin (TN-26-001 zone lint rules, ADR 2026-007).
 // Loaded programmatically by the gate scripts — target projects never
@@ -11,6 +13,8 @@ export const plugin = {
   rules: {
     "declaration-only": declarationOnly,
     "no-naked-primitives": noNakedPrimitives,
+    "value-object-shape": valueObjectShape,
+    "value-object-documented": valueObjectDocumented,
   },
 } as const;
 

@@ -1,24 +1,50 @@
-// new-value-object scaffolder (TN-26-001, issue #3): declares a branded value
-// object in an existing contract.
+// new-value-object scaffolder (TN-26-001, issue #3): declares a value object in
+// an existing contract, in the canonical shape — a nominal `declare class`.
 //
-//   node new-value-object.ts src/reading-list/book.contract.ts Isbn PagesRead=number [--parse]
+//   node new-value-object.ts src/reading-list/book.contract.ts Isbn PagesRead=number
 //
 // The companion to the `no-naked-primitives` rule: that gate tells the
-// architect exactly which declaration is missing, and this writes it. The
-// boilerplate is small but error-prone in the one way that matters — if the
+// architect exactly which declaration is missing, and this writes it.
+//
+//     /** Isbn: state what makes it valid. */
+//     export declare class Isbn {
+//       private readonly __brand: "Isbn";
+//       private constructor();
+//       readonly value: string;
+//       static parse(raw: unknown): Isbn | undefined;
+//       equals(other: Isbn): boolean;
+//     }
+//
+// Why a class rather than the branded alias this used to emit: a class can be
+// asked things (`equals`, `plus`, `toString`) where an alias can only be passed
+// around, and it is built with a real constructor behind `parse` instead of
+// `raw as Isbn` — which is what makes `src/**`'s blanket ban on `as`, `!`,
+// `any` and `@ts-expect-error` livable. See the ts-contract-authoring skill,
+// "The canonical shape is a nominal class", for what each member refuses.
+//
+// The boilerplate is small but error-prone in the one way that matters — if the
 // brand string does not match the type name, TypeScript silently gives you two
-// unrelated types that both look right. Generating it removes that failure
-// mode entirely, which is the same reason skeletons are machine-generated.
+// unrelated types that both look right. Generating it removes that failure mode
+// entirely, the same reason skeletons are machine-generated.
+//
+// The carried field is named `value`, always, for both bases. The generator
+// cannot know the domain word (`code` for a Currency, `digits` for an Isbn),
+// and a name it invents per-type would be a guess the architect has to check.
+// One boring placeholder is renamed in one token, and it stays predictable
+// across every contract in the tree.
 //
 // What it deliberately does NOT do: retype the members that triggered the
-// violation. Deciding that `isbn` is an `Isbn` while `title` is a `BookTitle`
-// is design work — the architect's job, and a one-token edit. This tool owns
-// the part where a typo is invisible.
+// violation, or write the doc comment's actual rule. Deciding that `isbn` is an
+// `Isbn` while `title` is a `BookTitle`, and that an ISBN is thirteen digits, is
+// design work — the architect's job. This tool owns the part where a typo is
+// invisible. An upgrade keeps a doc comment that is already there, so that
+// judgment is never overwritten.
 //
 // Pure core (addValueObjects: source → source) + thin CLI, like every other
-// script in this pack. Idempotent by construction: re-running is a no-op, and
-// a bare alias (`export type Isbn = string`, the rule's `primitiveAlias`
-// violation) is upgraded in place rather than duplicated.
+// script in this pack. Idempotent by construction: re-running is a no-op, and an
+// existing alias — bare (`export type Isbn = string`, the rule's
+// `primitiveAlias` violation) or branded (`string & { __brand }`, the previous
+// canonical shape) — is upgraded in place rather than duplicated.
 //
 // Exit 0 wrote (or nothing to do) · 1 refused · 2 usage.
 
@@ -47,16 +73,13 @@ export type ValueObjectBase = "string" | "number";
 export interface ValueObjectSpec {
   readonly name: string;
   readonly base: ValueObjectBase;
-  /** Also declare `parseName(raw: base): Name | undefined` — the parse
-   *  boundary, the one place the rule lets a raw primitive in. */
-  readonly parse?: boolean;
 }
 
 export interface ValueObjectResult {
   readonly source: string;
   /** Newly declared, in the order requested. */
   readonly added: string[];
-  /** Bare aliases rewritten as brands. */
+  /** Aliases — bare or branded — rewritten as the canonical class. */
   readonly upgraded: string[];
   /** Already correct — nothing to do. */
   readonly unchanged: string[];
@@ -86,29 +109,54 @@ export function parseSpec(arg: string): ValueObjectSpec {
 
 // --- rendering ------------------------------------------------------------------
 
-/** The brand string is derived from the name, never typed twice — a mismatch
- *  would silently produce two unrelated types. */
-export function renderValueObject(spec: ValueObjectSpec): string {
-  return `export type ${spec.name} = ${spec.base} & { readonly __brand: "${spec.name}" };`;
-}
+/** The carried field, for every generated value object. See the header for
+ *  why one placeholder beats a per-type guess. */
+export const VALUE_FIELD = "value";
 
-export function parserNameFor(spec: ValueObjectSpec): string {
-  return "parse" + spec.name;
-}
-
-/** The non-throwing smart constructor: the architect can widen it, but
- *  `| undefined` is the shape that forces the caller to handle bad input. */
-export function renderParser(spec: ValueObjectSpec): string {
-  return `export declare function ${parserNameFor(spec)}(raw: ${spec.base}): ${spec.name} | undefined;`;
+/**
+ * The canonical shape, rendered.
+ *
+ * Every member is load-bearing and every one of them is a `tsc` error rather
+ * than a convention: the private `__brand` makes the type nominal (TS2739 for a
+ * structural impostor), the private constructor refuses construction that
+ * skipped validation (TS2673), `parse` takes `unknown` so it can face parsed
+ * JSON directly, `| undefined` forces the caller to handle failure (TS2322),
+ * and `readonly` refuses mutation after construction (TS2540).
+ *
+ * The brand string is derived from the name, never typed twice — a mismatch
+ * would silently produce two unrelated types that both look right.
+ *
+ * `withDoc: false` for an upgrade that already has a doc comment: the rule an
+ * architect wrote down outranks the placeholder.
+ */
+export function renderValueObject(spec: ValueObjectSpec, withDoc = true): string {
+  const doc = withDoc ? `/** ${spec.name}: state what makes it valid. */\n` : "";
+  return (
+    doc +
+    `export declare class ${spec.name} {\n` +
+    `  private readonly __brand: "${spec.name}";\n` +
+    `  private constructor();\n` +
+    `  readonly ${VALUE_FIELD}: ${spec.base};\n` +
+    `  static parse(raw: unknown): ${spec.name} | undefined;\n` +
+    `  equals(other: ${spec.name}): boolean;\n` +
+    `}`
+  );
 }
 
 // --- inspection of what is already there -----------------------------------------
 
 type Existing =
   | { kind: "absent" }
+  | { kind: "valueClass" }
   | { kind: "branded"; base: string; node: TypeAliasDeclaration }
   | { kind: "bareAlias"; base: string; node: TypeAliasDeclaration }
   | { kind: "other"; what: string };
+
+/** A `declare class` carrying the private brand is already the canonical shape,
+ *  whatever else the architect has added to it. */
+function isValueObjectClass(node: Node): boolean {
+  return Node.isClassDeclaration(node) && node.getProperty("__brand") !== undefined;
+}
 
 function inspect(sf: SourceFile, name: string): Existing {
   const alias = sf.getTypeAlias(name);
@@ -130,7 +178,14 @@ function inspect(sf: SourceFile, name: string): Existing {
     return { kind: "other", what: "a type alias that is not a branded primitive" };
   }
   if (sf.getInterface(name)) return { kind: "other", what: "an interface" };
-  if (sf.getClass(name)) return { kind: "other", what: "a class" };
+  const cls = sf.getClass(name);
+  if (cls) {
+    // Already the canonical shape. Its body is the architect's — extra
+    // constructors, `plus`, a renamed carried field — so leave it entirely
+    // alone rather than reconciling it against the requested base.
+    if (isValueObjectClass(cls)) return { kind: "valueClass" };
+    return { kind: "other", what: "a class without the private brand" };
+  }
   if (sf.getFunction(name)) return { kind: "other", what: "a function" };
   return { kind: "absent" };
 }
@@ -151,8 +206,14 @@ function insertionPoint(sf: SourceFile, source: string): Insertion {
   let last: number | undefined;
   let grouped = false;
   for (const stmt of sf.getStatements()) {
-    if (Node.isImportDeclaration(stmt) || Node.isTypeAliasDeclaration(stmt)) {
+    if (
+      Node.isImportDeclaration(stmt) ||
+      Node.isTypeAliasDeclaration(stmt) ||
+      isValueObjectClass(stmt)
+    ) {
       last = stmt.getEnd();
+      // Only aliases group into a run. A class is a multi-line block and reads
+      // better with a blank line between it and the next one.
       grouped = Node.isTypeAliasDeclaration(stmt);
       continue;
     }
@@ -216,25 +277,30 @@ export function addValueObjects(
           `'${spec.name}' is already declared in ${contractFileName} as ${existing.what} — pick another name, or make that declaration the value object yourself.`,
         );
         break;
-      case "branded":
-        if (existing.base !== spec.base) {
-          fail(
-            `'${spec.name}' is already a value object over '${existing.base}', not '${spec.base}' — rebasing it would silently change every use. Edit the contract deliberately if that is what you mean.`,
-          );
-        }
+      case "valueClass":
         unchanged.push(spec.name);
         break;
+      case "branded":
       case "bareAlias": {
         if (existing.base !== spec.base) {
+          const what =
+            existing.kind === "branded"
+              ? `a value object over '${existing.base}'`
+              : `an alias for '${existing.base}'`;
           fail(
-            `'${spec.name}' is already an alias for '${existing.base}', not '${spec.base}' — rebasing it would silently change every use. Edit the contract deliberately if that is what you mean.`,
+            `'${spec.name}' is already ${what}, not '${spec.base}' — rebasing it would silently change every use. Edit the contract deliberately if that is what you mean.`,
           );
         }
-        // The rule's `primitiveAlias` violation, fixed in place.
+        // Both alias forms are upgraded in place, never duplicated: the bare
+        // alias is the rule's `primitiveAlias` violation, and the branded alias
+        // is this generator's own previous output. Expect `tsc` to complain at
+        // the use sites afterwards — a class is not assignable from a raw
+        // string, so every complaint is a place the primitive was leaking, named
+        // for you.
         const node = existing.node;
         source =
           source.slice(0, node.getStart()) +
-          renderValueObject(spec) +
+          renderValueObject(spec, node.getJsDocs().length === 0) +
           source.slice(node.getEnd());
         upgraded.push(spec.name);
         break;
@@ -244,14 +310,6 @@ export function addValueObjects(
         added.push(spec.name);
         break;
     }
-
-    if (spec.parse) {
-      const sfNow = project.createSourceFile("contract.ts", source, { overwrite: true });
-      if (!sfNow.getFunction(parserNameFor(spec))) {
-        if (!source.endsWith("\n")) source += "\n";
-        source += "\n" + renderParser(spec) + "\n";
-      }
-    }
   }
 
   return { source, added, upgraded, unchanged };
@@ -260,20 +318,24 @@ export function addValueObjects(
 // --- CLI --------------------------------------------------------------------------
 
 const USAGE =
-  "usage: node new-value-object.ts <path/to/foo.contract.ts> <Name>[=string|number] … [--parse]";
+  "usage: node new-value-object.ts <path/to/foo.contract.ts> <Name>[=string|number] …";
+
+/** `--parse` used to add a free `parseName` function alongside a branded alias.
+ *  `static parse` is now part of the shape, so the flag has nothing left to ask
+ *  for. Accepted and ignored rather than rejected: an architect following an
+ *  older note should get the value object, not a usage error. */
+const RETIRED_FLAGS = new Set(["--parse"]);
 
 export function parseArgv(argv: readonly string[]): {
   contractPath: string;
   specs: ValueObjectSpec[];
+  retired: string[];
 } {
-  const parse = argv.includes("--parse");
-  const rest = argv.filter((a) => a !== "--parse");
+  const retired = argv.filter((a) => RETIRED_FLAGS.has(a));
+  const rest = argv.filter((a) => !RETIRED_FLAGS.has(a));
   const [contractPath, ...names] = rest;
   if (!contractPath || names.length === 0) fail(USAGE);
-  return {
-    contractPath,
-    specs: names.map((n) => ({ ...parseSpec(n), parse })),
-  };
+  return { contractPath, specs: names.map(parseSpec), retired };
 }
 
 // Symlink-safe main check (invoked via the ~/.pi/agent symlink): compare realpaths.
@@ -297,6 +359,11 @@ if (isMainModule()) {
   try {
     const parsed = parseArgv(argv);
     contractPath = parsed.contractPath;
+    for (const flag of parsed.retired) {
+      console.log(
+        `new-value-object: ignoring ${flag} — 'static parse(raw: unknown)' is part of the canonical class shape now.`,
+      );
+    }
     const before = readFileSync(contractPath, "utf8");
     const result = addValueObjects(before, contractPath, parsed.specs);
     if (result.source !== before) writeFileSync(contractPath, result.source);
@@ -304,13 +371,13 @@ if (isMainModule()) {
     const wrote = [...result.added, ...result.upgraded];
     const parts: string[] = [];
     if (result.added.length > 0) parts.push(`declared ${result.added.join(", ")}`);
-    if (result.upgraded.length > 0) parts.push(`branded ${result.upgraded.join(", ")}`);
+    if (result.upgraded.length > 0) parts.push(`upgraded ${result.upgraded.join(", ")}`);
     if (result.unchanged.length > 0) parts.push(`already declared: ${result.unchanged.join(", ")}`);
     const summary = `${parts.join("; ")} in ${contractPath}`;
     console.log(`new-value-object: ${summary}`);
     if (wrote.length > 0) {
       console.log(
-        `new-value-object: now use ${wrote.join("/")} in place of the naked primitive, then re-run contract-purity and scaffold-contract.`,
+        `new-value-object: now use ${wrote.join("/")} in place of the naked primitive, state each one's validity rule in its doc comment (the test-writer reads nothing else), then re-run contract-purity and scaffold-contract.`,
       );
     }
     logGuardEvent(process.cwd(), {
