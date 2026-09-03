@@ -21,13 +21,14 @@
 // namespaces, default-exported values, `export =`, computed member names,
 // overloaded class methods/constructors.
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, dirname, posix, relative, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
 import { findContractFiles } from "./checksum-gate.ts";
 import type {
   ClassDeclaration,
@@ -655,6 +656,52 @@ export function runScaffold(
       summary: `wrote ${out}`,
       detail: { contract: contractPath, skeleton: out, createdErrorsModule },
     });
+
+    // The value-object law suite is generated from the same frozen contract, in
+    // the same breath, for the same reason the skeleton is: nobody hand-writes
+    // it, so nobody can forget it. Run 7's suite tested 6 of 15 exports and
+    // never touched a single parser.
+    //
+    // Blindness is untouched — the laws are derived from the CONTRACT, never
+    // from the tests, exactly like the skeleton. And a contract with no value
+    // objects simply has no laws to state, which is not an error.
+    const contractRel = relative(cwd, contractPath).split(sep).join("/");
+    const contractSource = readFileSync(contractPath, "utf8");
+    // A contract with no value objects simply has no laws to state; anything
+    // else that goes wrong here is a real error and must be said out loud. An
+    // exception used as control flow would have hidden a genuine failure behind
+    // "nothing to generate" — which is how a gate stops being a gate.
+    if (valueObjectsOf(contractSource, contractRel).length > 0) {
+      const lawsRel = lawsPathFor(contractRel);
+      const lawsPath = join(cwd, lawsRel);
+      let laws: string;
+      try {
+        laws = valueObjectLawsSource(contractSource, contractRel);
+      } catch (e) {
+        if (!(e instanceof ValueObjectLawsError)) throw e;
+        logGuardEvent(cwd, {
+          guard: "scaffold",
+          verdict: "block",
+          summary: e.message,
+          detail: { contract: contractRel },
+        });
+        return { code: 1, lines: [...lines, e.message] };
+      }
+      mkdirSync(dirname(lawsPath), { recursive: true });
+      writeFileSync(lawsPath, laws);
+      lines.push(`scaffold: wrote ${lawsRel} (value-object laws)`);
+      logGuardEvent(cwd, {
+        guard: "scaffold",
+        verdict: "pass",
+        summary: `wrote ${lawsRel}`,
+        detail: { contract: contractRel, laws: lawsRel },
+      });
+    } else {
+      // A stale suite from an earlier revision would assert laws about value
+      // objects the contract no longer has.
+      const stale = join(cwd, lawsPathFor(contractRel));
+      if (existsSync(stale)) rmSync(stale);
+    }
   }
 
   if (implementable === 0) {
@@ -713,40 +760,17 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  const contractPath = process.argv[2];
-  if (!contractPath) {
-    console.error("usage: node scaffold-contract.ts <path/to/foo.contract.ts>");
-    process.exit(2);
-  }
-  try {
-    const errorsPath = errorsModuleFor(contractPath) + ".ts";
-    let createdErrorsModule = false;
-    if (!existsSync(errorsPath)) {
-      mkdirSync(dirname(errorsPath), { recursive: true });
-      writeFileSync(errorsPath, ERRORS_MODULE_SOURCE);
-      createdErrorsModule = true;
-      console.log(`scaffold: created ${errorsPath} (template shared errors module)`);
-    }
-    const out = skeletonPathFor(contractPath);
-    writeFileSync(out, scaffoldContract(readFileSync(contractPath, "utf8"), contractPath));
-    console.log(`scaffold: wrote ${out}`);
-    logGuardEvent(process.cwd(), {
-      guard: "scaffold",
-      verdict: "pass",
-      summary: `wrote ${out}`,
-      detail: { contract: contractPath, skeleton: out, createdErrorsModule },
-    });
-  } catch (e) {
-    if (e instanceof ScaffoldError) {
-      console.error(e.message);
-      logGuardEvent(process.cwd(), {
-        guard: "scaffold",
-        verdict: "block",
-        summary: e.message,
-        detail: { contract: contractPath },
-      });
-      process.exit(1);
-    }
-    throw e;
-  }
+  // A thin wrapper over runScaffold, like every other gate's CLI. It used to be
+  // a second implementation, and it had drifted: it wrote the shared errors
+  // module BEFORE validating the path (so a mistyped argument left a stray file
+  // behind) and never generated the value-object laws. "The tool and the CLI
+  // must run the same gate" is worth nothing when they are two code paths.
+  const arg = process.argv[2];
+  const cwd = arg === undefined ? process.cwd() : arg.endsWith(CONTRACT_SUFFIX) ? dirname(arg) : arg;
+  const contracts = arg !== undefined && arg.endsWith(CONTRACT_SUFFIX) ? [arg] : undefined;
+  const { code, lines } = runScaffold(arg !== undefined && arg.endsWith(CONTRACT_SUFFIX) ? process.cwd() : cwd, contracts);
+  // Failures go to stderr, as they always have: a scaffold that refused is an
+  // error, and a caller redirecting stdout should still see why.
+  for (const line of lines) (code === 0 ? console.log : console.error)(line);
+  process.exit(code);
 }
