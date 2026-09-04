@@ -1,17 +1,20 @@
 # pi-harness
 
-My personal [pi](https://pi.dev) coding-agent harness. The **`agent/`
-subdirectory** is the live pi config home — `~/.pi/agent` symlinks to it, so
-everything in there is in effect for every pi session on this machine, the
-moment it changes. The repo root is the project around that: decisions
+My personal coding-agent harness. The **`agent/` subdirectory** is the live
+config home — `~/.pi/agent` symlinks to it, so everything in there is in
+effect for every [pi](https://pi.dev) session on this machine, the moment it
+changes. Claude Code shares the global instruction file only:
+`~/.claude/CLAUDE.md` symlinks to `agent/AGENTS.md`. The repo root is the
+project around that: decisions
 ([`ADRs/`](ADRs/)), the domain glossary (`CONTEXT.md`), and technical notes
 (`docs/tn/`).
 
 ## How it works
 
-- **Instructions.** `agent/AGENTS.md` is injected into every session. The
-  root `AGENTS.md` holds harness-maintenance rules and only loads when
-  working on this repo.
+- **Instructions.** `agent/AGENTS.md` is injected into every session — pi and
+  Claude Code both. It holds response rules only; nothing about the harness
+  itself. Harness-maintenance rules live in the root `AGENTS.md`, which only
+  loads when working on this repo.
 - **Subagents.** A deliberately minimal roster in `agent/agents/`: `scout`
   (read-only), `delegate` (worker), `product-expert` ("the PM"). New roles
   are added reluctantly, when a workflow actually needs them (ADR 2026-003).
@@ -65,6 +68,7 @@ Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 ```bash
 git clone git@github.com:bounded-dev/pi-harness.git
 ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
+ln -s "$PWD/pi-harness/agent/AGENTS.md" ~/.claude/CLAUDE.md   # Claude Code
 ln -s ~/.pi/agent/scripts/pi-ticket /opt/homebrew/bin/pi-ticket   # the gated launcher
 pi update --extensions                      # install packages from settings.json
 cd pi-harness/agent && npm ci && npm run check

@@ -1,8 +1,8 @@
 {
-  "lastChangelogVersion": "0.84.2",
+  "lastChangelogVersion": "0.84.4",
   "theme": "dark",
   "defaultProvider": "fireworks",
-  "defaultModel": "accounts/fireworks/models/kimi-k3",
+  "defaultModel": "accounts/fireworks/models/kimi-k2p7-code",
   "defaultThinkingLevel": "medium",
   "packages": [
     "npm:pi-subagents@0.52.1",
