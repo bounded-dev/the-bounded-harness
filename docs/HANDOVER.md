@@ -105,9 +105,27 @@ cd ~/dev/pi-harness-dogfood-harnessed   # pi --model sonnet, paste PROMPT.md
 ```
 
 Three directories, forever. `~/dev/pi-harness-dogfood-archive` holds every past
-run as a branch. **Pin the model explicitly** — the default is
-`kimi-k2p7-code` and it voided an attempt. Commit an arm's output before
-resetting; arms are told not to commit, so a reset destroys the previous run.
+run as a branch, pushed to a private remote. **Pin the model explicitly** — the
+default is `kimi-k2p7-code` and it has silently claimed several runs.
+
+Archiving is automatic: `dogfood-reset` auto-saves any arm holding output to
+`auto/<arm>-<timestamp>` before wiping it, so a reset can no longer destroy a
+run. To name a run yourself:
+
+```bash
+dogfood-archive r13-opus-harness --arm harnessed -m "one-line finding"
+```
+
+Either way the branch carries the produced tree plus `.run/` — the prompt used,
+the session transcripts (pi, vanilla-config pi, and Claude Code), and
+provenance. Keep prompts and transcripts out of the live arm: an agent that
+reads its own prompt or a previous transcript mid-run is a contaminated run.
+
+To run a gates-off (guidance-only) arm, point pi at a vanilla config dir:
+
+```bash
+export PI_CODING_AGENT_DIR=~/.pi-vanilla/agent   # auth + models symlinks only
+```
 
 ## What is built but not finished
 

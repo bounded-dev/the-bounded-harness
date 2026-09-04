@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# dogfood-archive — save one dogfood arm's run into the archive repo, forever.
+#
+#   dogfood-archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]
+#
+# A run is only reproducible if three things are kept together, so this keeps
+# them together: the produced TREE (what the agents wrote), the PROMPT they
+# were given, and the TRANSCRIPTS of how they got there. The prompt and
+# transcripts live under `.run/` in the archived branch so they never sit in
+# the working tree of a live arm — an agent that reads its own prompt file
+# mid-run is a distraction, and transcripts are far worse.
+#
+# Everything lands on its own branch and is pushed. Runs are disposable; the
+# archive is not.
+set -euo pipefail
+
+ARCHIVE="${DOGFOOD_ARCHIVE:-$HOME/dev/pi-harness-dogfood-archive}"
+HARNESS="${PI_HARNESS:-$HOME/dev/pi-harness}"
+ARM_DIR=""; ARM="harnessed"; PROMPT=""; MSG=""
+NAME="${1:-}"; shift || true
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --arm) ARM="$2"; shift 2 ;;
+    --prompt) PROMPT="$2"; shift 2 ;;
+    -m|--message) MSG="$2"; shift 2 ;;
+    *) echo "dogfood-archive: unknown argument '$1'" >&2; exit 2 ;;
+  esac
+done
+[ -n "$NAME" ] || { echo "usage: dogfood-archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]" >&2; exit 2; }
+ARM_DIR="$HOME/dev/pi-harness-dogfood-$ARM"
+[ -d "$ARM_DIR" ] || { echo "dogfood-archive: no such arm '$ARM_DIR'" >&2; exit 2; }
+[ -d "$ARCHIVE/.git" ] || { echo "dogfood-archive: archive repo missing at $ARCHIVE" >&2; exit 2; }
+
+# The prompt actually used: an explicit path wins, then one the arm carries,
+# then the canonical rendered prompt.
+if [ -z "$PROMPT" ]; then
+  if [ -f "$ARM_DIR/PROMPT.md" ]; then PROMPT="$ARM_DIR/PROMPT.md"
+  else PROMPT="$HARNESS/docs/dogfood/.rendered-subscription-billing-prompt.md"; fi
+fi
+
+cd "$ARCHIVE"
+git rev-parse --verify "$NAME" >/dev/null 2>&1 && { echo "dogfood-archive: branch '$NAME' already exists" >&2; exit 1; }
+git checkout -q main
+git checkout -q -b "$NAME"
+# --delete so a branch never inherits stray files from whatever was checked out.
+rsync -a --delete --exclude node_modules --exclude .git --copy-links "$ARM_DIR/" ./
+
+mkdir -p .run/transcripts
+[ -f "$PROMPT" ] && cp "$PROMPT" .run/PROMPT.md
+{
+  echo "arm:        $ARM ($ARM_DIR)"
+  echo "archived:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "prompt:     $PROMPT"
+  echo "harness:    $(git -C "$HARNESS" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+} > .run/PROVENANCE.txt
+
+# Transcripts: pi (harnessed), pi with a vanilla config dir (gates-off runs),
+# and Claude Code all escape the arm path differently, so match on the arm's
+# directory name rather than guessing a scheme. Newest session per root, plus
+# any subagent artifacts beside it.
+ARM_BASE="$(basename "$ARM_DIR")"
+for ROOT in "$HOME/.pi/agent/sessions" "$HOME/.pi-vanilla/agent/sessions" "$HOME/.claude/projects"; do
+  [ -d "$ROOT" ] || continue
+  for D in "$ROOT"/*"$ARM_BASE"*; do
+    [ -d "$D" ] || continue
+    # Only sessions from THIS run: dogfood-reset writes package.json when it
+    # scaffolds the arm, so anything older belongs to a previous run in the
+    # same directory (arms get reused, and the two agent roots outlive them).
+    LATEST="$(find "$D" -maxdepth 1 -name "*.jsonl" -newer "$ARM_DIR/package.json" 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1 || true)"
+    [ -n "$LATEST" ] || continue
+    case "$ROOT" in
+      *".pi-vanilla"*) TAG="pi-vanilla" ;;
+      *".claude"*)     TAG="claude-code" ;;
+      *)               TAG="pi" ;;
+    esac
+    cp "$LATEST" ".run/transcripts/${TAG}-session.jsonl"
+    if [ -d "$D/subagent-artifacts" ]; then
+      mkdir -p ".run/transcripts/${TAG}-subagents"
+      find "$D/subagent-artifacts" -name "*_transcript.jsonl" -newer "$ARM_DIR/package.json" \
+        -exec cp {} ".run/transcripts/${TAG}-subagents/" \; 2>/dev/null || true
+    fi
+  done
+done
+
+git add -A
+if [ -n "$MSG" ]; then git commit -q -m "$MSG"
+else git commit -q -m "Run archive: $NAME
+
+Tree, prompt and transcripts as left by the run. See .run/PROVENANCE.txt."; fi
+git push -q -u origin "$NAME" 2>/dev/null || echo "dogfood-archive: committed locally; push failed (no remote?)"
+COUNT="$(find .run/transcripts -name '*.jsonl' 2>/dev/null | wc -l | tr -d ' ')"
+git checkout -q main
+echo "dogfood-archive: archived '$NAME' — $COUNT transcript file(s), pushed."

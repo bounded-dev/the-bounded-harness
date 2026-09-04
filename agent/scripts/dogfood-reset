@@ -25,8 +25,9 @@
 # nothing a reset can resurrect. Exactly one line differs between the arms,
 # naming what that environment offers; that line is the whole experiment.
 #
-# Runs are DISPOSABLE. This deletes whatever was in the arms and starts over.
-# If a run is worth keeping, commit it or copy it out before resetting.
+# Runs are DISPOSABLE, but never lost: an arm holding output is auto-archived
+# to the run archive (branch `auto/<arm>-<timestamp>`) before it is wiped.
+# Rename that branch later if the run turns out to be worth naming.
 
 set -euo pipefail
 
@@ -103,8 +104,27 @@ should be built.'
 HARNESSED_LINE='This project is built through the **`developer-stage`** skill. Invoke it and
 follow it.'
 
+# A run is destroyed by the next reset, and "remember to archive first" is
+# exactly the kind of instruction that gets skipped at 1am. So don't instruct:
+# archive anything that looks like output, automatically, before wiping.
+# Curate the branch name later; never lose the run.
+autosave() {
+  local dir="$1" arm="$2"
+  [ -d "$dir" ] || return 0
+  # Output = anything the agents wrote beyond the scaffolded baseline.
+  if [ -f "$dir/spec.md" ] || [ -n "$(find "$dir/src" "$dir/tests" -name '*.ts' 2>/dev/null | head -1)" ]; then
+    local name="auto/${arm}-$(date -u +%Y%m%dT%H%M%SZ)"
+    echo "dogfood-reset: $arm arm has output — archiving to '$name' before wiping"
+    "$(dirname "$0")/dogfood-archive" "$name" --arm "$arm" \
+      -m "Auto-archived by dogfood-reset before wiping the $arm arm." \
+      || echo "dogfood-reset: WARNING — archive failed; the arm was NOT wiped" >&2
+  fi
+}
+
 scaffold() {
   local dir="$1" line="$2"
+  local arm; case "$dir" in *harnessed*) arm=harnessed ;; *) arm=bare ;; esac
+  autosave "$dir" "$arm" || return 1
   rm -rf "$dir"
   mkdir -p "$dir/src" "$dir/tests"
 
