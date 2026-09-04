@@ -3,6 +3,20 @@
 This repo **is** the user's live pi config home — `~/.pi/agent` symlinks here.
 Every change takes effect immediately for all pi sessions on this machine.
 
+**This is an open-source project.** Write everything in this repository —
+docs, comments, commit messages, gate output, ADRs — for a wide audience of
+potential users, not for one machine or one person. No private information:
+no credentials, no personal paths presented as canon, no context that only
+makes sense to the original author. If a note is genuinely machine- or
+person-specific, it belongs in an untracked local file, not here.
+
+**Know the destination.** `docs/VISION.md` is the long-term picture this
+harness is building toward — the harness as the owned product, guidance
+composed in layers (generic → language → stack → domain), enforcement scaling
+where prose cannot. Any non-trivial work on the harness should be shaped with
+that end state in mind: prefer designs that survive hundreds of layered
+rules, not just today's dozens.
+
 ## Rules
 
 - **Global scope only.** Never add project-specific config; project
