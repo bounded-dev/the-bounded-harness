@@ -5,7 +5,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
 tools: read, grep, find, ls, write, edit, remove, typecheck, subagent, git, contract_purity, scaffold, freeze_contracts, check_drift, red_gate, green_gate, sign_off, deliver
-subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/architect.ts
+subagentOnlyExtensions: ~/.pi/agent/extensions/path-gate/architect.ts
 async: true
 ---
 

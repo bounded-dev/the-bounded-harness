@@ -19,3 +19,4 @@ note, born from a GitHub issue.
 | TN | Title | Status |
 | --- | --- | --- |
 | [TN-26-001](TN-26-001-developer-stage-pipeline.md) | Developer stage: architect / test-writer / builder pipeline | draft |
+- TN-26-002 — Mechanism vs guidance: the six-cell experiment

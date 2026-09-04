@@ -68,7 +68,8 @@ against a live repro before their commits landed.
 
 ## Mistakes to avoid repeating
 
-- **I twice declared an outcome from an intermediate state** — inferred a
+- **Never declare an outcome from an intermediate state** — a supervising
+  agent twice did: inferred a
   missing builder from an absent `_meta.json` (it just hadn't been written yet),
   and called a deadlock permanent while the architect was still working. It
   recovered. *List the directory; don't infer from an absent file.*
@@ -87,9 +88,9 @@ against a live repro before their commits landed.
 
 - Test-first. `npm run check` stays green. Work in the worktree.
 - "Push" = `git push origin <branch>:main`, then in
-  `/Users/paul.grimshaw/dev/pi-harness`: stash → `merge --ff-only origin/main`
-  → stash pop. The user keeps uncommitted work there (AGENTS.md, README,
-  settings.json) — never clobber it.
+  the live checkout (the target of `~/.pi/agent`): stash → `merge --ff-only
+  origin/main` → stash pop. The live checkout may hold uncommitted local
+  work — never clobber it.
 - **Never push while a dogfood arm is running.** It resolves gates through
   `~/.pi/agent` → the live checkout. This contaminated Run 4.
 - Pack-internal imports use `.ts` extensions. Never run bare `vitest`.

@@ -5,7 +5,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, write, edit, remove, typecheck
-subagentOnlyExtensions: /Users/paul.grimshaw/dev/pi-harness/agent/extensions/path-gate/test-writer.ts
+subagentOnlyExtensions: ~/.pi/agent/extensions/path-gate/test-writer.ts
 async: true
 # Run 8's builder hit the 30-minute default mid-edit — 145k output tokens of
 # implementation was over the ceiling on kimi. The kill cost a resume and a
