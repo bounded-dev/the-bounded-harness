@@ -60,8 +60,8 @@ finding is what the rest of the machinery is in service of.
 
 Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 [ADR 2026-013](ADRs/2026-013-developer-stage-pipeline.md), evidence in
-[docs/where-we-are.md](docs/where-we-are.md), current plan in
-[issue #12](https://github.com/bounded-dev/pi-harness/issues/12).
+[docs/dogfooding.md](docs/dogfooding.md), current plan in
+[issue #13](https://github.com/bounded-dev/pi-harness/issues/13).
 
 ## Bootstrap a new machine
 

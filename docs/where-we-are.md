@@ -1,5 +1,13 @@
 # Where we are, and what to keep
 
+> **Historical snapshot — superseded.** Written after dogfood Run 5; the
+> numbers and conclusions below are that day's evidence, not the current
+> state. For where the harness stands now see the six-cell experiment
+> (Runs 10–12) in [dogfooding.md](dogfooding.md#runs-1012-2026-09-03-the-six-cell-experiment)
+> and [TN-26-002](tn/TN-26-002-mechanism-vs-guidance.md), which measure
+> mechanism against guidance across model tiers. Kept because
+> [TN-26-001](tn/TN-26-001-developer-stage-pipeline.md) cites it as evidence.
+
 Written after a full day of live runs. Five dogfood runs total, three of them
 today on the same prompt (a subscription-billing component with proration,
 idempotency and a cross-cutting invariant). Read this as: what did each part of
