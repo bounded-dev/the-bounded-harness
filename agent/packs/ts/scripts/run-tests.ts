@@ -67,8 +67,12 @@ export interface RunTestsResult extends RunSummary {
 const DEFAULT_COMMAND = "npx";
 const DEFAULT_ARGS = ["vitest", "run", "--reporter=json"];
 
-/** Default runner: spawn, capture stdout/stderr, resolve on close. */
-const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
+/** Default runner: spawn, capture stdout/stderr, resolve on close.
+ *
+ *  Exported so a caller that needs the real spawn PLUS something runTests does
+ *  not itself expose can compose it — mutation-score wraps it with an
+ *  AbortSignal to bound each mutant's suite run. Rejects if the signal aborts. */
+export const spawnRunner: CommandRunner = (command, args, cwd, signal) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, signal, shell: process.platform === "win32" });
     let stdout = "";
