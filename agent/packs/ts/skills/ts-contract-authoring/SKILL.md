@@ -138,7 +138,14 @@ the code belongs):
   export type Isbn = string & { readonly __brand: "Isbn" };   // BLOCKED
   export type Id = string & { readonly __brand?: "Id" };      // BLOCKED
   export type Isbn = string;                                  // BLOCKED
+  export type CalendarDate = Date;                            // BLOCKED
   ```
+
+  The last one is the same defect wearing an object type: an alias to a
+  built-in (`Date`, `RegExp`, `Map`, `Set`, `Array`, `Promise`) is assignable
+  from every other value of that shape, and `Date` is mutable besides — a
+  caller who kept a reference can rewrite what you validated. Store an
+  immutable representation (an ISO-8601 `string`) inside the class instead.
 
   `contract-purity` runs `no-branded-aliases`, and the reasons are Run 9's:
   the **optional** brand is a costume — every bare string is assignable, and

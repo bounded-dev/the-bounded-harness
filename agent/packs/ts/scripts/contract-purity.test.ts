@@ -52,6 +52,18 @@ describe("lintContractSource", () => {
     expect(problems[2].message).toMatch(/'pagesRead' is declared as 'number'/);
   });
 
+  // Issue #10's real miss: the alias is not a primitive, so it slid past both
+  // value-object rules — no class, so nothing downstream fired either.
+  test("a bare alias to a built-in object type is reported by the gate", async () => {
+    const problems = await lintContractSource(
+      "export type CalendarDate = Date;\n",
+      "billing.contract.ts",
+    );
+    expect(problems.map((p) => p.ruleId)).toEqual(["pi-harness-ts/no-naked-primitives"]);
+    expect(problems[0].message).toMatch(/aliases a built-in object type/);
+    expect(problems[0].message).toMatch(/mutable/);
+  });
+
   test("the value-object version of the same contract is clean", async () => {
     const problems = await lintContractSource(
       '/** Isbn: a valid value. */\nexport declare class Isbn {\n  private readonly __brand: "Isbn";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): Isbn | undefined;\n}\n' +

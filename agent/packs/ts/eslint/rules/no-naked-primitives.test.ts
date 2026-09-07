@@ -78,6 +78,33 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
     'export type NewOrder = Omit<Order, "id">;',
     "export declare const DEFAULT_CURRENCY: CurrencyCode;",
     "export default interface Config { level: LogLevel }",
+
+    // --- built-in object types: only the ALIAS position is the defect ---
+    // The canonical value object (ADR 2026-015) — the fix a flagged alias is
+    // pointed at, so it must never be flagged itself.
+    `export declare class CalendarDate {
+      private readonly __brand: "CalendarDate";
+      private constructor();
+      readonly value: string;
+      static parse(raw: unknown): CalendarDate | undefined;
+    }`,
+    // a Date-typed member is a design judgement, not this rule's business
+    "export interface Subscription { expiresAt: Date }",
+    "export declare function renewedAt(at: Date): Subscription;",
+    "export interface Catalog { byIsbn: ReadonlyMap<Isbn, Book> }",
+    // containers at their use sites are fine; it is the alias that claims to
+    // be a named domain type
+    "export interface Shelf { readonly books: readonly Book[] }",
+    // unexported: not the public boundary
+    "type CalendarDate = Date;",
+    // nested is not the alias position: an object alias is a DTO, not a claim
+    // to be a value object
+    "export type Schedule = { readonly at: Date };",
+    // an alias to a project type is not a built-in — the set is closed
+    "export type Timestamp = InstantOf<Clock>;",
+    "export type NewOrder = Omit<Order, 'id'>;",
+    // re-exports declare nothing here
+    'export type * from "./other.contract.ts";',
     "",
   ],
 
@@ -133,6 +160,54 @@ ruleTester.run("no-naked-primitives", noNakedPrimitives, {
       ],
     },
 
+    // --- bare aliases to built-in object types (issue #10, issue #13) ---
+    {
+      // dogfood Run 4 verbatim: the invariant lived in a doc comment, the type
+      // was assignable from every Date in the program, and Date is mutable
+      code: "export type CalendarDate = Date;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      code: "export type Expiry = Date | undefined;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      // generic built-ins are the same shape one container out
+      code: "export type Registry = Map<Isbn, Book>;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      code: "export type Shelf = Set<Isbn>;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      code: "export type PendingBook = Promise<Book>;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      code: "export type Pattern = RegExp;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    // both array spellings must agree — an agent cannot comply with a rule
+    // whose verdict depends on which one it typed
+    {
+      code: "export type Authors = Array<AuthorName>;",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      code: "export type Authors = readonly AuthorName[];",
+      errors: [{ messageId: "builtinAlias" }],
+    },
+    {
+      // additive: the alias is one defect, its naked element another
+      code: "export type Tags = string[];",
+      errors: [{ messageId: "builtinAlias" }, { messageId: "nakedPrimitiveElement" }],
+    },
+    {
+      // reached through a specifier export like every other boundary route
+      code: "type CalendarDate = Date;\nexport { CalendarDate };",
+      errors: [{ messageId: "builtinAlias" }],
+    },
     // --- declare function / declare const ---
     {
       code: "export declare function findBook(isbn: string): Book;",

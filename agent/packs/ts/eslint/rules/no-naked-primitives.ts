@@ -18,7 +18,8 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // A rule that fires on correct designs gets switched off, so the exemptions
 // below are deliberate, not gaps:
 //
-// * Only `string` and `number`. **`boolean` is out of scope**: a branded
+// * Only `string` and `number` in slots (plus bare built-in aliases, below).
+//   **`boolean` is out of scope**: a branded
 //   boolean (`Bool<"Active">`) carries no more information than the property
 //   name, and the real fix for a boolean smell is a state union
 //   ("active" | "archived") — a domain judgement the linter cannot make
@@ -56,6 +57,38 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 //   A heuristic here would make the rule unpredictable, and an agent cannot
 //   comply with a rule it cannot predict.
 //
+// --- Bare aliases: naked in the same sense (issue #10, issue #13) --------------
+//
+// "Naked" is not only `string`/`number`. An exported alias whose right-hand
+// side is a bare built-in object type is naked in exactly the same sense —
+// assignable from every other value of that shape, carrying no invariant:
+//
+//   export type CalendarDate = Date;   // "always UTC midnight" — in a comment
+//
+// That is dogfood Run 4's real defect, and it is worse than any naked string
+// in the same contract: `Date` is MUTABLE, so a caller who keeps a reference
+// can rewrite a stored value after it was validated (probed: a billing period
+// mutated into one that ends before it starts). It also slips past every
+// downstream check — no class is declared, so value-object-shape stays
+// silent, no law suite is generated, and the boundaries obligation never
+// fires. Same disarming pattern ADR 2026-015 records for the optional brand.
+//
+// So the alias branch (`primitiveAlias`) has a sibling (`builtinAlias`): at
+// the TOP LEVEL of an exported alias's right-hand side, a reference to a
+// built-in object type is reported. Deliberate boundaries:
+//
+// * **Alias position only.** `expiresAt: Date` on an interface is untouched.
+//   Whether a `Date`-typed field is a defect is a design judgement (and the
+//   mutation hazard is a different argument); the alias is not a judgement —
+//   it claims to be a named domain type and nominally is not one.
+// * **Both array spellings.** `Array<T>` and `T[]`/`readonly T[]` report the
+//   same way at alias top level. An agent cannot comply with a rule whose
+//   verdict depends on which spelling it chose.
+// * **Additive.** The report does not stop the walk, so
+//   `export type Tags = string[]` still also reports its naked element.
+// * The set is closed and listed below rather than "any global": the rule is
+//   syntactic, and guessing at unknown names would flag a project's own types.
+//
 // --- The parse boundary (the escape hatch) ------------------------------------
 //
 // A value object needs somewhere for a raw primitive to become one, and that
@@ -88,14 +121,17 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 // would be wrong. So it is not enforced; the element message carries the
 // prompt instead, where the architect is already reading.
 
-type MessageId = "nakedPrimitive" | "nakedPrimitiveElement" | "primitiveAlias";
+type MessageId = "nakedPrimitive" | "nakedPrimitiveElement" | "primitiveAlias" | "builtinAlias";
 
 type Primitive = "string" | "number";
 
 const VALUE_OBJECTS =
   "Value objects over primitives on the contract's public surface (TN-26-001): a naked 'string'/'number' carries no domain meaning and no invariant — nothing stops an ISBN being passed where a title is expected.";
 
-const BRAND = 'export type {{brand}} = {{primitive}} & { readonly __brand: "{{brand}}" };';
+// The prescribed form is the nominal class (ADR 2026-015) — a branded alias
+// would be bounced by `no-branded-aliases` in the same gate run.
+const BRAND =
+  'export declare class {{brand}} { private readonly __brand: "{{brand}}"; private constructor(); readonly value: {{primitive}}; static parse(raw: unknown): {{brand}} | undefined; }';
 
 /** The one-command fix, so the message ends in an action rather than a rule. */
 const SCAFFOLD =
@@ -113,6 +149,27 @@ const COLLECTION = new Set(["Array", "ReadonlyArray", "Set", "ReadonlySet"]);
 /** Keyed collections: the key is an index domain (exempt, as index signatures
  *  are); the value slot is a domain slot like any other. */
 const KEYED = new Set(["Record", "Map", "ReadonlyMap", "WeakMap"]);
+/** Built-in object types a contract may not hide a domain name behind. Closed
+ *  on purpose: everything here is either a value carrier with no nominality
+ *  (`Date`, `RegExp`) or a container that belongs at its use site rather than
+ *  behind a domain name (`Map`, `Set`, `Array`, `Promise`). A project's own
+ *  types are never guessed at. */
+const BUILTIN_OBJECTS = new Set([
+  "Date",
+  "RegExp",
+  "Array",
+  "ReadonlyArray",
+  "Set",
+  "ReadonlySet",
+  "Map",
+  "ReadonlyMap",
+  "WeakSet",
+  "WeakMap",
+  "Promise",
+]);
+/** Of those, the ones a caller can mutate through a retained reference — the
+ *  extra tooth in the message, and dogfood Run 4's actual production bug. */
+const MUTABLE_BUILTINS = new Set(["Date", "RegExp", "Array", "Set", "Map", "WeakSet", "WeakMap"]);
 
 const PRIMITIVE_OF: Partial<Record<TSESTree.AST_NODE_TYPES, Primitive>> = {
   [TSESTree.AST_NODE_TYPES.TSStringKeyword]: "string",
@@ -156,7 +213,8 @@ export const noNakedPrimitives = createRule<[], MessageId>({
     messages: {
       nakedPrimitive: `${VALUE_OBJECTS} '{{name}}' is declared as '{{primitive}}' — declare the value object in this contract and use it here, e.g. ${BRAND} ${SCAFFOLD} Validation and parsing belong in the implementation; the contract just names the type.`,
       nakedPrimitiveElement: `${VALUE_OBJECTS} '{{name}}' is a collection of naked '{{primitive}}' — declare the element type here and use {{brand}}[], e.g. ${BRAND} ${SCAFFOLD} If the field means one-or-more, encode that too: 'readonly [{{brand}}, ...{{brand}}[]]' — an array type silently permits empty, and a requirement no type carries is a requirement nothing checks.`,
-      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Brand it: export type {{name}} = {{primitive}} & { readonly __brand: "{{name}}" }; Or run: node <pack>/scripts/new-value-object.ts <this file> {{name}}={{primitive}} — it upgrades the alias in place.`,
+      builtinAlias: `'export type {{name}} = {{builtin}}' aliases a built-in object type — a name, not a value object (ADR 2026-015): it is assignable from every other '{{builtin}}' in the program, so '{{name}}' carries no invariant, and because no class is declared the value-object shape check, the generated law suite, and the boundaries obligation all stay silent. {{teeth}} Write the nominal class instead: export declare class {{name}} { private readonly __brand: "{{name}}"; private constructor(); readonly value: string; static parse(raw: unknown): {{name}} | undefined; } Delete the alias first, then generate the class: node <pack>/scripts/new-value-object.ts <this file> {{name}}=<base> — the generator will not rebase a built-in alias for you, because only you can choose what the class stores (an ISO-8601 string is immutable; a Date is not). If '{{name}}' only names a container, delete the alias and write the container at its use sites instead.`,
+      primitiveAlias: `${VALUE_OBJECTS} 'export type {{name}} = {{primitive}}' is an alias, not a value object — it is assignable from every other '{{primitive}}' in the program, so it buys nothing. Write the nominal class (ADR 2026-015): export declare class {{name}} { private readonly __brand: "{{name}}"; private constructor(); readonly value: {{primitive}}; static parse(raw: unknown): {{name}} | undefined; } Or run: node <pack>/scripts/new-value-object.ts <this file> {{name}}={{primitive}} — it upgrades the alias in place.`,
     },
     schema: [],
   },
@@ -179,6 +237,30 @@ export const noNakedPrimitives = createRule<[], MessageId>({
           name: ctx.name,
           brand: ctx.element ? singularize(base) : base,
           primitive,
+        },
+      });
+    }
+
+    /** The built-in behind an alias's right-hand side, if any. Both array
+     *  spellings answer "Array" so the verdict cannot depend on which one the
+     *  architect typed. */
+    function builtinObjectOf(node: TSESTree.TypeNode): string | undefined {
+      if (node.type === TSESTree.AST_NODE_TYPES.TSArrayType) return "Array";
+      if (node.type !== TSESTree.AST_NODE_TYPES.TSTypeReference) return undefined;
+      if (node.typeName.type !== TSESTree.AST_NODE_TYPES.Identifier) return undefined;
+      return BUILTIN_OBJECTS.has(node.typeName.name) ? node.typeName.name : undefined;
+    }
+
+    function reportBuiltinAlias(node: TSESTree.Node, builtin: string, aliasName: string): void {
+      context.report({
+        node,
+        messageId: "builtinAlias",
+        data: {
+          name: aliasName,
+          builtin,
+          teeth: MUTABLE_BUILTINS.has(builtin)
+            ? `'${builtin}' is also mutable, so a caller who kept a reference can rewrite the value after it was validated (dogfood Run 4: a stored billing period was mutated into one that ends before it starts).`
+            : `A container is not a domain type: nothing distinguishes '${aliasName}' from any other '${builtin}' with the same contents.`,
         },
       });
     }
@@ -236,6 +318,14 @@ export const noNakedPrimitives = createRule<[], MessageId>({
       if (primitive) {
         report(node, primitive, ctx);
         return;
+      }
+
+      // A bare built-in at the top level of an exported alias's RHS: naked in
+      // the same sense as a bare `string`, and the report is additive — the
+      // walk continues, so a naked element inside still gets its own message.
+      if (ctx.aliasName !== undefined) {
+        const builtin = builtinObjectOf(node);
+        if (builtin !== undefined) reportBuiltinAlias(node, builtin, ctx.aliasName);
       }
 
       const inner: Ctx = { ...ctx, aliasName: undefined };
