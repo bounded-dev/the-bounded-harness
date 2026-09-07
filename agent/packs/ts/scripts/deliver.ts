@@ -28,6 +28,10 @@
 //   5. gitignore      ensure `.pi/` is ignored.
 //   6. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
+//   7. timing         READ-ONLY: print where the run's minutes went, from the
+//                     project's own guard log (issue #13). Measure before
+//                     optimizing further — and the run that just finished is
+//                     the only one whose numbers nobody has to remember.
 //
 // Idempotent: every step checks before acting; a second run applies 0 steps.
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
@@ -48,7 +52,12 @@ import {
 import { basename, dirname, join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Node, Project } from "ts-morph";
-import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { logGuardEvent, readGuardLog, type GuardVerdict } from "../../../src/guard-log.ts";
+import {
+  formatPhaseDurations,
+  phaseDurations,
+  type PhaseDurations,
+} from "../../../src/phase-durations.ts";
 import { findContractFiles } from "./checksum-gate.ts";
 import { skeletonPathFor } from "./scaffold-contract.ts";
 
@@ -363,6 +372,40 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       writeFileSync(readmeAbs, README_SECTION);
       pass("readme", true, 'created README.md with a "## Contracts" section');
     }
+  }
+
+  // --- 7. phase timing (issue #13) ---
+  //
+  // Every gate already timestamps itself into .pi/guard-log.jsonl, so the
+  // shape of the run — which phase cost the minutes, where it bounced and to
+  // whom — is recorded and was simply never read back. Delivery is the one
+  // moment the whole run is over and someone is reading the output, so this
+  // is where the read-back belongs.
+  //
+  // Idempotency: trivial, unlike every step above. This one READS and writes
+  // nothing, so it is never an applied step and a second delivery re-reports
+  // the same run (plus the events the first delivery itself logged).
+  //
+  // It must never block delivery. An absent, empty or corrupt log is a missing
+  // measurement, not a defect in the repo being handed over: the step degrades
+  // to one line saying timing was unavailable and why, and delivery proceeds.
+  {
+    let timing: PhaseDurations | undefined;
+    let blockLines: string[];
+    try {
+      timing = phaseDurations(readGuardLog(cwd));
+      blockLines = formatPhaseDurations(timing);
+    } catch (e) {
+      blockLines = [`unavailable — ${e instanceof Error ? e.message : String(e)}`];
+    }
+    const [headline, ...rest] = blockLines;
+    pass(
+      "timing",
+      false,
+      headline ?? "unavailable — nothing to report",
+      timing !== undefined ? { timing } : {},
+    );
+    lines.push(...rest);
   }
 
   const summary = `deliver: OK — ${applied} steps applied`;

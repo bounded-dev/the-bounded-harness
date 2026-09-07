@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import { barrelFor, runDeliver, stripConformance } from "./deliver.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import type { PhaseDurations } from "../../../src/phase-durations.ts";
 
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -58,6 +59,26 @@ const PACKAGE_JSON = `{
 `;
 
 const SURFACE_STUB = "// stub surface checker (the real one ships from the pack)\n";
+
+/** A finished run's worth of guard events, as the gates would have appended
+ *  them: design froze at +4m, red passed at +20m, green at +48m, with one
+ *  bounce to the test-writer inside TEST. Timestamps are fixed so the block
+ *  the timing step prints is exact rather than approximately right. */
+const SEEDED_GUARD_LOG = [
+  { ts: "2026-03-01T09:00:00.000Z", guard: "contract-purity", verdict: "pass", summary: "OK (1 file)" },
+  { ts: "2026-03-01T09:04:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" },
+  {
+    ts: "2026-03-01T09:12:00.000Z",
+    guard: "red-gate",
+    verdict: "block",
+    summary: "2 wrong-reason failures (route: test-writer)",
+    detail: { reason: "wrong-reason", route: "test-writer" },
+  },
+  { ts: "2026-03-01T09:20:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" },
+  { ts: "2026-03-01T09:48:00.000Z", guard: "green-gate", verdict: "pass", summary: "GREEN (5/5 passed, typecheck clean)" },
+]
+  .map((e) => JSON.stringify(e))
+  .join("\n") + "\n";
 
 /** A minimal finished-run-shaped project: package.json + one contract pair. */
 function proj(extra: Record<string, string> = {}, base: Record<string, string> | null = null): string {
@@ -251,5 +272,65 @@ void NotImplementedError;
     tmpDirs.push(dir);
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub() });
     expect(r.code).toBe(2);
+  });
+});
+
+// Issue #13: every run should report where its minutes went. The measurement
+// was already in the guard log — delivery is where it finally gets read back.
+describe("runDeliver: phase timing", () => {
+  test("prints the phase block from the project's own guard log", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    const out = r.lines.join("\n");
+    expect(out).toMatch(/^deliver: timing — where the minutes went \(\d+ guard events, taken as one run\)$/m);
+    expect(r.lines).toContain("  timing: design    4m00s");
+    expect(r.lines).toContain("  timing: tests    16m00s  (1 bounce: 1 → test-writer)");
+    expect(r.lines).toContain("  timing: build    28m00s");
+    // WRAP is closed by this very delivery's own events, so its span is live
+    // wall clock — assert it was measured, not what it measured to.
+    expect(out).toMatch(/^ {2}timing: wrap\s+\d+[hms]/m);
+  });
+
+  test("the structured summary rides along in the deliver guard event's detail", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    deliver(dir);
+    const event = readGuardLog(dir).find(
+      (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "timing",
+    );
+    expect(event).toBeDefined();
+    const timing = (event!.detail as { timing?: PhaseDurations }).timing!;
+    expect(timing.phases.map((p) => p.phase)).toEqual(["design", "tests", "build", "wrap"]);
+    expect(timing.phases[0]!.ms).toBe(4 * 60_000);
+    expect(timing.phases[1]!.byRoute).toEqual([{ route: "test-writer", count: 1 }]);
+    expect(timing.bounces).toBe(1);
+  });
+
+  test("timing is read-only: it applies no step and the second run reports again", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const stub = surfaceStub();
+    runDeliver(dir, { surfaceCheckSource: stub });
+    const second = runDeliver(dir, { surfaceCheckSource: stub });
+    expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+    expect(second.lines).toContain("  timing: design    4m00s");
+  });
+
+  test("an unavailable log costs one line, never the delivery", () => {
+    // PI_GUARD_LOG=off is the real way a project ends up with no log at all:
+    // nothing was ever written, including this delivery's own events.
+    const dir = proj();
+    process.env["PI_GUARD_LOG"] = "off";
+    try {
+      const r = deliver(dir);
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        "deliver: timing — unavailable — the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+      );
+      expect(r.lines.at(-1)).toMatch(/^deliver: OK — \d+ steps applied$/);
+    } finally {
+      delete process.env["PI_GUARD_LOG"];
+    }
+    // the repo was still delivered
+    expect(existsSync(join(dir, "src/index.ts"))).toBe(true);
   });
 });

@@ -216,7 +216,7 @@ export default function (pi: ExtensionAPI): void {
     name: "deliver",
     label: "Deliver",
     description:
-      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script, gitignore .pi/, and add the README Contracts section. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError.",
+      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script, gitignore .pi/, and add the README Contracts section. Also prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError.",
     promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
     parameters: CWD_PARAM,
     async execute(_id, params, _signal, _onUpdate, ctx) {
