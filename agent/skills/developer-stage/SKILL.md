@@ -22,9 +22,10 @@ gate from your own invocation and decide pass/fail from that — never from a
 worker's report. A worker saying "all tests pass" is a claim; the gate is the
 evidence.
 
-**You have no `bash`.** The gates are tools (`contract_purity`, `scaffold`,
-`freeze_contracts`, `check_drift`, `red_gate`, `green_gate`), `git` is a tool,
-and there is no `sleep` to reach for. Use `subagent_wait` to wait on a worker.
+**You have no `bash`.** The gates are tools (`contract_purity`, `design_gate`,
+`check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`), `git` is a
+tool, and there is no `sleep` to reach for. Use `subagent_wait` to wait on a
+worker.
 
 Loop granularity is **per component**, not per feature.
 
@@ -60,11 +61,14 @@ waited.
      minutes at exactly this point). Stop and ask ONLY if the user explicitly
      requested a design review, or a genuine product decision — not a design
      choice — is yours to guess at.
-   - **Gate:** `contract_purity` (declaration-only *and* free of naked
-     primitives on the public surface), then `scaffold` (generates the throwing
-     skeletons from every contract — machine-generated, never agent-written).
-   - Then `freeze_contracts` to record the checksum manifest, so drift under
-     you later is detectable rather than silent.
+   - **Gate:** `design_gate` — the whole phase in one call: contract-purity
+     (declaration-only *and* free of naked primitives on the public surface) →
+     scaffold (the throwing skeletons, machine-generated from every contract,
+     never agent-written) → the project typecheck → freeze (the checksum
+     manifest, so drift under you later is detectable rather than silent). It
+     stops at the first failure, names the step, and routes to you; fix what it
+     names and run it again. `contract_purity` on its own is the cheap check
+     while you are still iterating on a contract.
 
 2. **COMMISSION BOTH** — once the contract is frozen, spawn the
    **test-writer** and the **builder**, each with the spec + contract *in the
@@ -113,7 +117,8 @@ waited.
 Never eyeball a phase transition. Call the gate and read its verdict. Per
 transition:
 
-- **After DESIGN:** `contract_purity`, then `scaffold`, then `freeze_contracts`.
+- **After DESIGN:** `design_gate` (purity → scaffold → typecheck → freeze, one
+  verdict).
 - **When the test-writer returns:** `red_gate` (fails unless
   red-for-the-right-reason *and* type-clean).
 - **When the builder returns:** `green_gate` (green from your own invocation),
@@ -210,8 +215,8 @@ In particular:
 - Type errors in `tests/**` → **test-writer**. The builder is blind to test
   source and the path gate would refuse its edit, so bouncing there deadlocks.
 - Type errors in a contract → **architect**, which is *you*: revise the
-  contract with a logged rationale, re-`scaffold`, re-`freeze_contracts`, and
-  re-run the red gate. A contract revision invalidates the red.
+  contract with a logged rationale, re-run `design_gate`, and re-run the red
+  gate. A contract revision invalidates the red.
 - `orchestrator` means no role may write the offending file (config, build
   files) — also you, and the one case where you are acting outside the
   pipeline's zones rather than inside them.
@@ -228,8 +233,8 @@ voice, not a pen. Route disputes; don't let workers overrule each other.
   cited spec section yourself (you can see both; neither of them can) and
   settle it. A dispute is usually spec ambiguity, and the spec is yours.
 - `CONTRACT-DISPUTE` — the contract is wrong mid-loop → you revise it with a
-  logged rationale → re-`scaffold` → `freeze_contracts` → full **red-gate
-  re-run** → the test-writer repairs broken tests → the loop resumes.
+  logged rationale → re-run `design_gate` → full **red-gate re-run** → the
+  test-writer repairs broken tests → the loop resumes.
 - Genuine product decisions reach the **user**.
 
 The chain is **builder → test-writer → you → user**. The **bounce budget is

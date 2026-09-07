@@ -574,15 +574,15 @@ export function scaffoldContract(
   return text;
 }
 
-// --- Runner (shared by the CLI and the architect's `scaffold` tool) --------------
+// --- Runner (shared by the CLI and the scaffold step of `design_gate`) ----------
 
 /**
  * Scaffold every contract under `cwd` (or just the given paths).
  *
  * The CLI takes ONE contract path per call, and that cost real time in dogfood
  * Run 4: the orchestrator passed it a glob, got a confusing error, and went
- * reading the script to work out why. The tool takes no path at all by default
- * — it finds the contracts itself — so the footgun stops existing.
+ * reading the script to work out why. `design_gate` passes no path at all — it
+ * finds the contracts itself — so the footgun stops existing.
  *
  * Also fixes the ordering nit recorded in docs/dogfooding.md: the skeleton is
  * GENERATED (which is what rejects a bad contract) before anything is written,

@@ -57,6 +57,24 @@ describe("architect tool registration matches the path policy", () => {
     }
   });
 
+  // Tools that were RETIRED must not linger. `scaffold` and `freeze_contracts`
+  // became steps of `design_gate` (ADR 2026-019), and a step that is still
+  // separately callable is a step that can still be called out of order — which
+  // is the whole thing the composite removes. The exact-equality test above
+  // would catch a stray registration; this one says why it is wrong.
+  test("the tools folded into design_gate are gone, and the composite exists", () => {
+    expect(architectTools).toContain("design_gate");
+    for (const retired of ["scaffold", "freeze_contracts"]) {
+      expect(architectTools, `'${retired}' is a step of design_gate, not a tool`).not.toContain(
+        retired,
+      );
+      expect(GATE_TOOLS, `'${retired}' is a step of design_gate, not a tool`).not.toContain(retired);
+    }
+    // The cheap single check survives: iterating on a contract should not cost
+    // a scaffold, a typecheck and a freeze.
+    expect(architectTools).toContain("contract_purity");
+  });
+
   // The blind roles must never be handed one of these by a copy-paste.
   test("no gate tool leaks into a blind role's allowlist", () => {
     for (const role of ["test-writer", "builder"] as const) {

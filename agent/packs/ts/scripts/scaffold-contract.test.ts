@@ -345,7 +345,7 @@ describe("scaffold-contract CLI", () => {
 });
 
 // ---------------------------------------------------------------------------
-// runScaffold — the architect's `scaffold` tool and the CLI both land here
+// runScaffold — the CLI and `design_gate`'s scaffold step both land here
 // ---------------------------------------------------------------------------
 
 describe("runScaffold", () => {

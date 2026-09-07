@@ -82,7 +82,7 @@ The role above the architects — fans tickets out to one architect each, and ho
 _Avoid_: manager agent, supervisor, orchestrator
 
 **Gate tool**:
-One of the six named tools the architect runs a gate through (`contract_purity`, `scaffold`, `freeze_contracts`, `check_drift`, `red_gate`, `green_gate`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`.
+One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → freeze.
 _Avoid_: gate script (that's the CLI), command
 
 **pi-ticket**:
@@ -98,7 +98,7 @@ A glob-defined region of the repo one role may write to, with a zone lint rule d
 _Avoid_: folder, boundary
 
 **Scaffolder**:
-The machine step that generates the throwing skeleton from a contract (`packs/ts/scripts/scaffold-contract.ts`). Never an agent; drift becomes a compile error, not an assertion.
+The machine step that generates the throwing skeleton from a contract (`packs/ts/scripts/scaffold-contract.ts`), run as the second step of `design_gate`. Never an agent; drift becomes a compile error, not an assertion.
 _Avoid_: generator (unqualified), codegen
 
 **Skeleton**:
@@ -107,8 +107,9 @@ _Avoid_: stub (use for a single throwing member), contract
 
 **Value object**:
 A domain type that replaces a primitive at a contract's public boundary — in
-TS a branded type (`type Isbn = string & { readonly __brand: "Isbn" }`) or a
-string-literal union. Enforced by the `no-naked-primitives` rule inside the
+TS a nominal class (private `__brand`, private constructor, `static parse`;
+ADR 2026-015) or a string-literal union. Branded type aliases are banned.
+Enforced by `no-naked-primitives` and `no-branded-aliases` inside the
 contract-purity gate.
 _Avoid_: newtype, wrapper type, DTO
 

@@ -153,9 +153,15 @@ const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
 //     and then `sleep 60`; with no shell that failure mode stops existing
 //     rather than being a paragraph asking it not to.
 export const GATE_TOOLS: readonly string[] = [
+  // The cheap single check, for iterating on a contract before the phase is
+  // ready to advance.
   "contract_purity",
-  "scaffold",
-  "freeze_contracts",
+  // The whole DESIGN phase in one call: purity → scaffold → typecheck → freeze
+  // (ADR 2026-019). The three steps had a mandatory order that lived in prose,
+  // and prose executes unreliably: separate `scaffold` and `freeze_contracts`
+  // tools cost 3–6 minutes of round-trips per ticket and produced ordering
+  // fumbles. They are steps of a sequence, so they are not tools.
+  "design_gate",
   "check_drift",
   "red_gate",
   "green_gate",

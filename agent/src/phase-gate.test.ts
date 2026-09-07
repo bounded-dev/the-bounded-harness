@@ -88,7 +88,10 @@ describe("spawning the test-writer", () => {
       events: [ev("contract-purity", "pass"), ev("checksum-gate", "pass", "wrote manifest")],
     });
     expect(d.allow).toBe(false);
-    if (!d.allow) expect(d.reason).toContain("scaffold");
+    // The remedy names the composite, not a retired `scaffold` tool — but it
+    // still says which STEP is missing, because that is what was skipped.
+    if (!d.allow) expect(d.reason).toContain("design_gate");
+    if (!d.allow) expect(d.reason).toContain("scaffold step");
   });
 
   test("is refused when the contract was never frozen", () => {
@@ -97,7 +100,8 @@ describe("spawning the test-writer", () => {
       events: [ev("contract-purity", "pass"), ev("scaffold", "pass")],
     });
     expect(d.allow).toBe(false);
-    if (!d.allow) expect(d.reason).toContain("freeze_contracts");
+    if (!d.allow) expect(d.reason).toContain("design_gate");
+    if (!d.allow) expect(d.reason).toContain("freeze step");
   });
 });
 

@@ -114,24 +114,29 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
     );
   }
 
+  // The three checks below read the INNER guard names, which `design_gate` logs
+  // as it runs each step (ADR 2026-019). So they still say precisely which step
+  // is missing, and the remedy for every one of them is the same single call.
   if (!passed(events, "contract-purity")) {
     return deny(
       `phase-gate: cannot commission the ${target} — contract_purity has not passed on the current ` +
-        "contract. Run it and fix what it reports first.",
+        "contract. Run design_gate — contract-purity is its first step — and fix what it reports first.",
     );
   }
 
   if (!passed(events, "scaffold")) {
     return deny(
       `phase-gate: cannot commission the ${target} — the skeletons have not been generated. Run ` +
-        "scaffold: the red phase runs against those throwing stubs, so without them there is nothing to fail.",
+        "design_gate: its scaffold step writes the throwing stubs the red phase runs against, so " +
+        "without them there is nothing to fail.",
     );
   }
 
   if (!passed(events, "checksum-gate")) {
     return deny(
       `phase-gate: cannot commission the ${target} — the contract is not frozen. Run ` +
-        "freeze_contracts, so a contract that moves underneath the workers is detectable rather than silent.",
+        "design_gate: its freeze step records the checksum manifest, so a contract that moves " +
+        "underneath the workers is detectable rather than silent.",
     );
   }
 

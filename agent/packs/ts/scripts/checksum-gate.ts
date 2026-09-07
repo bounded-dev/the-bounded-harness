@@ -208,10 +208,10 @@ export function parseArgs(argv: string[]): { write: boolean; cwd: string } {
 /**
  * Record (`write: true`) or verify the contract manifest, logging the verdict.
  *
- * The architect reaches this as two tools — `freeze_contracts` and
- * `check_drift` — because it has no shell to pass `--write` through. Both, and
- * the CLI, land here so there is one implementation of "has the contract
- * moved".
+ * The architect reaches this two ways — the freeze step of `design_gate`
+ * (`write: true`) and the `check_drift` tool — because it has no shell to pass
+ * `--write` through. Both, and the CLI, land here so there is one
+ * implementation of "has the contract moved".
  */
 export function runChecksumGate(
   cwd: string,

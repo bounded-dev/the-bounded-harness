@@ -17,10 +17,17 @@
  *   · The invocation guidance deletes itself. Dogfood Run 4's orchestrator
  *     spent its first ~3 minutes `find`-ing the pack and `head`-ing three gate
  *     scripts to work out how to call them, then re-read two of them mid-run.
- *     A tool schema cannot be mis-invoked that way, and `scaffold` now finds
+ *     A tool schema cannot be mis-invoked that way, and `design_gate` finds
  *     the contracts itself rather than taking one path per call.
  *   · Every gate lands in the guard log by construction, so "did the architect
  *     actually run the gate" is checkable rather than trusted.
+ *
+ * The roster is deliberately not one tool per gate script. Where several gates
+ * have exactly one legal order, they are one tool: `design_gate` is
+ * purity → scaffold → typecheck → freeze in a single call with a single
+ * verdict (ADR 2026-019), because the order used to live in prose and prose
+ * executes unreliably. `contract_purity` survives alongside it as the cheap
+ * single check while a contract is still being iterated on.
  *
  * `git` is deliberately unrestricted. Archaeology — reflog, bisect, blame — is
  * exactly when a closed verb list becomes a cage, and it is exactly when you
@@ -37,9 +44,9 @@ import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
 import { runContractPurity } from "../packs/ts/scripts/contract-purity.ts";
 import { runChecksumGate } from "../packs/ts/scripts/checksum-gate.ts";
+import { runDesignGate } from "../packs/ts/scripts/design-gate.ts";
 import { runGreenGate } from "../packs/ts/scripts/green-gate.ts";
 import { runRedGate } from "../packs/ts/scripts/red-gate.ts";
-import { runScaffold } from "../packs/ts/scripts/scaffold-contract.ts";
 import { runSignOff } from "../packs/ts/scripts/sign-off.ts";
 import { runDeliver } from "../packs/ts/scripts/deliver.ts";
 import { logGuardEvent } from "../src/guard-log.ts";
@@ -75,7 +82,7 @@ export default function (pi: ExtensionAPI): void {
     name: "contract_purity",
     label: "Contract Purity Gate",
     description:
-      "Run the contract-purity gate over the project's *.contract.ts files: contracts must be declaration-only AND free of naked primitives on their public surface. Run after writing or revising a contract, before scaffolding.",
+      "Run the contract-purity gate over the project's *.contract.ts files: contracts must be declaration-only AND free of naked primitives on their public surface. The cheap single check while you are still iterating on a contract; when the design is settled, run design_gate instead — it starts with this and carries the phase through freeze.",
     promptSnippet: "Gate the contracts: declaration-only, no naked primitives.",
     parameters: Type.Object({
       cwd: CWD_PARAM.properties.cwd,
@@ -94,38 +101,29 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "scaffold",
-    label: "Scaffold Skeletons",
+    name: "design_gate",
+    label: "Design Gate",
     description:
-      "Generate the throwing implementation skeleton for every contract in the project. Skeletons are machine-generated — never hand-written — so contract drift becomes a compile error rather than an assertion. Run after contract_purity passes.",
-    promptSnippet: "Generate throwing skeletons from every contract.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order.",
+    promptSnippet: "Run the design phase: purity, scaffold, typecheck, freeze.",
+    promptGuidelines: [
+      "Re-run it after every contract revision: a revised contract must be re-scaffolded and re-frozen, and this is the only way to do either.",
+      "Every failure it reports is yours to fix — at DESIGN there is no test-writer or builder output for a defect to live in.",
+      "While you are still iterating on a contract, `contract_purity` alone is the cheap check; `design_gate` is how the phase advances.",
+    ],
     parameters: Type.Object({
       cwd: CWD_PARAM.properties.cwd,
-      contracts: Type.Optional(
+      patterns: Type.Optional(
         Type.Array(Type.String(), {
           description:
-            "Specific contract paths to scaffold. Omit to scaffold every *.contract.ts in the project, which is almost always what you want.",
+            "Glob patterns for the contract files. Defaults to src/**/*.contract.ts — you rarely need to pass this.",
         }),
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const cwd = targetCwd(ctx.cwd, params.cwd);
-      const r = runScaffold(cwd, params.contracts);
-      return gateOutput("scaffold", r.code, r.lines);
-    },
-  });
-
-  pi.registerTool({
-    name: "freeze_contracts",
-    label: "Freeze Contracts",
-    description:
-      "Record the contract checksum manifest, freezing the contract as the shared interface both blind roles build against. Run once the design is settled, before commissioning the test-writer.",
-    promptSnippet: "Freeze the contract by recording its checksum manifest.",
-    parameters: CWD_PARAM,
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const cwd = targetCwd(ctx.cwd, params.cwd);
-      const r = runChecksumGate(cwd, true);
-      return gateOutput("checksum-gate", r.code, r.lines);
+      const r = await runDesignGate(cwd, params.patterns);
+      return gateOutput("design-gate", r.code, r.lines);
     },
   });
 
@@ -133,7 +131,7 @@ export default function (pi: ExtensionAPI): void {
     name: "check_drift",
     label: "Check Contract Drift",
     description:
-      "Verify the contracts are byte-for-byte unchanged since freeze_contracts recorded them. A contract that moves mid-loop drifts the tests and the implementation apart underneath you. Run any time you suspect the contract has moved.",
+      "Verify the contracts are byte-for-byte unchanged since design_gate froze them. A contract that moves mid-loop drifts the tests and the implementation apart underneath you. Run any time you suspect the contract has moved.",
     promptSnippet: "Check whether any contract has moved since it was frozen.",
     parameters: CWD_PARAM,
     async execute(_id, params, _signal, _onUpdate, ctx) {
