@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { decide, ownerOfPath, type Decision, type Role } from "./path-policy.js";
+import {
+  decide,
+  ownerOfPath,
+  ROLES_UPSTREAM_FIRST,
+  ZONES,
+  type Decision,
+  type Role,
+} from "./path-policy.js";
 
 // TN-26-001 blindness matrix, executable form.
 // Paths are resolved against a fixed project root (/repo) so tests are hermetic.
@@ -138,12 +145,41 @@ matrix("builder", [
   [".", A, B, B],
 ]);
 
+// The reviewer reads the design as the two blind consumers will, before it is
+// frozen — and writes NOTHING. Not the spec it is reviewing, not a contract it
+// found a defect in, not a note file in the corner of the repo. Its findings go
+// into the guard log through `record_design_review` and nowhere else, because
+// the spec and the contract have exactly one author and a reviewer that could
+// fix what it found would be a second one.
+//
+// It is no threat to the blindness for the same reason the architect is not: a
+// role that can write neither a test nor an implementation cannot make one
+// agree with the other.
+matrix("reviewer", [
+  // the design under review: readable, and still not writable
+  ["spec.md", A, A, B],
+  ["src/orders/orders.contract.ts", A, A, B],
+  ["src/x.contract.ts", A, A, B],
+  // everything else the consumers can see, it can see
+  ["src/orders/orders.ts", A, A, B],
+  ["src", A, A, B],
+  ["tests", A, A, B],
+  ["tests/orders.test.ts", A, A, B],
+  ["README.md", A, A, B],
+  ["docs/guide.md", A, A, B],
+  // no zone anywhere in the tree, however plausible the path
+  ["review.md", A, A, B],
+  ["src/notes.ts", A, A, B],
+  [".git/config", B, B, B],
+  [".", A, B, B],
+]);
+
 // ---------------------------------------------------------------------------
 // Forbidden tools — backup layer under the frontmatter allowlist
 // ---------------------------------------------------------------------------
 
 describe("forbidden tools", () => {
-  const roles: Role[] = ["architect", "test-writer", "builder"];
+  const roles: Role[] = ["architect", "test-writer", "builder", "reviewer"];
 
   // `bash` is forbidden to EVERY role including the architect. A shell defeats
   // every path rule at once, so the architect gets named tools for the things
@@ -160,7 +196,7 @@ describe("forbidden tools", () => {
   // the builder the test source in one call, and `git log -p` does it by
   // accident. Full git in a blind role's hands defeats blindness more
   // completely than bash would.
-  for (const role of ["test-writer", "builder"] as const) {
+  for (const role of ["test-writer", "builder", "reviewer"] as const) {
     test(`${role} subagent → block`, () => {
       expect(decide(role, "subagent", { agent: "scout" }, CTX).allow).toBe(false);
     });
@@ -178,6 +214,22 @@ describe("forbidden tools", () => {
   test("architect holds git — reflog/bisect archaeology is its job", () => {
     expect(decide("architect", "git", { args: ["reflog"] }, CTX).allow).toBe(true);
   });
+
+  // `record_design_review` is the reviewer's, and ONLY the reviewer's. The
+  // review exists because the design's author already read it once; an
+  // architect recording a review of its own spec is that same reading again,
+  // wearing a guard event.
+  test("the reviewer holds record_design_review — it is the role's only pen", () => {
+    expect(decide("reviewer", "record_design_review", { findings: [] }, CTX).allow).toBe(true);
+  });
+
+  for (const role of ["architect", "test-writer", "builder"] as const) {
+    test(`${role} may not record a design review`, () => {
+      const r = decide(role, "record_design_review", { findings: [] }, CTX);
+      expect(r.allow).toBe(false);
+      if (!r.allow) expect(r.reason).toMatch(/reviewer/);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -191,7 +243,7 @@ describe("forbidden tools", () => {
 // through plain `fs`, which never passes through the tool hook, so they are
 // unaffected. Already closed by the write allowlist; this makes it explicit.
 describe(".pi is write-denied for every role, read-allowed for all", () => {
-  const roles: Role[] = ["architect", "test-writer", "builder"];
+  const roles: Role[] = ["architect", "test-writer", "builder", "reviewer"];
   for (const role of roles) {
     test(`${role} may not write .pi/guard-log.jsonl`, () => {
       expect(d(role, "write", ".pi/guard-log.jsonl").allow).toBe(false);
@@ -216,7 +268,7 @@ describe(".pi is write-denied for every role, read-allowed for all", () => {
 // The test-writer is the interesting case: `tests/**` is its write zone, so this
 // is the one deny that has to be stated rather than inherited.
 describe("tests/generated is write-denied for every role, test-writer included", () => {
-  const roles: Role[] = ["architect", "test-writer", "builder"];
+  const roles: Role[] = ["architect", "test-writer", "builder", "reviewer"];
   for (const role of roles) {
     test(`${role} may not write under tests/generated`, () => {
       for (const tool of WRITE_TOOLS) {
@@ -309,7 +361,7 @@ describe("hostile paths", () => {
   });
 
   test("unscoped search tools are blocked for every role", () => {
-    for (const role of ["architect", "test-writer", "builder"] as const) {
+    for (const role of ["architect", "test-writer", "builder", "reviewer"] as const) {
       for (const tool of SEARCH_TOOLS) {
         expect(d(role, tool).allow, `${role} ${tool} (no path)`).toBe(false);
       }
@@ -335,6 +387,9 @@ describe("block reasons", () => {
     );
     expect(reason("builder", "write", "src/x.contract.ts")).toBe(
       "path-gate: builder may not write 'src/x.contract.ts': denied for builder (matches 'src/**/*.contract.ts')",
+    );
+    expect(reason("reviewer", "write", "spec.md")).toBe(
+      "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
       "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones (spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts)",
@@ -401,6 +456,19 @@ describe("ownerOfPath", () => {
       if (owner === null) continue;
       expect(decide(owner, "write", { path }, CTX).allow, `${owner} write ${path}`).toBe(true);
     }
+  });
+
+  // A gate that routed a failure to the reviewer would deadlock the loop: the
+  // named role must be one that can actually make the fix, and this one holds
+  // no pen. It stays in the list only so a role that LATER gains a zone cannot
+  // be silently unroutable.
+  test("nothing routes to the reviewer, which could not act on it", () => {
+    for (const [path] of cases) expect(ownerOfPath(path)).not.toBe("reviewer");
+    expect(ZONES.reviewer.writeAllow).toEqual([]);
+  });
+
+  test("the routing order covers every role the policy knows", () => {
+    expect([...ROLES_UPSTREAM_FIRST].sort()).toEqual(Object.keys(ZONES).sort());
   });
 });
 
@@ -610,7 +678,7 @@ describe("run_tests is builder-only", () => {
     expect(decide("builder", "run_tests", {}, CTX).allow).toBe(true);
   });
 
-  for (const role of ["architect", "test-writer"] as const) {
+  for (const role of ["architect", "test-writer", "reviewer"] as const) {
     test(`${role} may not run it`, () => {
       const d = decide(role, "run_tests", {}, CTX);
       expect(d.allow).toBe(false);
@@ -619,7 +687,7 @@ describe("run_tests is builder-only", () => {
   }
 
   test("every role keeps typecheck — each must confirm its own work compiles", () => {
-    for (const role of ["architect", "test-writer", "builder"] as const) {
+    for (const role of ["architect", "test-writer", "builder", "reviewer"] as const) {
       expect(decide(role, "typecheck", {}, CTX).allow).toBe(true);
     }
   });
@@ -650,6 +718,12 @@ describe("remove obeys write zones", () => {
   test("architect may remove only what it may write", () => {
     expect(decide("architect", "remove", { path: "src/orders/orders.contract.ts" }, ctx).allow).toBe(true);
     expect(decide("architect", "remove", { path: "tests/money.test.ts" }, ctx).allow).toBe(false);
+  });
+
+  test("the reviewer may remove nothing at all — it has no write zone", () => {
+    for (const path of ["spec.md", "src/money.contract.ts", "tests/money.test.ts", "notes.md"]) {
+      expect(decide("reviewer", "remove", { path }, ctx).allow, `remove ${path}`).toBe(false);
+    }
   });
 });
 

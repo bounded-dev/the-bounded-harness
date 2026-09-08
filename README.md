@@ -49,7 +49,9 @@ owns the ticket: it writes the spec and type contract, commissions the work,
 runs every gate, and arbitrates — but it writes no tests and no
 implementation. A **test-writer** writes tests from the contract and never
 sees the implementation; a **builder** writes the implementation and never
-sees the tests. Every hand-off is guarded by something mechanical — tool
+sees the tests. A **reviewer** reads the spec and the contract before they are
+frozen — as those two will have to — and records what it found, holding no pen
+to change any of it. Every hand-off is guarded by something mechanical — tool
 allowlists, a path-gate extension, lint rules per zone, red/green gates that
 also typecheck — so the design can't quietly drift.
 

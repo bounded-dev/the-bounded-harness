@@ -6,16 +6,16 @@ import installDevTools from "../extensions/dev-tools.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { ROLE_TOOLS } from "./path-policy.ts";
 
-// dev-tools is the builder's whole world: it has no `bash`, so anything it
-// cannot do through these three tools it cannot do at all. Two things are
-// therefore worth pinning — that the registration surface still matches what
+// dev-tools is a worker role's whole world: none of them has `bash`, so
+// anything a role cannot do through these tools it cannot do at all. Two things
+// are therefore worth pinning — that the registration surface still matches what
 // the role allowlists promise, and that `remove` (the only tool here with real
 // mechanics of its own) behaves exactly as its description claims.
 //
-// run_tests and typecheck are deliberately NOT executed here: neither takes an
-// injectable command runner from this layer, so calling execute() would spawn
-// vitest/tsc for real. Their logic is already covered directly in
-// packs/ts/scripts/{run-tests,typecheck}.test.ts.
+// run_tests, typecheck and record_design_review are deliberately NOT executed
+// here: the first two take no injectable command runner from this layer, so
+// calling execute() would spawn vitest/tsc for real, and the third is covered
+// directly in packs/ts/scripts/design-review.test.ts.
 
 interface ToolResult {
   readonly content: readonly { readonly type: string; readonly text: string }[];
@@ -82,15 +82,21 @@ function callRemove(ctxCwd: string, params: { path: string; cwd?: string }): Pro
 }
 
 describe("dev-tools registration surface", () => {
-  test("registers exactly the three developer-stage tools", () => {
-    expect([...TOOLS.keys()].sort()).toEqual(["remove", "run_tests", "typecheck"]);
+  test("registers exactly the developer-stage worker tools", () => {
+    expect([...TOOLS.keys()].sort()).toEqual([
+      "record_design_review",
+      "remove",
+      "run_tests",
+      "typecheck",
+    ]);
   });
 
-  // The blind roles' allowlists are frontmatter strings — a rename here would
-  // otherwise surface only as a builder that silently cannot run its tests.
-  test("provides every non-builtin tool the blind roles are allowed to hold", () => {
+  // The worker roles' allowlists are frontmatter strings — a rename here would
+  // otherwise surface only as a builder that silently cannot run its tests, or
+  // a reviewer with nothing to record its findings into.
+  test("provides every non-builtin tool the worker roles are allowed to hold", () => {
     const BUILTIN = new Set(["read", "grep", "find", "ls", "write", "edit"]);
-    for (const role of ["test-writer", "builder"] as const) {
+    for (const role of ["test-writer", "builder", "reviewer"] as const) {
       for (const name of ROLE_TOOLS[role]) {
         if (BUILTIN.has(name)) continue;
         expect([...TOOLS.keys()], `ROLE_TOOLS.${role} names '${name}' but dev-tools does not register it`).toContain(name);
@@ -104,6 +110,21 @@ describe("dev-tools registration surface", () => {
       expect(Object.keys(params.properties ?? {})).toEqual(["cwd"]);
       expect(params.required ?? []).toEqual([]);
     }
+  });
+
+  // The reviewer holds no pen but this one, so its shape is load-bearing: an
+  // empty list must be passable (recording "I found nothing" is the point), and
+  // the cwd must stay optional like every sibling.
+  test("record_design_review requires findings and nothing else", () => {
+    const params = tool("record_design_review").parameters;
+    expect(params.required).toEqual(["findings"]);
+    expect(Object.keys(params.properties ?? {}).sort()).toEqual(["cwd", "findings"]);
+  });
+
+  test("record_design_review says the record is bound to the bytes reviewed", () => {
+    const description = tool("record_design_review").description;
+    expect(description).toMatch(/empty list is a valid review/);
+    expect(description).toMatch(/bound to the exact bytes|stale/);
   });
 
   test("remove requires a path", () => {

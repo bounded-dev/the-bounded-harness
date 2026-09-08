@@ -1,0 +1,219 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, test } from "vitest";
+import { classifyDesignReview, readReviewed, runRecordDesignReview } from "./design-review.ts";
+import { hashContract } from "./checksum-gate.ts";
+import { readGuardLog } from "../../../src/guard-log.ts";
+
+// The reviewer's pen. Two properties carry the whole feature:
+//
+//   · the record EXISTS whatever the reviewer concluded — including "nothing",
+//     because a silence and a clean review are indistinguishable otherwise; and
+//   · the record is BOUND to the bytes reviewed, so a design edited after the
+//     review is demonstrably stale rather than silently obsolete.
+//
+// Everything else here is misuse handling: the gate never fails on the CONTENT
+// of a finding, so exit 1 does not exist and there is no test for one.
+
+const SPEC = `# Orders
+
+Long enough to be a real document rather than a placeholder: ordering,
+arithmetic and its tie-break, identity guarantees.
+`;
+const CONTRACT = "export interface Order { readonly id: string }\n";
+
+const tmpDirs: string[] = [];
+afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+/** A project with a spec and `contracts` contract files, unless told otherwise. */
+function repo(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "pi-design-review-"));
+  tmpDirs.push(dir);
+  for (const [rel, content] of Object.entries(files)) {
+    const path = join(dir, rel);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, content);
+  }
+  return dir;
+}
+
+function designed(): string {
+  return repo({
+    "spec.md": SPEC,
+    "src/orders/orders.contract.ts": CONTRACT,
+    "src/money.contract.ts": CONTRACT,
+  });
+}
+
+function lastEvent(dir: string) {
+  return readGuardLog(dir).at(-1);
+}
+
+describe("readReviewed", () => {
+  test("covers spec.md and every contract, spec first", () => {
+    const r = readReviewed(designed());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(Object.keys(r.reviewed)).toEqual([
+      "spec.md",
+      "src/money.contract.ts",
+      "src/orders/orders.contract.ts",
+    ]);
+  });
+
+  test("the checksums are checksum-gate's, byte for byte", () => {
+    const r = readReviewed(designed());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.reviewed["spec.md"]).toBe(hashContract(SPEC));
+    expect(r.reviewed["src/money.contract.ts"]).toBe(hashContract(CONTRACT));
+  });
+
+  test("a design with no spec cannot be reviewed", () => {
+    const r = readReviewed(repo({ "src/x.contract.ts": CONTRACT }));
+    expect(r).toMatchObject({ ok: false, reason: "no-spec" });
+  });
+
+  test("a design with no contract cannot be reviewed", () => {
+    const r = readReviewed(repo({ "spec.md": SPEC }));
+    expect(r).toMatchObject({ ok: false, reason: "no-contracts" });
+  });
+});
+
+describe("classifyDesignReview", () => {
+  const reviewed = { "spec.md": "a".repeat(64), "src/x.contract.ts": "b".repeat(64) };
+
+  test("an empty list is a valid review — 'I found nothing' is a claim", () => {
+    const r = classifyDesignReview([], reviewed);
+    expect(r.code).toBe(0);
+    expect(r.verdict).toBe("pass");
+    expect(r.summary).toBe("reviewed 2 files, no findings");
+  });
+
+  test("findings are printed with their evidence", () => {
+    const r = classifyDesignReview(
+      [
+        {
+          severity: "blocker",
+          summary: "OrderId has no parse path — the test-writer cannot construct one",
+          evidence: "src/x.contract.ts:12",
+        },
+        { severity: "note", summary: "two names for one concept" },
+      ],
+      reviewed,
+    );
+    expect(r.summary).toBe("2 findings (1 blocker) over 2 files");
+    const text = r.lines.join("\n");
+    expect(text).toMatch(/blocker: OrderId has no parse path .* — src\/x\.contract\.ts:12/);
+    expect(text).toMatch(/note: two names for one concept/);
+  });
+
+  // The gate records a claim; the architect settles it. A blocker must not read
+  // as a verdict, or the reviewer has quietly become a second architect.
+  test("a blocker is a claim for the architect to settle, not a failure", () => {
+    const r = classifyDesignReview([{ severity: "blocker", summary: "uncallable operation" }], reviewed);
+    expect(r.code).toBe(0);
+    expect(r.verdict).toBe("pass");
+    expect(r.lines.join("\n")).toMatch(/claim for the architect to settle, not a verdict/);
+  });
+
+  test("the files reviewed are shown, with the hash that binds the record", () => {
+    const text = classifyDesignReview([], reviewed).lines.join("\n");
+    expect(text).toContain("spec.md");
+    expect(text).toContain("src/x.contract.ts");
+    expect(text).toContain("aaaaaaaaaaaa");
+    expect(text).toMatch(/makes this review stale/);
+  });
+});
+
+describe("runRecordDesignReview (guard log)", () => {
+  test("the happy path logs ONE design-review event carrying the findings", () => {
+    const dir = designed();
+    const r = runRecordDesignReview(dir, [
+      { severity: "concern", summary: "settleOrder could be read two ways", evidence: "spec.md:41" },
+    ]);
+    expect(r.code).toBe(0);
+
+    const events = readGuardLog(dir).filter((e) => e.guard === "design-review");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ guard: "design-review", verdict: "pass" });
+    expect(events[0]!.detail).toMatchObject({ blockers: 0, severities: ["concern"] });
+    expect(JSON.stringify(events[0]!.detail)).toContain("settleOrder could be read two ways");
+  });
+
+  test("an empty review is recorded just as loudly — that is the point", () => {
+    const dir = designed();
+    expect(runRecordDesignReview(dir, []).code).toBe(0);
+    const last = lastEvent(dir);
+    expect(last).toMatchObject({ guard: "design-review", verdict: "pass" });
+    expect(last!.summary).toMatch(/no findings/);
+    expect(last!.detail).toMatchObject({ findings: [], blockers: 0, severities: [] });
+  });
+
+  // The whole reason the event is worth keeping: it names the exact bytes, so a
+  // contract revised after the review can be detected rather than assumed.
+  test("the logged event carries a correct checksum for the spec and every contract", () => {
+    const dir = designed();
+    runRecordDesignReview(dir, []);
+    const reviewed = lastEvent(dir)!.detail!["reviewed"] as Record<string, string>;
+    expect(Object.keys(reviewed).sort()).toEqual([
+      "spec.md",
+      "src/money.contract.ts",
+      "src/orders/orders.contract.ts",
+    ]);
+    expect(reviewed["spec.md"]).toBe(hashContract(SPEC));
+    expect(reviewed["src/orders/orders.contract.ts"]).toBe(hashContract(CONTRACT));
+  });
+
+  test("a revised contract no longer matches the review that covered it", () => {
+    const dir = designed();
+    runRecordDesignReview(dir, []);
+    const before = (lastEvent(dir)!.detail!["reviewed"] as Record<string, string>)[
+      "src/money.contract.ts"
+    ];
+    writeFileSync(join(dir, "src/money.contract.ts"), CONTRACT + "export type Cents = number;\n");
+    expect(hashContract(CONTRACT + "export type Cents = number;\n")).not.toBe(before);
+  });
+
+  test("a malformed payload is misuse, and says what to pass instead", () => {
+    const dir = designed();
+    const r = runRecordDesignReview(dir, "nope");
+    expect(r.code).toBe(2);
+    expect(r.lines[0]).toMatch(/pass \[\]/);
+    expect(lastEvent(dir)).toMatchObject({ verdict: "error", detail: { reason: "bad-payload" } });
+  });
+
+  test("a finding needs a severity and a non-empty summary", () => {
+    const dir = designed();
+    expect(runRecordDesignReview(dir, [{ severity: "urgent", summary: "x" }]).code).toBe(2);
+    expect(runRecordDesignReview(dir, [{ severity: "note", summary: "  " }]).code).toBe(2);
+  });
+
+  test("no spec.md is misuse, logged as an error", () => {
+    const dir = repo({ "src/x.contract.ts": CONTRACT });
+    const r = runRecordDesignReview(dir, []);
+    expect(r.code).toBe(2);
+    expect(r.lines[0]).toMatch(/no spec\.md/);
+    expect(lastEvent(dir)).toMatchObject({ verdict: "error", detail: { reason: "no-spec" } });
+  });
+
+  test("no contract is misuse, logged as an error", () => {
+    const dir = repo({ "spec.md": SPEC });
+    const r = runRecordDesignReview(dir, []);
+    expect(r.code).toBe(2);
+    expect(r.lines[0]).toMatch(/no \*\.contract\.ts/);
+    expect(lastEvent(dir)).toMatchObject({ verdict: "error", detail: { reason: "no-contracts" } });
+  });
+
+  // Misuse must be distinguishable from a recorded review by verdict alone: a
+  // later gate asking "has this design been reviewed?" reads the log, and an
+  // errored call is not a review.
+  test("misuse never records a review a later gate could mistake for one", () => {
+    const dir = repo({ "spec.md": SPEC });
+    runRecordDesignReview(dir, []);
+    expect(readGuardLog(dir).some((e) => e.guard === "design-review" && e.verdict === "pass")).toBe(
+      false,
+    );
+  });
+});

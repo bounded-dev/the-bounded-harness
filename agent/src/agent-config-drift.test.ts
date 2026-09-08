@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { ROLE_TOOLS, ZONES, type Role } from "./path-policy.js";
 
-// TN-26-001 Phase 3: the three pipeline agent definitions are configuration,
+// TN-26-001 Phase 3: the pipeline agent definitions are configuration,
 // and configuration drifts. This test pins each worker's frontmatter to the
 // canonical ROLE_TOOLS data so a hand-edit to an agent .md that widens its
 // authority (adds `bash`, `subagent`, or a tool the role shouldn't hold) is a
@@ -11,7 +11,7 @@ import { ROLE_TOOLS, ZONES, type Role } from "./path-policy.js";
 // enforcement layer that PREVENTS rather than detects — so it is the one most
 // worth guarding against drift.
 
-const ROLES = ["architect", "test-writer", "builder"] as const;
+const ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
 
 /** Extract the YAML frontmatter block (between the first two `---` lines). */
 function frontmatter(source: string): string {
@@ -49,7 +49,7 @@ function readAgent(role: Role): string {
 describe("developer-stage agent config drift", () => {
   // (d) the roster of pipeline agents equals the ZONES keys — no agent .md
   // exists for a role the path policy doesn't know, and vice versa.
-  test("the three roles equal the ZONES keys", () => {
+  test("the pipeline roles equal the ZONES keys", () => {
     expect([...ROLES].sort()).toEqual(Object.keys(ZONES).sort());
     expect([...ROLES].sort()).toEqual(Object.keys(ROLE_TOOLS).sort());
   });
@@ -74,10 +74,22 @@ describe("developer-stage agent config drift", () => {
       // blindness through a child, and `git show HEAD:tests/x.test.ts` hands
       // the builder the test source in a single call.
       if (role !== "architect") {
-        test("blind roles hold neither subagent nor git", () => {
+        test("no worker role holds subagent or git", () => {
           const tools = toolList(fm);
           expect(tools).not.toContain("subagent");
           expect(tools).not.toContain("git");
+        });
+      }
+
+      // (b3) The reviewer holds NO pen. It reads the design before the freeze
+      // and records findings; a reviewer that could edit what it found would be
+      // a second author of the spec and the contract, which is exactly the
+      // thing the role exists to avoid.
+      if (role === "reviewer") {
+        test("the reviewer holds no write tool and no write zone", () => {
+          const tools = toolList(fm);
+          for (const pen of ["write", "edit", "remove"]) expect(tools).not.toContain(pen);
+          expect(ZONES.reviewer.writeAllow).toEqual([]);
         });
       }
 

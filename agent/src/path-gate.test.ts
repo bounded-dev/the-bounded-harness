@@ -19,7 +19,7 @@ afterEach(() => {
   while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
 });
 
-describe("asRole — only the three pipeline roles are recognized", () => {
+describe("asRole — only the pipeline roles are recognized", () => {
   test.each(PIPELINE_ROLES)("accepts %s", (role) => {
     expect(asRole(role)).toBe(role);
   });
@@ -72,6 +72,11 @@ const CASES: Case[] = [
     role: "builder",
     allowed: { tool: "write", path: "src/orders/orders.ts" },
     blocked: { tool: "read", path: "tests/orders.test.ts" }, // blind to tests/
+  },
+  {
+    role: "reviewer",
+    allowed: { tool: "read", path: "src/orders/orders.contract.ts" }, // the design under review
+    blocked: { tool: "write", path: "spec.md" }, // not even the file it is reviewing
   },
 ];
 

@@ -1,23 +1,30 @@
 /**
- * Developer-stage custom tools (TN-26-001, §"Custom tools" #3).
+ * Developer-stage worker tools (TN-26-001, §"Custom tools" #3).
  *
- * Registers the two blind-safe build tools the builder subagent gets in place
- * of `bash`:
+ * The tools the non-architect roles get in place of `bash`. None of them is
+ * held by every role: the frontmatter allowlist decides who holds what, and
+ * `ROLE_TOOLS` in src/path-policy.ts is the canonical statement of that (the
+ * path gate refuses the ones that are one role's alone, as a backup layer).
  *
- *   run_tests(cwd?)  — runs the project's vitest suite with the JSON reporter
- *                      and returns ONLY sanitized results (failure names +
- *                      assertion diffs; no code frames, stacks, paths, or
- *                      console). Sanitization is the already-built
- *                      sanitizeTestRun; this tool only spawns + shapes.
- *   typecheck(cwd?)  — runs `tsc --noEmit` and returns pass/fail + diagnostics
- *                      with absolute machine paths redacted.
+ *   remove(path, cwd?)      — delete one file, inside the caller's write zones.
+ *   run_tests(cwd?)         — BUILDER ONLY. Runs the project's vitest suite
+ *                             with the JSON reporter and returns ONLY sanitized
+ *                             results (failure names + assertion diffs; no code
+ *                             frames, stacks, paths, or console). Sanitization
+ *                             is the already-built sanitizeTestRun; this tool
+ *                             only spawns + shapes.
+ *   typecheck(cwd?)         — runs `tsc --noEmit` and returns pass/fail +
+ *                             diagnostics with absolute machine paths redacted.
+ *   record_design_review    — REVIEWER ONLY. Records the pre-freeze review of
+ *     (findings, cwd?)        spec + contracts in the guard log, checksum-bound
+ *                             to the bytes reviewed. The reviewer has no write
+ *                             zone at all, so this is the only mark it leaves.
  *
  * Registration approach: a plain auto-loaded extension (extensions/*.ts) that
  * calls `pi.registerTool()` for each. The logic lives in testable pack modules
- * (packs/ts/scripts/{run-tests,typecheck}.ts); this file is the thin pi-facing
- * wiring + guard-log boundary. The builder agent's frontmatter tool allowlist
- * (`read, write, edit, run_tests, typecheck`) is what actually restricts these
- * to the builder; a normal session simply never calls them.
+ * (packs/ts/scripts/{run-tests,typecheck,design-review}.ts); this file is the
+ * thin pi-facing wiring + guard-log boundary. A normal session holds none of
+ * these agents' allowlists and simply never calls them.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -29,6 +36,7 @@ import { formatRunTests, runTests,
   repeatedFailureNudge,
 } from "../packs/ts/scripts/run-tests.ts";
 import { formatTypecheck, typecheck } from "../packs/ts/scripts/typecheck.ts";
+import { runRecordDesignReview } from "../packs/ts/scripts/design-review.ts";
 import { logGuardEvent, readGuardLog } from "../src/guard-log.ts";
 
 const PARAMS = Type.Object({
@@ -89,6 +97,52 @@ export default function (pi: ExtensionAPI): void {
       rmSync(target);
       logGuardEvent(cwd, { guard: "remove", verdict: "pass", summary: `removed ${params.path}`, detail: { path: params.path } });
       return { content: [{ type: "text" as const, text: `remove: deleted ${params.path}` }], details: { ok: true, existed: true } };
+    },
+  });
+
+  // The reviewer's only pen. It reads the spec and every contract before the
+  // freeze and writes nothing — its whole output is this one guard event, and
+  // the event is bound to the bytes it read so a design revised afterwards is
+  // detectably no longer the design that was reviewed.
+  pi.registerTool({
+    name: "record_design_review",
+    label: "Record Design Review",
+    description:
+      "Record your design review of spec + contracts. Findings are claims for the architect to settle, not verdicts; an empty list is a valid review. The record is bound to the exact bytes you reviewed — any later edit makes it stale.",
+    promptSnippet: "Record what you found reading the spec and the contracts.",
+    promptGuidelines: [
+      "Call this once, at the end of the review, with everything you found — it is the only output of the role.",
+      "severity: 'blocker' means the pipeline will jam on it (an operation nobody can call, a type nobody can construct, two requirements that contradict); 'concern' means two careful implementers could read it differently; 'note' is everything else.",
+      "Pass [] when you found nothing. A clean review that is recorded can be audited later; a silence cannot.",
+    ],
+    parameters: Type.Object({
+      findings: Type.Array(
+        Type.Object({
+          severity: Type.Union(
+            [Type.Literal("blocker"), Type.Literal("concern"), Type.Literal("note")],
+            { description: "blocker | concern | note" },
+          ),
+          summary: Type.String({ description: "One line: what is wrong." }),
+          evidence: Type.Optional(
+            Type.String({ description: "Where to look — a path, a symbol, an exported operation." }),
+          ),
+        }),
+        { description: "What you found. Pass [] to record that you found nothing." },
+      ),
+      cwd: Type.Optional(
+        Type.String({
+          description:
+            "Project directory to run in (absolute, or relative to the session cwd). Defaults to the session cwd.",
+        }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = runRecordDesignReview(cwd, params.findings);
+      return {
+        content: [{ type: "text" as const, text: r.lines.join("\n") }],
+        details: { code: r.code, ok: r.code === 0 },
+      };
     },
   });
 

@@ -94,6 +94,27 @@ describe("ambient path gate suppression", () => {
     expect(evaluatePathGate({ role: "builder", ...write("tests/x.test.ts") })?.block).toBe(true);
   });
 
+  // The reviewer is the case where suppression matters most in the design
+  // phase: it is spawned by an architect, so without it the parent's
+  // architect zone would be applied on top — and the architect MAY write
+  // spec.md, which would hand the reviewer a pen it is not supposed to have
+  // only when the two zones happened to agree.
+  test("a bound reviewer reads freely and still cannot write, whatever the parent is", () => {
+    markBoundRoleInstalled();
+    expect(
+      evaluatePathGate({
+        role: "reviewer",
+        toolName: "read",
+        input: { path: "src/money.contract.ts" },
+        cwd: CTX.cwd,
+      }),
+    ).toBeUndefined();
+    const refused = evaluatePathGate({ role: "reviewer", ...write("spec.md") });
+    expect(refused?.block).toBe(true);
+    expect(refused?.reason).toContain("no write zone");
+    expect(evaluateAmbientPathGate({ role: "architect", ...write("spec.md") })).toBeUndefined();
+  });
+
   test("suppression is not order-dependent — the check happens per call, not at install", () => {
     // The ambient extension may well load BEFORE the bound loader; what matters
     // is the state at tool-call time.

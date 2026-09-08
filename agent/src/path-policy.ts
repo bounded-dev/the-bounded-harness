@@ -7,7 +7,7 @@
 
 import picomatch from "picomatch";
 
-export type Role = "architect" | "test-writer" | "builder";
+export type Role = "architect" | "test-writer" | "builder" | "reviewer";
 
 export type Decision =
   | { readonly allow: true }
@@ -112,14 +112,34 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 // not a PATH tool and the gate only inspected those. The frontmatter allowlist
 // binds subagents; a session launched from `.pi/dev-stage-role` has none, so
 // there the allowlist was documentation and Run 6's architect duly called it.
+//   · `record_design_review` — the REVIEWER's alone, for the same reason
+//     run_tests is the builder's: it is one role's channel, and handing it to
+//     another empties it of meaning. A review the architect records of its own
+//     spec is not a second reading of it, and the whole reason the role exists
+//     is that the first reading already happened.
 const FORBIDDEN_ALL_ROLES = ["bash"] as const;
 const ARCHITECT_ONLY_TOOLS = ["subagent", "git"] as const;
 const BUILDER_ONLY_TOOLS = ["run_tests"] as const;
+const REVIEWER_ONLY_TOOLS = ["record_design_review"] as const;
 
 const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
-  architect: new Set([...FORBIDDEN_ALL_ROLES, ...BUILDER_ONLY_TOOLS]),
-  "test-writer": new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS, ...BUILDER_ONLY_TOOLS]),
-  builder: new Set([...FORBIDDEN_ALL_ROLES, ...ARCHITECT_ONLY_TOOLS]),
+  architect: new Set([...FORBIDDEN_ALL_ROLES, ...BUILDER_ONLY_TOOLS, ...REVIEWER_ONLY_TOOLS]),
+  "test-writer": new Set([
+    ...FORBIDDEN_ALL_ROLES,
+    ...ARCHITECT_ONLY_TOOLS,
+    ...BUILDER_ONLY_TOOLS,
+    ...REVIEWER_ONLY_TOOLS,
+  ]),
+  builder: new Set([
+    ...FORBIDDEN_ALL_ROLES,
+    ...ARCHITECT_ONLY_TOOLS,
+    ...REVIEWER_ONLY_TOOLS,
+  ]),
+  reviewer: new Set([
+    ...FORBIDDEN_ALL_ROLES,
+    ...ARCHITECT_ONLY_TOOLS,
+    ...BUILDER_ONLY_TOOLS,
+  ]),
 };
 
 // --- Role tool allowlists (frontmatter source of truth) ----------------------
@@ -140,8 +160,16 @@ const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
 //     one role implementing against a hidden suite. The architect and
 //     test-writer never run the suite; the orchestrator runs the red/green
 //     gates itself and never trusts a worker's word on pass/fail.
-//   · `typecheck` for all three — types are the contract's shared language;
-//     every role must be able to confirm its own work compiles.
+//   · `record_design_review` is reviewer-only, and it is the reviewer's ONLY
+//     pen. The role reads the spec and the contracts before they are frozen
+//     and writes nothing at all: its output is one guard event, checksum-bound
+//     to the exact bytes it read. Giving it a write zone would make it a second
+//     architect; giving the architect the tool would make the review a
+//     self-review, which is the thing that was already tried.
+//   · `typecheck` for all four — types are the contract's shared language;
+//     every role must be able to confirm its own work compiles, and it is how
+//     the reviewer checks a claim against the real tree rather than asserting
+//     it (read-only: `tsc --noEmit` touches nothing).
 //   · The GATE TOOLS are the architect's alone, and they exist so it never
 //     needs a shell. Each is thin wiring over an already-tested pack module,
 //     which also removes a documented waste: dogfood Run 4's orchestrator
@@ -156,8 +184,9 @@ export const GATE_TOOLS: readonly string[] = [
   // The cheap single check, for iterating on a contract before the phase is
   // ready to advance.
   "contract_purity",
-  // The whole DESIGN phase in one call: purity → scaffold → typecheck → freeze
-  // (ADR 2026-019). The three steps had a mandatory order that lived in prose,
+  // The whole DESIGN phase in one call: purity → scaffold → typecheck →
+  // design-review-freshness → freeze (ADRs 2026-019/020). The steps had a
+  // mandatory order that lived in prose,
   // and prose executes unreliably: separate `scaffold` and `freeze_contracts`
   // tools cost 3–6 minutes of round-trips per ticket and produced ordering
   // fumbles. They are steps of a sequence, so they are not tools.
@@ -191,6 +220,10 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
   ],
   "test-writer": ["read", "grep", "find", "ls", "write", "edit", "remove", "typecheck"],
   builder: ["read", "grep", "find", "ls", "write", "edit", "remove", "run_tests", "typecheck"],
+  // No write, no edit, no remove: the reviewer holds no pen but its own. It is
+  // commissioned on the spec and the contracts BEFORE they are frozen, and the
+  // only mark it leaves is the guard event `record_design_review` writes.
+  reviewer: ["read", "grep", "find", "ls", "typecheck", "record_design_review"],
 };
 
 // Denied for every role, both directions.
@@ -325,6 +358,25 @@ export const ZONES: Record<Role, Zone> = {
     readDeny: ["tests", "tests/**"],
     readExcept: [],
   },
+  // The reviewer reads the design as the two blind consumers will, and that is
+  // all it does: EMPTY writeAllow, so every write, edit and remove is refused
+  // whatever the path. Its findings are claims recorded in the guard log for
+  // the architect to settle, never edits made over the architect's head — the
+  // spec and the contract have exactly one author, and a reviewer that could
+  // fix what it found would be a second one.
+  //
+  // Read is unrestricted for the same reason it is for the architect: judging
+  // whether a contract can be consumed blind means reading everything a
+  // consumer would (and `typecheck` lets it confirm a claim against the real
+  // tree). It is no threat to the blindness because it writes nothing at all —
+  // it cannot make a test agree with an implementation when it can write
+  // neither.
+  reviewer: {
+    writeAllow: [],
+    writeDeny: [],
+    readDeny: [],
+    readExcept: [],
+  },
 };
 
 // --- Glob matching -----------------------------------------------------------
@@ -402,8 +454,18 @@ function normalize(raw: string, cwd: string): Normalized {
 // --- Ownership (who may FIX a file) ------------------------------------------
 
 /** Upstream-first: the order the pipeline produces artifacts (contract → tests
- *  → implementation), and so the order in which a defect should be repaired. */
-export const ROLES_UPSTREAM_FIRST: readonly Role[] = ["architect", "test-writer", "builder"];
+ *  → implementation), and so the order in which a defect should be repaired.
+ *
+ *  Total over Role on purpose, even though the reviewer can never match: it
+ *  has no write zone, so it owns nothing and is never a route target. Keeping
+ *  the list total is what stops a role that LATER gains a zone from being
+ *  silently unroutable — a file no role owns routes to the driving session. */
+export const ROLES_UPSTREAM_FIRST: readonly Role[] = [
+  "architect",
+  "reviewer",
+  "test-writer",
+  "builder",
+];
 
 /**
  * The role whose write zone owns `path` — i.e. the only role the path gate
@@ -448,7 +510,9 @@ export function decide(
     const why =
       tool === "run_tests"
         ? ": run_tests is the builder's blind-safe channel — use red_gate or green_gate, which run the suite and typecheck together"
-        : " (frontmatter allowlist is the primary layer)";
+        : tool === "record_design_review"
+          ? ": record_design_review is the reviewer's pen — commission the reviewer on the spec and contracts; a review you record of your own design is not a second reading of it"
+          : " (frontmatter allowlist is the primary layer)";
     return block(`path-gate: ${role} may not use '${tool}': forbidden for ${role}${why}`);
   }
   if (!GATED_TOOLS.has(tool)) return ALLOW;
@@ -495,6 +559,14 @@ export function decide(
     if (denied) {
       return block(
         `path-gate: ${role} may not write '${t}': denied for ${role} (matches '${denied}')`,
+      );
+    }
+    // A role with NO write zone is read-only by construction, and "outside
+    // <role> write zones ()" would send it hunting for the zone it is inside.
+    // Say the true thing instead, and name what it has instead of a pen.
+    if (zone.writeAllow.length === 0) {
+      return block(
+        `path-gate: ${role} may not write '${t}': ${role} has no write zone — it is read-only, and records what it found with record_design_review`,
       );
     }
     if (!matchesAny(zone.writeAllow, t)) {

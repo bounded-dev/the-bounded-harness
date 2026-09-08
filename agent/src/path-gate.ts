@@ -19,7 +19,7 @@ import { readGuardLog } from "./guard-log.ts";
 import { checkSpawnPrecondition, type PhaseEvidence } from "./phase-gate.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
-export const PIPELINE_ROLES = ["architect", "test-writer", "builder"] as const;
+export const PIPELINE_ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
 
 const ROLE_SET: ReadonlySet<string> = new Set(PIPELINE_ROLES);
 
