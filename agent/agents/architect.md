@@ -183,12 +183,26 @@ instance properties readonly, no extends), and
 rule — plus two `@accepts` examples so the generated laws all run).
 
 `design_gate` runs that check as its first step and then carries the phase
-through: purity → scaffold → project typecheck → freeze, one call, one verdict,
-stopping at the first failure and naming it. Every failure it reports is yours
-— at DESIGN nothing downstream exists for a defect to live in — so it always
-routes to you. Use `contract_purity` alone while you are still iterating on a
-contract; use `design_gate` to advance the phase, and again after any contract
-revision, because re-scaffolding and re-freezing happen nowhere else.
+through: purity → scaffold → project typecheck → design-review → freeze, one
+call, one verdict, stopping at the first failure and naming it. Every failure
+it reports is yours — at DESIGN nothing downstream exists for a defect to live
+in — so it always routes to you. Use `contract_purity` alone while you are
+still iterating on a contract; use `design_gate` to advance the phase, and
+again after any contract revision, because re-scaffolding and re-freezing
+happen nowhere else.
+
+**Have the design read before you freeze it.** Once the contract settles and
+`contract_purity` is clean, commission the **`reviewer`** subagent on `spec.md`
+and every contract file. It is read-only and holds no pen: it reads the design
+as the two blind roles will have to and records what it found with
+`record_design_review`, checksum-bound to the exact bytes it read. The findings
+are claims for you to settle — fix the design, or run `design_gate` again with
+your reasons stated in that turn — and a blocker never fails the gate. What is
+mechanism is that a review EXISTS and covers the design as it now stands:
+`design_gate`'s design-review step refuses to freeze without one, naming the
+files that moved. Every edit to the spec or a contract voids the review that
+covered it, so review last, freeze immediately after — and after any revision,
+re-review before you re-run `design_gate`.
 
 Order is enforced too: `green_gate` refuses unless a `red_gate` pass exists
 AFTER the most recent freeze — revising a contract voids the red, and

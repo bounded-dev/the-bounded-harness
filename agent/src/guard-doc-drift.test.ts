@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { SRC_RULE_IDS, TEST_RULE_IDS } from "../packs/ts/scripts/lint-src.ts";
 import { CONTRACT_RULE_IDS } from "../packs/ts/scripts/contract-purity.ts";
-import { GATE_TOOLS } from "./path-policy.ts";
+import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
+import { GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
 
 // The deterministic-check principle runs both ways. Forward: every rule that
 // must hold is enforced by a guard, because prose executes unreliably (the
@@ -19,6 +20,7 @@ const agents = join(import.meta.dirname, "..", "agents");
 const builder = readFileSync(join(agents, "builder.md"), "utf8");
 const testWriter = readFileSync(join(agents, "test-writer.md"), "utf8");
 const architect = readFileSync(join(agents, "architect.md"), "utf8");
+const reviewer = readFileSync(join(agents, "reviewer.md"), "utf8");
 const developerStage = readFileSync(
   join(import.meta.dirname, "..", "skills", "developer-stage", "SKILL.md"),
   "utf8",
@@ -88,8 +90,61 @@ describe("the gate roster and the brief that drives it agree", () => {
     }
   });
 
+  // The reviewer has no `bash` and no pen, so its tool list IS its set of
+  // capabilities — and the list is short enough that a brief which failed to
+  // name one would be describing a different role.
+  test("every tool the reviewer holds is named in its brief", () => {
+    const BUILTIN = new Set(["read", "grep", "find", "ls"]);
+    const missing = ROLE_TOOLS.reviewer.filter((t) => !BUILTIN.has(t) && !reviewer.includes(t));
+    expect(missing).toEqual([]);
+  });
+
+  // ADR 2026-014: structure, not persona. The brief earns its place by being a
+  // checklist with greppable lead phrases and an explicit stop — the two things
+  // measurably reproduced in output — so pin the fingerprint, not the wording.
+  test("the reviewer's brief is a checklist with the severities it must choose between", () => {
+    expect(reviewer).toMatch(/## The checklist/);
+    for (const severity of ["blocker", "concern", "note"]) {
+      expect(reviewer, `the brief must say what '${severity}' means`).toContain(severity);
+    }
+    expect(reviewer).toMatch(/empty list is a valid review/);
+  });
+
   test("the architect is told design_gate is the one design-phase call", () => {
     expect(architect).toContain("design_gate");
     expect(developerStage).toMatch(/design_gate/);
+  });
+
+  // Same bidirectional rule, applied to the SEQUENCE: a step that can block the
+  // phase and is named nowhere in the brief is a step the architect meets for
+  // the first time as a block. The check is presence-by-name, so a step added
+  // to the composite cannot land without the procedure mentioning it.
+  test("every step design_gate runs is named in the brief that drives it", () => {
+    const missing = DESIGN_STEPS.filter((step) => !developerStage.includes(step));
+    expect(missing).toEqual([]);
+  });
+
+  // The freshness lock is a rule the architect cannot discover by trying: the
+  // reviewer is a role it has to know to commission, and the voiding rule is
+  // the difference between one review and one per revision.
+  test("both briefs name the reviewer, its recorder, and what voids a review", () => {
+    for (const [name, doc] of [
+      ["architect.md", architect],
+      ["developer-stage/SKILL.md", developerStage],
+    ] as const) {
+      expect(doc, `${name} must name the reviewer role`).toMatch(/`reviewer`/);
+      expect(doc, `${name} must name the recording tool`).toContain("record_design_review");
+      expect(doc, `${name} must say an edit voids the review`).toMatch(
+        /voids the review|unreviewed (design|contract)|stale by construction/,
+      );
+    }
+  });
+
+  // Findings are advisory (ADR 2026-020): a brief that let the architect read a
+  // blocker as a verdict would have re-invented the reviewer as a second
+  // architect, which is exactly what the role must not become.
+  test("both briefs say the findings are the architect's to settle", () => {
+    expect(architect).toMatch(/claims for you to settle|you settle/);
+    expect(developerStage).toMatch(/claims, not verdicts/);
   });
 });

@@ -58,7 +58,7 @@ _Avoid_: .git/ stash, tmp dirs, hidden tool folders
 ### Developer stage
 
 **Developer stage**:
-The pipeline stage that turns a ticket into tested code: an architect that designs and drives, plus two blind write-capable subagents with disjoint authority — test-writer and builder (TN-26-001).
+The pipeline stage that turns a ticket into tested code: an architect that designs and drives, two blind write-capable subagents with disjoint authority — test-writer and builder (TN-26-001) — and a read-only reviewer that reads the design before it is frozen.
 _Avoid_: dev phase, coding step
 
 **Architect**:
@@ -73,6 +73,10 @@ _Avoid_: tester, QA agent
 The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files.
 _Avoid_: developer (that's the stage), worker, coder
 
+**Reviewer**:
+The read-only developer-stage subagent commissioned on the spec and contracts before the freeze. Reads the design as the two blind roles will and records findings with `record_design_review`; holds no write zone at all, so its findings are claims for the architect to settle.
+_Avoid_: critic, approver, gate (it decides nothing)
+
 **Contract**:
 The `*.contract.ts` files colocated with a component — exported interfaces, types, and ports; declaration-only by lint; implemented by the sibling module (`foo.contract.ts` → `foo.ts`). The load-bearing artifact both blind agents code against.
 _Avoid_: stubs (that's the generated skeleton), interface file, API doc
@@ -82,7 +86,7 @@ The role above the architects — fans tickets out to one architect each, and ho
 _Avoid_: manager agent, supervisor, orchestrator
 
 **Gate tool**:
-One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → freeze.
+One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → design-review → freeze.
 _Avoid_: gate script (that's the CLI), command
 
 **pi-ticket**:

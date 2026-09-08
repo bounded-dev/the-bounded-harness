@@ -24,9 +24,9 @@
  *
  * The roster is deliberately not one tool per gate script. Where several gates
  * have exactly one legal order, they are one tool: `design_gate` is
- * purity → scaffold → typecheck → freeze in a single call with a single
- * verdict (ADR 2026-019), because the order used to live in prose and prose
- * executes unreliably. `contract_purity` survives alongside it as the cheap
+ * purity → scaffold → typecheck → design-review → freeze in a single call with
+ * a single verdict (ADR 2026-019, ADR 2026-020), because the order used to live
+ * in prose and prose executes unreliably. `contract_purity` survives alongside it as the cheap
  * single check while a contract is still being iterated on.
  *
  * `git` is deliberately unrestricted. Archaeology — reflog, bisect, blame — is
@@ -104,10 +104,12 @@ export default function (pi: ExtensionAPI): void {
     name: "design_gate",
     label: "Design Gate",
     description:
-      "The one design-phase call: contract-purity → scaffold → project typecheck → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order.",
-    promptSnippet: "Run the design phase: purity, scaffold, typecheck, freeze.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order.",
+    promptSnippet: "Run the design phase: purity, scaffold, typecheck, review freshness, freeze.",
     promptGuidelines: [
-      "Re-run it after every contract revision: a revised contract must be re-scaffolded and re-frozen, and this is the only way to do either.",
+      "It will not freeze a design nobody has read: commission the `reviewer` subagent first, and again after any edit to the spec or a contract — an edited design is an unreviewed design, and the step names the files that moved.",
+      "The reviewer's findings are advisory and blockers do not fail this gate — settling them is yours. The passing line prints the blocker count so an unsettled one stays visible.",
+      "Re-run it after every contract revision: a revised contract must be re-reviewed, re-scaffolded and re-frozen, and this is the only way to do the last two.",
       "Every failure it reports is yours to fix — at DESIGN there is no test-writer or builder output for a defect to live in.",
       "While you are still iterating on a contract, `contract_purity` alone is the cheap check; `design_gate` is how the phase advances.",
     ],

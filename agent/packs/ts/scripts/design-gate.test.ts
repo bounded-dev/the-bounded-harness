@@ -3,8 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyDesignGate, DESIGN_STEPS, type StepOutcome } from "./design-gate.ts";
-import { readGuardLog } from "../../../src/guard-log.ts";
+import {
+  classifyDesignGate,
+  classifyReviewFreshness,
+  DESIGN_STEPS,
+  reviewStepOutcome,
+  type StepOutcome,
+} from "./design-gate.ts";
+import { runRecordDesignReview } from "./design-review.ts";
+import { readGuardLog, type LoggedGuardEvent } from "../../../src/guard-log.ts";
 import { checkSpawnPrecondition } from "../../../src/phase-gate.ts";
 
 // --- pure core: classifyDesignGate --------------------------------------------
@@ -19,6 +26,7 @@ describe("classifyDesignGate", () => {
       step("contract-purity", 0, 3200, ["contract-purity: OK (1 file)"]),
       step("scaffold", 0, 400),
       step("typecheck", 0, 2100),
+      step("design-review", 0, 0, ["design-review: fresh (0 findings, 0 blockers, recorded 14:32:11Z)"]),
       step("freeze", 0, 100),
     ]);
     expect(r.code).toBe(0);
@@ -26,10 +34,11 @@ describe("classifyDesignGate", () => {
     expect(r.lines).toContain("contract-purity: OK (1 file)");
     expect(r.lines).toContain("contract-purity: PASS (3.2s)");
     expect(r.lines).toContain("typecheck: PASS (2.1s)");
+    expect(r.lines).toContain("design-review: fresh (0 findings, 0 blockers, recorded 14:32:11Z)");
     // Exactly one line is the gate's own verdict — the round-trip this gate
-    // exists to remove is the architect reading four of them.
+    // exists to remove is the architect reading five of them.
     expect(r.lines.filter((l) => l.startsWith("design-gate:"))).toEqual([
-      "design-gate: OK — contract-purity → scaffold → typecheck → freeze (5.8s)",
+      "design-gate: OK — contract-purity → scaffold → typecheck → design-review → freeze (5.8s)",
     ]);
   });
 
@@ -41,7 +50,9 @@ describe("classifyDesignGate", () => {
     expect(r.code).toBe(1);
     expect(r.verdict).toBe("block");
     expect(r.lines).toContain("scaffold: BLOCK (0.5s)");
-    expect(r.lines).toContain("design-gate: FAIL — scaffold blocked; typecheck, freeze did not run");
+    expect(r.lines).toContain(
+      "design-gate: FAIL — scaffold blocked; typecheck, design-review, freeze did not run",
+    );
     expect(r.lines).toContain("design-gate: route → architect");
     expect(r.summary).toBe("scaffold blocked (route: architect)");
   });
@@ -52,7 +63,7 @@ describe("classifyDesignGate", () => {
     expect(r.verdict).toBe("error");
     expect(r.lines).toContain("contract-purity: ERROR (0.1s)");
     expect(r.lines).toContain(
-      "design-gate: FAIL — contract-purity could not run; scaffold, typecheck, freeze did not run",
+      "design-gate: FAIL — contract-purity could not run; scaffold, typecheck, design-review, freeze did not run",
     );
     expect(r.lines).toContain("design-gate: route → architect");
   });
@@ -62,9 +73,26 @@ describe("classifyDesignGate", () => {
       step("contract-purity", 0),
       step("scaffold", 0),
       step("typecheck", 0),
+      step("design-review", 0),
       step("freeze", 1),
     ]);
     expect(r.lines).toContain("design-gate: FAIL — freeze blocked");
+  });
+
+  // The review step runs nothing, so "blocked" would send the architect looking
+  // for output that does not exist. The one FAIL line has to say which of the
+  // two states it is in — and the step's own lines above it say which file.
+  test("a missing or stale review reads as such, not as a check that said no", () => {
+    const r = classifyDesignGate([
+      step("contract-purity", 0),
+      step("scaffold", 0),
+      step("typecheck", 0),
+      step("design-review", 1, 100, ["design-review: BLOCK — this design has never been reviewed"]),
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
+    expect(r.lines).toContain("design-gate: route → architect");
+    expect(r.summary).toBe("design-review missing (or stale) (route: architect)");
   });
 });
 
@@ -102,6 +130,18 @@ export interface Ledger {
 }
 `;
 
+/** A second clean contract, for the file a review never saw. */
+const TICKER_CONTRACT = `/** Ticker: an exchange symbol — one to five uppercase letters. */
+export declare class Ticker {
+  private readonly __brand: "Ticker";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): Ticker | undefined;
+}
+
+export declare function normalize(ticker: Ticker): Ticker;
+`;
+
 /** A naked \`string\` on the public surface: the purity gate's own failure. */
 const IMPURE_CONTRACT = `export interface Book {
   isbn: string;
@@ -110,15 +150,32 @@ const IMPURE_CONTRACT = `export interface Book {
 export declare function shelve(book: Book): Book;
 `;
 
+/** The half the contract cannot hold — and half of what the reviewer reads. */
+const SPEC = `# Money
+
+Ordering, the arithmetic and its tie-break, identity: everything the two blind
+roles must agree on that TypeScript cannot say.
+`;
+
 function fixtureRepo(prefix: string, contract: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tmpDirs.push(dir);
   mkdirSync(join(dir, "src", "money"), { recursive: true });
   writeFileSync(join(dir, "src", "money", "money.contract.ts"), contract);
+  writeFileSync(join(dir, "spec.md"), SPEC);
   writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
   // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
   writeFileSync(join(dir, "tsc.txt"), tscOutput);
   return dir;
+}
+
+/**
+ * Record a review of the fixture exactly as the reviewer would — through the
+ * recorder the `record_design_review` tool calls, never a hand-written event.
+ * A fixture that forged the event could pin a shape the tool does not produce.
+ */
+function review(dir: string, findings: unknown = []) {
+  return runRecordDesignReview(dir, findings);
 }
 
 function runGate(dir: string, typeErrors = false) {
@@ -140,21 +197,24 @@ const CONTRACT_TYPE_ERR = "src/money/money.contract.ts(3,1): error TS2304: Canno
 const SKELETON_TYPE_ERR = "src/money/money.ts(9,3): error TS2322: Type 'string' is not assignable.";
 
 describe("design-gate CLI: the whole design phase in one call", () => {
-  test("all four steps pass → exit 0, timed steps, one verdict, a frozen manifest", () => {
+  test("all five steps pass → exit 0, timed steps, one verdict, a frozen manifest", () => {
     const dir = fixtureRepo("design-ok-", CLEAN_CONTRACT);
+    review(dir);
     const r = runGate(dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/contract-purity: PASS \(\d+\.\d+s\)/);
     expect(r.stdout).toMatch(/scaffold: PASS \(\d+\.\d+s\)/);
     expect(r.stdout).toMatch(/typecheck: PASS \(\d+\.\d+s\)/);
+    expect(r.stdout).toMatch(/design-review: PASS \(\d+\.\d+s\)/);
     expect(r.stdout).toMatch(/freeze: PASS \(\d+\.\d+s\)/);
     expect(r.stdout).toMatch(
-      /design-gate: OK — contract-purity → scaffold → typecheck → freeze \(\d+\.\d+s\)/,
+      /design-gate: OK — contract-purity → scaffold → typecheck → design-review → freeze \(\d+\.\d+s\)/,
     );
     // Each step's own output survives into the aggregate.
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
     expect(r.stdout).toMatch(/scaffold: wrote .*money\.ts/);
     expect(r.stdout).toMatch(/typecheck: OK — no type errors/);
+    expect(r.stdout).toMatch(/design-review: fresh \(0 findings, 0 blockers, recorded \d\d:\d\d:\d\dZ\)/);
     expect(r.stdout).toMatch(/checksum-gate: wrote \.pi\/contract-checksums\.json/);
     expect(existsSync(join(dir, SKELETON))).toBe(true);
     expect(existsSync(join(dir, MANIFEST))).toBe(true);
@@ -162,6 +222,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
 
   test("the composite event records every step's outcome and duration", () => {
     const dir = fixtureRepo("design-log-", CLEAN_CONTRACT);
+    review(dir);
     expect(runGate(dir).status).toBe(0);
     const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
     expect(composite).toHaveLength(1);
@@ -177,6 +238,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
   // swallowed its own steps would silently lock the pipeline at COMMISSION.
   test("the inner guard events still flow, so the phase gate still opens", () => {
     const dir = fixtureRepo("design-phase-", CLEAN_CONTRACT);
+    review(dir);
     expect(runGate(dir).status).toBe(0);
     const events = readGuardLog(dir);
     for (const guard of ["contract-purity", "scaffold", "checksum-gate"]) {
@@ -196,6 +258,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
 
   test("re-running is idempotent: the same manifest, the same verdict", () => {
     const dir = fixtureRepo("design-idem-", CLEAN_CONTRACT);
+    review(dir);
     expect(runGate(dir).status).toBe(0);
     const first = readFileSync(join(dir, MANIFEST), "utf8");
     const second = runGate(dir);
@@ -219,7 +282,7 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
     expect(r.stdout).toMatch(/no-naked-primitives/);
     expect(r.stdout).toMatch(/contract-purity: BLOCK \(\d+\.\d+s\)/);
     expect(r.stdout).toContain(
-      "design-gate: FAIL — contract-purity blocked; scaffold, typecheck, freeze did not run",
+      "design-gate: FAIL — contract-purity blocked; scaffold, typecheck, design-review, freeze did not run",
     );
     expect(r.stdout).toContain("design-gate: route → architect");
     expect(existsSync(join(dir, SKELETON))).toBe(false);
@@ -233,7 +296,9 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/declares only types/);
     expect(r.stdout).toMatch(/scaffold: BLOCK \(\d+\.\d+s\)/);
-    expect(r.stdout).toContain("design-gate: FAIL — scaffold blocked; typecheck, freeze did not run");
+    expect(r.stdout).toContain(
+      "design-gate: FAIL — scaffold blocked; typecheck, design-review, freeze did not run",
+    );
     expect(r.stdout).toContain("design-gate: route → architect");
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
   });
@@ -248,7 +313,7 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/typecheck: 2 type errors/);
     expect(r.stdout).toMatch(/typecheck: BLOCK \(\d+\.\d+s\)/);
-    expect(r.stdout).toContain("design-gate: FAIL — typecheck blocked; freeze did not run");
+    expect(r.stdout).toContain("design-gate: FAIL — typecheck blocked; design-review, freeze did not run");
     // The skeleton was generated (scaffold passed) but the manifest was not:
     // freezing a contract that does not compile is the fumble to prevent.
     expect(existsSync(join(dir, SKELETON))).toBe(true);
@@ -278,7 +343,286 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
     const r = runGate(dir, true);
     expect(r.status).toBe(2);
     expect(r.stdout).toMatch(/typecheck: ERROR — tsc failed without a parseable diagnostic/);
-    expect(r.stdout).toContain("design-gate: FAIL — typecheck could not run; freeze did not run");
+    expect(r.stdout).toContain(
+      "design-gate: FAIL — typecheck could not run; design-review, freeze did not run",
+    );
     expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+});
+
+
+// The freeze is the moment a design becomes expensive to change: from here the
+// test-writer and the builder both build on it, and run r13 measured 30–38
+// minutes to repair a contract defect discovered after that point. So the gate
+// refuses to freeze a design no reviewer has read AS IT NOW STANDS. It never
+// reads WHAT the review said — that is the architect's to settle — only that
+// one exists and that it covers the current bytes.
+describe("classifyReviewFreshness: which review, if any, stands", () => {
+  const CURRENT = { "spec.md": "a".repeat(64), "src/x.contract.ts": "b".repeat(64) };
+
+  function reviewEvent(
+    reviewed: Record<string, string>,
+    extra: Record<string, unknown> = {},
+    verdict = "pass",
+    ts = "2026-09-08T14:32:11.000Z",
+  ): LoggedGuardEvent {
+    return {
+      ts,
+      guard: "design-review",
+      verdict: verdict as LoggedGuardEvent["verdict"],
+      summary: "reviewed 2 files, no findings",
+      detail: { reviewed, blockers: 0, severities: [], findings: [], ...extra },
+    };
+  }
+
+  test("no design-review event at all → missing", () => {
+    expect(classifyReviewFreshness([], CURRENT)).toEqual({ state: "missing" });
+  });
+
+  test("a matching review is fresh, and carries its counts and its clock", () => {
+    const event = reviewEvent(CURRENT, {
+      blockers: 1,
+      severities: ["blocker", "note"],
+      findings: [{ severity: "blocker", summary: "x" }, { severity: "note", summary: "y" }],
+    });
+    expect(classifyReviewFreshness([event], CURRENT)).toEqual({
+      state: "fresh",
+      at: "2026-09-08T14:32:11.000Z",
+      findings: 2,
+      blockers: 1,
+    });
+  });
+
+  test("a changed, added or removed file is drift, named file by file", () => {
+    const edited = classifyReviewFreshness([reviewEvent(CURRENT)], {
+      ...CURRENT,
+      "spec.md": "c".repeat(64),
+    });
+    expect(edited).toMatchObject({ state: "stale", changed: ["spec.md"], added: [], removed: [] });
+
+    const added = classifyReviewFreshness([reviewEvent(CURRENT)], {
+      ...CURRENT,
+      "src/y.contract.ts": "d".repeat(64),
+    });
+    expect(added).toMatchObject({ state: "stale", added: ["src/y.contract.ts"], changed: [] });
+
+    const removed = classifyReviewFreshness([reviewEvent(CURRENT)], { "spec.md": CURRENT["spec.md"] });
+    expect(removed).toMatchObject({ state: "stale", removed: ["src/x.contract.ts"] });
+  });
+
+  // Misuse — no spec, no contracts, a malformed payload — logs a design-review
+  // event with verdict "error". Counting one as a review would let a failed
+  // call unlock the freeze, which is the opposite of what it means.
+  test("an errored design-review event is not a review", () => {
+    const events = [reviewEvent(CURRENT, {}, "error")];
+    expect(classifyReviewFreshness(events, CURRENT)).toEqual({ state: "missing" });
+  });
+
+  test("a pass carrying no byte record covers nothing, so it is not a review either", () => {
+    const orphan: LoggedGuardEvent = {
+      ts: "2026-09-08T14:00:00.000Z",
+      guard: "design-review",
+      verdict: "pass",
+      summary: "reviewed",
+      detail: { blockers: 0 },
+    };
+    expect(classifyReviewFreshness([orphan], CURRENT)).toEqual({ state: "missing" });
+  });
+
+  // The ordering rule, pinned deliberately: LATEST PASS BY APPEND ORDER, the
+  // same rule green-gate uses for the red it requires. An earlier review that
+  // happens to match — the architect edited, was re-reviewed, then reverted —
+  // does not revive; the log's last word is the review that stands, and a
+  // revert costs one re-review rather than a search back through history.
+  test("the LATEST pass decides: an earlier matching review does not revive", () => {
+    const events = [
+      reviewEvent(CURRENT, {}, "pass", "2026-09-08T14:00:00.000Z"),
+      reviewEvent({ ...CURRENT, "spec.md": "e".repeat(64) }, {}, "pass", "2026-09-08T15:00:00.000Z"),
+    ];
+    expect(classifyReviewFreshness(events, CURRENT)).toMatchObject({
+      state: "stale",
+      at: "2026-09-08T15:00:00.000Z",
+    });
+  });
+
+  test("a later matching review supersedes an earlier stale one", () => {
+    const events = [
+      reviewEvent({ ...CURRENT, "spec.md": "e".repeat(64) }, {}, "pass", "2026-09-08T14:00:00.000Z"),
+      reviewEvent(CURRENT, {}, "pass", "2026-09-08T15:00:00.000Z"),
+    ];
+    expect(classifyReviewFreshness(events, CURRENT)).toMatchObject({ state: "fresh" });
+  });
+});
+
+describe("reviewStepOutcome: the step says which of the two it is", () => {
+  test("a fresh review passes and prints that it was consulted", () => {
+    const r = reviewStepOutcome({
+      state: "fresh",
+      at: "2026-09-08T14:32:11.000Z",
+      findings: 2,
+      blockers: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.lines).toEqual(["design-review: fresh (2 findings, 0 blockers, recorded 14:32:11Z)"]);
+  });
+
+  // Blockers do NOT fail the gate: the reviewer records claims, the architect
+  // settles them. But an unsettled blocker that nothing prints is a claim
+  // nobody ever has to answer, so the passing line carries the count.
+  test("a blocker is counted on the passing line, and does not fail the gate", () => {
+    const r = reviewStepOutcome({
+      state: "fresh",
+      at: "2026-09-08T14:32:11.000Z",
+      findings: 3,
+      blockers: 1,
+    });
+    expect(r.code).toBe(0);
+    expect(r.lines[0]).toContain("3 findings, 1 blocker");
+    expect(r.lines.join("\n")).toMatch(/advisory/);
+  });
+
+  test("never reviewed and reviewed-then-edited do not read alike", () => {
+    const missing = reviewStepOutcome({ state: "missing" });
+    expect(missing.code).toBe(1);
+    expect(missing.lines[0]).toBe("design-review: BLOCK — this design has never been reviewed");
+    expect(missing.lines.join("\n")).toContain("`reviewer`");
+
+    const stale = reviewStepOutcome({
+      state: "stale",
+      at: "2026-09-08T14:32:11.000Z",
+      changed: ["spec.md"],
+      added: ["src/y.contract.ts"],
+      removed: [],
+    });
+    expect(stale.code).toBe(1);
+    expect(stale.lines[0]).toBe("design-review: BLOCK — reviewed at 14:32:11Z, then edited");
+    expect(stale.lines).toContain("  changed since that review: spec.md");
+    expect(stale.lines).toContain("  added since that review: src/y.contract.ts");
+    expect(stale.lines.every((l) => !l.includes("removed since"))).toBe(true);
+  });
+});
+
+describe("design-gate CLI: the freeze requires a fresh review", () => {
+  test("a design nobody has reviewed is not frozen", () => {
+    const dir = fixtureRepo("design-unreviewed-", CLEAN_CONTRACT);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("design-review: BLOCK — this design has never been reviewed");
+    expect(r.stdout).toContain("`reviewer`");
+    expect(r.stdout).toContain("record_design_review");
+    expect(r.stdout).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
+    expect(r.stdout).toContain("design-gate: route → architect");
+    // The skeleton was generated and the typecheck passed; the manifest was not
+    // written, so nothing downstream can build on an unreviewed contract.
+    expect(existsSync(join(dir, SKELETON))).toBe(true);
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+
+  test("editing the spec after the review voids it, and the block names the file", () => {
+    const dir = fixtureRepo("design-spec-edit-", CLEAN_CONTRACT);
+    review(dir);
+    writeFileSync(join(dir, "spec.md"), `${SPEC}\nRounding is half-up: floor((2n + d) / 2d).\n`);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/design-review: BLOCK — reviewed at \d\d:\d\d:\d\dZ, then edited/);
+    expect(r.stdout).toContain("  changed since that review: spec.md");
+    expect(r.stdout).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+
+  test("editing a contract after the review voids it, and the block names the file", () => {
+    const dir = fixtureRepo("design-contract-edit-", CLEAN_CONTRACT);
+    review(dir);
+    writeFileSync(
+      join(dir, "src", "money", "money.contract.ts"),
+      `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("  changed since that review: src/money/money.contract.ts");
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+
+  test("a contract added after the review voids it — a review covers a file set", () => {
+    const dir = fixtureRepo("design-contract-added-", CLEAN_CONTRACT);
+    review(dir);
+    writeFileSync(join(dir, "src", "money", "ticker.contract.ts"), TICKER_CONTRACT);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("  added since that review: src/money/ticker.contract.ts");
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+
+  test("a fresh review lets the freeze run, and the transcript shows it was consulted", () => {
+    const dir = fixtureRepo("design-fresh-", CLEAN_CONTRACT);
+    expect(review(dir, [{ severity: "note", summary: "Money could carry the amount too" }]).code).toBe(0);
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/design-review: fresh \(1 finding, 0 blockers, recorded \d\d:\d\d:\d\dZ\)/);
+    expect(existsSync(join(dir, MANIFEST))).toBe(true);
+  });
+
+  test("a blocker does not stop the freeze, but the line carries the count", () => {
+    const dir = fixtureRepo("design-blocker-", CLEAN_CONTRACT);
+    review(dir, [
+      { severity: "blocker", summary: "format returns a Currency, not a rendering", evidence: "money.contract.ts:8" },
+      { severity: "concern", summary: "no tie-break stated for the rounding" },
+    ]);
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/design-review: fresh \(2 findings, 1 blocker, recorded \d\d:\d\d:\d\dZ\)/);
+    expect(r.stdout).toMatch(/advisory/);
+    expect(existsSync(join(dir, MANIFEST))).toBe(true);
+  });
+
+  test("a misused record_design_review call is not a review", () => {
+    const dir = fixtureRepo("design-review-misuse-", CLEAN_CONTRACT);
+    expect(review(dir, "nope").code).toBe(2);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("design-review: BLOCK — this design has never been reviewed");
+  });
+
+  test("a later misuse does not void the review that stands", () => {
+    const dir = fixtureRepo("design-review-misuse-after-", CLEAN_CONTRACT);
+    review(dir);
+    expect(review(dir, [{ severity: "urgent", summary: "x" }]).code).toBe(2);
+    expect(runGate(dir).status).toBe(0);
+  });
+
+  // Same ordering rule as the pure test above, end to end: review, edit,
+  // re-review, revert. The latest pass covers the EDITED bytes, so the reverted
+  // design is unreviewed however well the first review matches it.
+  test("the latest pass decides, even when an earlier one matches the current bytes", () => {
+    const dir = fixtureRepo("design-revert-", CLEAN_CONTRACT);
+    review(dir); // covers SPEC
+    writeFileSync(join(dir, "spec.md"), `${SPEC}\nRevised.\n`);
+    review(dir); // covers the revision
+    writeFileSync(join(dir, "spec.md"), SPEC); // reverted
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("  changed since that review: spec.md");
+  });
+
+  test("no spec.md at all: the design cannot be reviewed, so it cannot be frozen", () => {
+    const dir = fixtureRepo("design-nospec-", CLEAN_CONTRACT);
+    rmSync(join(dir, "spec.md"));
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/design-review: BLOCK — no spec\.md to review/);
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+
+  test("the composite event records the review it consulted", () => {
+    const dir = fixtureRepo("design-review-log-", CLEAN_CONTRACT);
+    review(dir, [{ severity: "blocker", summary: "uncallable operation" }]);
+    expect(runGate(dir).status).toBe(0);
+    const composite = readGuardLog(dir).find((e) => e.guard === "design-gate")!;
+    const detail = composite.detail as {
+      steps: { step: string }[];
+      review: { state: string; blockers: number };
+    };
+    expect(detail.steps.map((s) => s.step)).toEqual([...DESIGN_STEPS]);
+    expect(detail.review).toMatchObject({ state: "fresh", findings: 1, blockers: 1 });
   });
 });
