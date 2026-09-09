@@ -33,12 +33,16 @@ import { applyModelTier, type KnownModel } from "../src/model-tier.ts";
 /**
  * The session's available models, as bare `{provider, id}` pairs.
  *
- * Used only to refuse injecting a model the registry cannot resolve — an
- * explicit unknown model makes pi-subagents throw, which would let a stale
- * config line kill a run. A registry that cannot be read yields an empty
- * snapshot, which the planner treats as "cannot tell" rather than "bad".
+ * Two callers, one snapshot: this hook, which declines to inject a model the
+ * registry cannot resolve (an explicit unknown model makes pi-subagents throw,
+ * which would let a stale config line kill a run), and the path gate, which
+ * REFUSES the spawn on the same evidence rather than letting the seat run
+ * untiered. A registry that cannot be read yields an empty snapshot, which
+ * both treat as "cannot tell" rather than "bad".
  */
-function knownModels(ctx: { modelRegistry?: { getAvailable(): { provider: string; id: string }[] } }): readonly KnownModel[] {
+export function knownModels(ctx: {
+  modelRegistry?: { getAvailable(): { provider: string; id: string }[] };
+}): readonly KnownModel[] {
   try {
     return (
       ctx.modelRegistry?.getAvailable().map((m) => ({ provider: m.provider, id: m.id })) ?? []

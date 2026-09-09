@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   classifyUnroutedBlock,
   formatDuration,
+  workerOf,
   formatPhaseDurations,
   phaseDurations,
   type PhaseDurations,
@@ -542,8 +543,13 @@ describe("iteration is reported as work, not as friction", () => {
 
   test("a phase row separates them too, so the rows and the totals reconcile", () => {
     const lines = formatPhaseDurations(phaseDurations(R15));
-    // BUILD holds the 21 worker red-loops and the one refusal.
-    expect(lines).toContain("  timing: build    32m00s  (1 refusal; 21 red-loops)");
+    // BUILD holds the 21 worker red-loops and the one refusal. Its SPAN opens
+    // at the builder's first attributable event — the run_tests at minute 24 —
+    // rather than at the red-gate pass: r15's log predates role-scoped
+    // typecheck, so its 13 typecheck blocks name no role and only `run_tests`
+    // is attributable. The block counts are unchanged, because blocks are
+    // placed by marker index and those boundaries did not move.
+    expect(lines).toContain("  timing: build    16m00s  (1 refusal; 21 red-loops)");
     // TESTS holds the architect's four archaeology misses, and calls them
     // red-loops rather than friction.
     expect(lines).toContain("  timing: tests     6m00s  (4 red-loops)");
@@ -772,5 +778,121 @@ describe("overlapping worker phases", () => {
       ),
     };
     expect(formatPhaseDurations(backwards).some((l) => l.includes("workers"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Worker-derived boundaries: the ∥ row, fired by an actual log
+// ---------------------------------------------------------------------------
+//
+// The row existed before the boundaries did and could not fire, because TESTS
+// ended and BUILD began at the same event by construction. Now each worker
+// phase opens at that worker's own first attributable event, so a run whose
+// two workers really did overlap says so.
+
+describe("workerOf: who an event is attributable to", () => {
+  test("run_tests is the builder's by construction — it is a builder-only tool", () => {
+    expect(workerOf(at(0, "run_tests", "block", "2 failed"))).toBe("builder");
+  });
+
+  test("typecheck carries the calling role, and only the two workers count", () => {
+    expect(workerOf(at(0, "typecheck", "block", "1 error", { role: "builder" }))).toBe("builder");
+    expect(workerOf(at(0, "typecheck", "pass", "clean", { role: "test-writer" }))).toBe(
+      "test-writer",
+    );
+    expect(workerOf(at(0, "typecheck", "pass", "clean", { role: "architect" }))).toBeUndefined();
+    expect(workerOf(at(0, "typecheck", "pass", "clean"))).toBeUndefined();
+  });
+
+  // A refusal is a call that did NOT happen, so it is not evidence a worker was
+  // working — even though the path-gate block names the role in its detail.
+  test("nothing else is attributable, however much role detail it carries", () => {
+    expect(workerOf(at(0, "path-gate", "block", "builder may not read tests/x", { role: "builder" })))
+      .toBeUndefined();
+    expect(workerOf(at(0, "red-gate", "pass", "RED OK"))).toBeUndefined();
+  });
+});
+
+describe("two workers running in parallel", () => {
+  // The architect freezes at 5, commissions both, and they work concurrently:
+  // the test-writer from 8 to the red pass at 20, the builder from 10 to the
+  // green pass at 34. 8→34 is 26 minutes of wall clock; printed as two rows it
+  // would read as 12 + 24 = 36.
+  const PARALLEL: readonly LoggedGuardEvent[] = [
+    at(0, "run-start", "pass", "first gated tool call (architect: read)"),
+    at(1, "contract-purity", "pass"),
+    at(5, "checksum-gate", "pass", FREEZE),
+    at(8, "typecheck", "block", "2 errors", { role: "test-writer" }),
+    at(10, "typecheck", "block", "5 errors", { role: "builder" }),
+    at(14, "run_tests", "block", "6 passed, 4 failed"),
+    at(18, "typecheck", "pass", "no type errors", { role: "test-writer" }),
+    at(20, "red-gate", "pass", "RED OK"),
+    at(26, "run_tests", "block", "9 passed, 1 failed"),
+    at(34, "green-gate", "pass", "GREEN"),
+    at(36, "sign-off", "pass", "0 findings"),
+  ];
+
+  test("each worker phase opens at that worker's own first event", () => {
+    expect(phase(PARALLEL, "tests")).toMatchObject({ ms: minutes(12) }); // 8 → 20
+    expect(phase(PARALLEL, "build")).toMatchObject({ ms: minutes(24) }); // 10 → 34
+  });
+
+  test("DESIGN and WRAP are untouched — only the worker phases moved", () => {
+    expect(phase(PARALLEL, "design")).toMatchObject({ ms: minutes(5) }); // run-start → freeze
+    expect(phase(PARALLEL, "wrap")).toMatchObject({ ms: minutes(2) }); // green → sign-off
+  });
+
+  test("the overlapped row fires, measured from the union of the two windows", () => {
+    const lines = formatPhaseDurations(phaseDurations(PARALLEL));
+    // The notes are kept: a bounce or a red-loop that vanished because two
+    // rows became one would be a measurement lost to a presentation change.
+    // They still read from the block REGIONS, which the gate markers define
+    // and these boundaries deliberately did not move.
+    expect(lines).toContain(
+      "  timing: workers  26m00s  (tests 12m00s ∥ build 24m00s — overlapped; " +
+        "tests: 3 red-loops; build: 1 red-loop)",
+    );
+    // ...and the two separate rows are gone, so nothing is double-counted.
+    expect(lines.some((l) => l.includes("timing: tests"))).toBe(false);
+    expect(lines.some((l) => l.includes("timing: build"))).toBe(false);
+  });
+
+  test("a run whose workers logged nothing attributable measures as it always did", () => {
+    const sequential: readonly LoggedGuardEvent[] = [
+      at(0, "checksum-gate", "pass", FREEZE),
+      at(10, "red-gate", "pass", "RED OK"),
+      at(25, "green-gate", "pass", "GREEN"),
+    ];
+    expect(phase(sequential, "tests")).toMatchObject({ ms: minutes(10) }); // freeze → red
+    expect(phase(sequential, "build")).toMatchObject({ ms: minutes(15) }); // red → green
+    expect(formatPhaseDurations(phaseDurations(sequential)).some((l) => l.includes("workers"))).toBe(
+      false,
+    );
+  });
+
+  // A worker event AFTER the phase's closing marker is a later bounce, not the
+  // opening — taking it would put BUILD's start after BUILD's end.
+  test("a builder event after the green pass does not open BUILD", () => {
+    const late: readonly LoggedGuardEvent[] = [
+      at(0, "checksum-gate", "pass", FREEZE),
+      at(10, "red-gate", "pass", "RED OK"),
+      at(25, "green-gate", "pass", "GREEN"),
+      at(30, "run_tests", "pass", "all passed"),
+    ];
+    expect(phase(late, "build")).toMatchObject({ ms: minutes(15) }); // red → green, unchanged
+  });
+
+  // A shared log with a previous ticket's worker events must not pull a
+  // boundary back behind the design that produced this one.
+  test("worker events before the freeze are not the opening", () => {
+    const shared: readonly LoggedGuardEvent[] = [
+      at(0, "run_tests", "pass", "a previous ticket"),
+      at(2, "typecheck", "pass", "clean", { role: "test-writer" }),
+      at(5, "checksum-gate", "pass", FREEZE),
+      at(20, "red-gate", "pass", "RED OK"),
+      at(30, "green-gate", "pass", "GREEN"),
+    ];
+    expect(phase(shared, "tests")).toMatchObject({ ms: minutes(15) }); // freeze → red
+    expect(phase(shared, "build")).toMatchObject({ ms: minutes(10) }); // red → green
   });
 });

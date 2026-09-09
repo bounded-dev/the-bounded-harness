@@ -17,6 +17,8 @@ import { join, relative } from "node:path";
 import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
+import { readDevStageModels } from "./dev-stage-models.ts";
+import type { KnownModel } from "./model-tier.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
 export const PIPELINE_ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
@@ -247,6 +249,12 @@ export interface GateInput {
   readonly cwd: string;
   /** Harness config home, so a role may read its own skill instructions. */
   readonly harnessRoot?: string;
+  /**
+   * Snapshot of the session's available models, for the spawn-time tier check.
+   * Absent or empty means "cannot tell": a seat is never refused for want of a
+   * registry, only for a tier the registry positively does not know.
+   */
+  readonly known?: readonly KnownModel[];
 }
 
 /**
@@ -269,7 +277,7 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   // layer only performs the side effect the pure core may not, which is writing
   // what happened to the target project's guard log.
   if (ev.toolName === "subagent") {
-    const verdict = checkSubagentCall(ev.input, gatherEvidence(ev.cwd));
+    const verdict = checkSubagentCall(ev.input, gatherEvidence(ev.cwd, ev.known));
     switch (verdict.kind) {
       case "children-listed":
         // Consulting the retained-children list is what licenses a later cold
@@ -305,6 +313,18 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
           verdict: "pass",
           summary: `commissioned ${verdict.target}`,
           detail: { kind: "spawn", target: verdict.target },
+        });
+        break;
+      case "resumed":
+        // A resumed seat is a commissioned seat. r15 made twelve of these and
+        // left nothing in the log, so the run's own story could not say which
+        // roles were working. Recorded as a pass with whatever the call named:
+        // the role when it names one, the run id always.
+        logGuardEvent(ev.cwd, {
+          guard: "phase-gate",
+          verdict: "pass",
+          summary: `resumed ${verdict.target} (${verdict.run})`,
+          detail: { kind: "resume", target: verdict.target, run: verdict.run },
         });
         break;
       case "allow-multi":
@@ -353,8 +373,16 @@ export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
   return evaluatePathGate(ev);
 }
 
-/** Read the project's current state: what exists, and what actually ran. */
-function gatherEvidence(cwd: string): PhaseEvidence {
+/**
+ * Read the project's current state: what exists, what actually ran, and what
+ * each seat is configured to run on.
+ *
+ * The tier config is read here rather than in the pure core for the same
+ * reason the guard log is: the core decides, this layer touches the disk.
+ * `readDevStageModels` never throws — absent, unreadable and malformed all
+ * come back as "no override" — so a broken config still cannot cost a run.
+ */
+function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEvidence {
   let specBytes = 0;
   try {
     specBytes = statSync(join(cwd, "spec.md")).size;
@@ -367,7 +395,13 @@ function gatherEvidence(cwd: string): PhaseEvidence {
   } catch {
     events = []; // an unreadable log must not silently permit a skip
   }
-  return { contracts: findContracts(cwd), specBytes, events };
+  return {
+    contracts: findContracts(cwd),
+    specBytes,
+    events,
+    models: readDevStageModels(cwd),
+    ...(known !== undefined ? { known } : {}),
+  };
 }
 
 /** Project-relative *.contract.ts paths, skipping the obvious noise. */

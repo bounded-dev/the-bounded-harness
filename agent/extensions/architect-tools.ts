@@ -29,6 +29,24 @@
  * in prose and prose executes unreliably. `contract_purity` survives alongside it as the cheap
  * single check while a contract is still being iterated on.
  *
+ * Two of the tools here are not gates and decide nothing.
+ *
+ *   · `sleep` exists because r15's architect had no way to pass time. Its
+ *     reviewer stalled, and with a stalled child, no wait primitive and a
+ *     standing instruction not to busy-loop, it reached for the only thing
+ *     that blocked: it ran `design_gate` five times as a clock, writing four
+ *     junk scaffolds, and said so out loud — "Since I have no sleep mechanism
+ *     and shouldn't busy-loop, calling design_gate itself serves as a
+ *     legitimate poll". A gate run is a claim about the project's state, so a
+ *     run made to fill a gap corrupts the only record of what happened. The
+ *     fix is not a paragraph asking it to stop; it is a primitive that waits.
+ *   · `mutation_score` exists because both r15 arms' surviving mutants mapped
+ *     exactly onto their prompts' headline rules — the measurement was
+ *     available and nobody could run it. It is advisory by construction
+ *     (exit 0 means it ran, whatever the score), so it never blocks a phase;
+ *     it is here so the architect can take the measurement before it signs
+ *     off rather than after the run is over.
+ *
  * `git` is deliberately unrestricted. Archaeology — reflog, bisect, blame — is
  * exactly when a closed verb list becomes a cage, and it is exactly when you
  * need the tool most. The safety story is not "restrict the verb": it is that
@@ -49,6 +67,7 @@ import { runGreenGate } from "../packs/ts/scripts/green-gate.ts";
 import { runRedGate } from "../packs/ts/scripts/red-gate.ts";
 import { runSignOff } from "../packs/ts/scripts/sign-off.ts";
 import { runDeliver } from "../packs/ts/scripts/deliver.ts";
+import { runMutationScore } from "../packs/ts/scripts/mutation-score.ts";
 import { logGuardEvent } from "../src/guard-log.ts";
 
 const CWD_PARAM = Type.Object({
@@ -229,6 +248,75 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "mutation_score",
+    label: "Mutation Score",
+    description:
+      "Measure how much of the delivered logic the suite actually holds down: mutate src/ one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
+    promptSnippet: "Measure the suite's mutation score: which edits to src/ does nobody notice?",
+    promptGuidelines: [
+      "A survivor is not automatically a defect — it is a question. Read the line it names and decide whether the rule it broke is one the spec actually requires.",
+      "The measurement costs one full suite run per mutant (40 by default), so run it once, late, on a green suite — not between builder bounces.",
+      "Findings from it belong in sign_off: 'the suite does not hold down X' is exactly the kind of thing only you can see, and the gates cannot.",
+    ],
+    parameters: Type.Object({
+      cwd: CWD_PARAM.properties.cwd,
+      maxMutants: Type.Optional(
+        Type.Number({
+          description:
+            "Cap on mutants run (default 40). Each one costs a full suite run, so raise it only on a fast suite.",
+        }),
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const r = await runMutationScore(
+        cwd,
+        params.maxMutants === undefined ? {} : { maxMutants: params.maxMutants },
+      );
+      return gateOutput("mutation-score", r.code, r.lines);
+    },
+  });
+
+  pi.registerTool({
+    name: "sleep",
+    label: "Sleep",
+    description:
+      "Wait, doing nothing, for `seconds` (1-120), then return. This is the ONLY way to pass time, and it exists so that waiting out a working subagent costs a wait instead of a junk gate run. Between `subagent { action: \"status\" }` polls on a child that is still working, call this. NEVER call a gate to pass time: a gate run is a claim about the project's state, and one made to fill a gap corrupts the only record of what actually happened.",
+    promptSnippet: "Wait a few seconds for a working subagent, without polling a gate.",
+    promptGuidelines: [
+      "The poll loop is: `subagent { action: \"status\", id }`, then sleep, then status again. 30-60s is the useful interval for a worker mid-task; anything under 5s spends a turn to learn nothing.",
+      "Prefer `subagent_wait` when you hold it and the child is a live async run — it returns the moment the child is done rather than at the end of a fixed interval. Reach for sleep when there is nothing to wait ON: a stalled child, a poll you want to space out, a retry you want to delay.",
+      "It is never a substitute for doing work. If there is design or arbitration you could be doing while a worker runs, do that instead.",
+    ],
+    parameters: Type.Object({
+      seconds: Type.Number({
+        minimum: 1,
+        maximum: 120,
+        description: "How long to wait, in seconds. 1-120; values outside that range are clamped.",
+      }),
+      cwd: CWD_PARAM.properties.cwd,
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const cwd = targetCwd(ctx.cwd, params.cwd);
+      const seconds = clampSleepSeconds(params.seconds);
+      const waited = await sleepSeconds(seconds, signal);
+      // Logged so a run's story shows the wait rather than a gap. Without this
+      // line "the architect waited two minutes" and "the architect did nothing
+      // for two minutes" are the same absence in the transcript.
+      logGuardEvent(cwd, {
+        guard: "sleep",
+        verdict: "pass",
+        summary: `waited ${waited}s`,
+        detail: { seconds: waited, requested: params.seconds },
+      });
+      return {
+        content: [{ type: "text" as const, text: `sleep: waited ${waited}s` }],
+        details: { code: 0, ok: true, seconds: waited },
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "git",
     label: "Git",
     description:
@@ -273,5 +361,30 @@ function runGit(
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     child.on("error", reject);
     child.on("close", (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
+  });
+}
+
+/** The `sleep` tool's bounds, applied rather than refused: a wait that is a
+ *  little too long is not worth costing the architect a turn to re-issue. */
+export const SLEEP_MIN_SECONDS = 1;
+export const SLEEP_MAX_SECONDS = 120;
+
+/** Clamp to [1, 120]; a non-finite request becomes the minimum. */
+export function clampSleepSeconds(requested: number): number {
+  if (!Number.isFinite(requested)) return SLEEP_MIN_SECONDS;
+  return Math.min(SLEEP_MAX_SECONDS, Math.max(SLEEP_MIN_SECONDS, Math.round(requested)));
+}
+
+/** Wait `seconds`, returning early (and reporting the truth) if aborted. */
+function sleepSeconds(seconds: number, signal?: AbortSignal): Promise<number> {
+  return new Promise((resolvePromise) => {
+    const started = Date.now();
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolvePromise(Math.round((Date.now() - started) / 1000));
+    };
+    const timer = setTimeout(done, seconds * 1000);
+    signal?.addEventListener("abort", done, { once: true });
   });
 }

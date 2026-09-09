@@ -17,8 +17,10 @@
 # Either flag may be given alone; whichever is omitted leaves that tier on the
 # session default. Both are written to `.pi/dev-stage-models.json` in the
 # harnessed arm and echoed in the summary, so the run's configuration is
-# visible rather than remembered. They do nothing for the bare arm, which has
-# no pipeline seats to tier.
+# visible rather than remembered — and both are VERIFIED against the live model
+# registry before the reset is declared done, because a pattern that resolves
+# to nothing is a seat that cannot be commissioned. They do nothing for the
+# bare arm, which has no pipeline seats to tier.
 #
 # Reset one arm when the other is mid-run: a run dies for one-sided reasons
 # (wrong model, a broken skill) far more often than for both at once, and
@@ -161,6 +163,63 @@ autosave() {
 # at every subagent spawn (agent/src/dev-stage-models.ts). A key that is not
 # set is simply absent: the reader treats a missing key as "no override", and
 # an empty string as a malformed value it warns about.
+# A reset that writes a dead model pattern is a silent tier loss. r15's first
+# kimi reviewer ran on the session default for the whole run, because the
+# configured `kimi-k3:high` matched nothing in the registry: injection skipped,
+# the spawn went ahead, and a judgment seat quietly ran on whatever the session
+# happened to be. The spawn gate now refuses that (agent/src/phase-gate.ts) —
+# but a run refused at its first commission is still a wasted reset, so the
+# pattern is checked HERE, where it is written and where fixing it costs one
+# flag.
+#
+# The check mirrors `patternIsKnown` (agent/src/model-tier.ts) rather than
+# taking `pi --list-models`'s own answer, and the difference is the whole
+# point: --list-models FUZZY-matches, so `kimi-k3` lists two fireworks models
+# and looks fine, while the injector accepts only an exact `provider/id` or a
+# bare id exactly one provider offers. This has to fail exactly where the run
+# would, not merely where a search would.
+#
+# Never fatal on a missing toolchain: no `pi` on PATH means the check could not
+# run, which is not evidence the pattern is bad.
+model_pattern_resolves() {
+  local pattern="$1" base rows
+  # Strip a known thinking suffix (pi's own levels) before looking it up: the
+  # registry knows models, not how hard they think.
+  base="$pattern"
+  case "$pattern" in
+    *:off|*:minimal|*:low|*:medium|*:high|*:xhigh|*:max) base="${pattern%:*}" ;;
+  esac
+  # Row 1 is the column header; "No models matching …" leaves nothing after it.
+  rows="$(pi --list-models "$base" 2>/dev/null | tail -n +2)" || return 1
+  [ -n "$rows" ] || return 1
+  printf '%s\n' "$rows" | awk -v want="$base" '
+    { if ($1 "/" $2 == want) exact++
+      if ($2 == want) bare++ }
+    END { exit (exact > 0 || bare == 1) ? 0 : 1 }
+  '
+}
+
+# Refuse the reset rather than hand over an arm whose seats cannot be tiered.
+check_model_pattern() {
+  local flag="$1" pattern="$2"
+  [ -n "$pattern" ] || return 0
+  if ! command -v pi >/dev/null 2>&1; then
+    echo "dogfood-reset: WARNING — no 'pi' on PATH, so $flag '$pattern' was not verified" >&2
+    return 0
+  fi
+  if ! model_pattern_resolves "$pattern"; then
+    echo "dogfood-reset: FATAL — $flag '$pattern' resolves to no model." >&2
+    echo "  The harnessed arm would refuse to commission that seat, and without that" >&2
+    echo "  refusal it would run on the session default with nothing saying so." >&2
+    echo "  The value must be a full provider/id (a bare id works only when exactly" >&2
+    echo "  one provider offers it), optionally with a thinking suffix:" >&2
+    echo "      --design-model anthropic/claude-opus-4-6:high" >&2
+    echo "  Candidates for '${pattern%:*}':" >&2
+    pi --list-models "${pattern%:*}" 2>/dev/null | head -12 | sed 's/^/      /' >&2
+    exit 1
+  fi
+}
+
 write_models_json() {
   local path="$1" design="$2" worker="$3" body=""
   if [ -n "$design" ]; then
@@ -258,6 +317,10 @@ if [ "$WHICH" != "bare" ]; then
   # the session default, which is the pre-#13 behaviour and a valid arm.
   if [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; then
     write_models_json "$HARNESSED/.pi/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
+    # Written, then verified against the live registry: a pattern that resolves
+    # to nothing is refused here rather than discovered at the first spawn.
+    check_model_pattern --design-model "$DESIGN_MODEL"
+    check_model_pattern --worker-model "$WORKER_MODEL"
   fi
   ( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
 fi

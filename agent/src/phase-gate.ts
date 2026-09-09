@@ -42,9 +42,47 @@
 //   * `delegate`, the general write-capable worker, in a session that already
 //     holds a bound role — inside the developer stage every writer is a role
 //     with a zone, and an unbound one writes wherever it likes.
+//
+// RESUMES ARE COMMISSIONS TOO (r15)
+//
+// A third shape was passing through untouched: `action: "resume"`. r15's kimi
+// architect made twelve of them and not one produced a phase-gate or a
+// model-tier event, so twelve seats went back to work with nothing in the log
+// to say which roles were running or on what. A resume is not a launch — the
+// child already exists, its preconditions were checked when it was launched,
+// and refusing one would strand a run — but it IS a seat being commissioned,
+// and it is recorded as one. Where the call names a role, the two refusals
+// that are about the SHAPE of a commission rather than its phase apply
+// unchanged: `delegate` holds no role binding whether it is starting or
+// continuing, and a multi-spawn form is still a set of children this gate
+// cannot see. Where it names only a run id — the ordinary case, since
+// pi-subagents resolves the agent from the persisted run record and not from
+// the input — the event carries the run id and the role `unknown`, which is
+// strictly better than silence.
+//
+// AND A TIER THAT CANNOT RESOLVE IS A REFUSAL (r15)
+//
+// r15's first kimi reviewer ran on the session default, because the project's
+// configured `kimi-k3:high` matched nothing in the live registry. The tier
+// injection skipped, correctly — pi-subagents throws on an unresolvable
+// explicit model — and the spawn then went ahead anyway, which is the part
+// that was wrong: a judgment seat ran on a model nobody chose, silently. So a
+// spawn whose role HAS a configured tier that the registry cannot resolve is
+// refused here instead. The never-fatal rule for the config itself is
+// untouched: no file, no key, a malformed file, or no registry snapshot all
+// mean no policy, and no policy means allowed.
 
 import type { LoggedGuardEvent } from "./guard-log.ts";
 import type { Role } from "./path-policy.ts";
+import type { DevStageModels } from "./dev-stage-models.ts";
+import { DEV_STAGE_MODELS_RELATIVE } from "./dev-stage-models.ts";
+import {
+  isResumeCall,
+  resumeRunId,
+  spawnAgentName,
+  unresolvableTier,
+  type KnownModel,
+} from "./model-tier.ts";
 
 export type Decision =
   | { readonly allow: true }
@@ -57,6 +95,16 @@ export interface PhaseEvidence {
   readonly specBytes: number;
   /** The project's guard log, oldest first. */
   readonly events: readonly LoggedGuardEvent[];
+  /**
+   * The project's seat→model tiers. Absent means the caller could not read
+   * them, which is the same as none being configured: no policy, no refusal.
+   */
+  readonly models?: DevStageModels;
+  /**
+   * Snapshot of the session's available models. Absent or empty means "cannot
+   * tell", never "bad" — a missing snapshot must not turn into a refusal.
+   */
+  readonly known?: readonly KnownModel[];
 }
 
 /**
@@ -299,6 +347,11 @@ export type SpawnVerdict =
   | { readonly kind: "children-listed" }
   /** A plain one-child spawn, permitted. */
   | { readonly kind: "allow"; readonly target: string }
+  /**
+   * A resume of an existing child: always permitted, always recorded. `target`
+   * is the role the call names, or "unknown" when it names only a run.
+   */
+  | { readonly kind: "resumed"; readonly target: string; readonly run: string }
   /** A fan-out naming no pipeline role: allowed, but recorded. */
   | { readonly kind: "allow-multi"; readonly form: MultiSpawnForm }
   /** Refused, with the line the architect reads. */
@@ -323,8 +376,13 @@ export function checkSubagentCall(
   const action = input["action"];
   if (typeof action === "string") {
     if (action === "children.list") return { kind: "children-listed" };
-    // status/wait/stop/steer/resume on an existing child must never be refused,
-    // or a blocked architect could not even inspect what it started.
+    // A resume is a commission, so it is recorded — and the two SHAPE refusals
+    // below apply to it exactly as they do to a launch. It is never refused for
+    // a PHASE reason: the child already exists and its preconditions were
+    // checked when it was launched, so blocking here would strand a run.
+    if (isResumeCall(input)) return checkResume(input, evidence);
+    // status/wait/stop/steer on an existing child must never be refused, or a
+    // blocked architect could not even inspect what it started.
     if (action !== "launch" && action !== "run") return { kind: "ignore" };
   }
 
@@ -364,7 +422,94 @@ export function checkSubagentCall(
 
   const decision = checkSpawnPrecondition(target, evidence);
   if (!decision.allow) return { kind: "block", reason: decision.reason, target };
+
+  // Last: the seat's model. Checked after the phase preconditions because a
+  // spawn that is too early is too early whatever it would have run on, and the
+  // architect should fix one thing at a time.
+  const tier = checkTierResolvable(target, evidence);
+  if (tier !== undefined) return { kind: "block", reason: tier, target };
+
   return { kind: "allow", target };
+}
+
+/**
+ * A resume: recorded, and refused only on the two shape grounds.
+ *
+ * `delegate` is refused whether it is being started or continued — the
+ * objection is that it holds no role binding, and continuing an unbound writer
+ * is continuing an unbound writer. A multi-spawn form is refused for the same
+ * reason it is at launch: `action: "resume"` accepts a `chain`, which attaches
+ * a whole sequence of children this gate never watches run.
+ */
+function checkResume(
+  input: Readonly<Record<string, unknown>>,
+  evidence: PhaseEvidence,
+): SpawnVerdict {
+  const run = resumeRunId(input) ?? "unnamed run";
+  const named = spawnAgentName(input);
+
+  const form = detectMultiSpawn(input);
+  if (form !== undefined && form.roles.length > 0) {
+    return {
+      kind: "block",
+      form,
+      reason:
+        `phase-gate: this resume attaches a ${form.field} that commissions pipeline roles ` +
+        `(${form.roles.join(", ")}) — resume the child on its own ` +
+        '(`{ action: "resume", id: "<run-id>", message: "…" }`) and commission anything else ' +
+        "one call at a time. The gate cannot evaluate a precondition per child inside a script " +
+        "it never watches run, and the model-tier injection cannot reach a child spawned there.",
+    };
+  }
+
+  if (named === UNBOUND_WRITER) {
+    return {
+      kind: "block",
+      target: named,
+      reason:
+        "phase-gate: delegate holds no role binding, and resuming one continues an unbound " +
+        "writer rather than starting a fresh one — inside the developer stage every writer is a " +
+        "bound role with a zone. Commission the role that owns the work; `scout` and " +
+        "`product-expert` stay available for read-only help.",
+    };
+  }
+
+  // The role is the caller's claim when it makes one. pi-subagents resolves the
+  // agent from the persisted run record rather than from the input
+  // (`resolveResumeTarget` matches on id/runId/dir alone), so the ordinary
+  // resume names no role at all — and "unknown, this run id" is the honest
+  // answer, and still an answer.
+  return { kind: "resumed", target: named ?? "unknown", run };
+}
+
+/**
+ * The refusal for a seat whose configured tier the registry cannot resolve, or
+ * undefined when there is nothing wrong.
+ *
+ * The facts come from `unresolvableTier`; the prose is here, with every other
+ * spawn refusal. It names the file, the key, the pattern that failed, and both
+ * ways out — because "your model is wrong" without the file it is wrong in is
+ * a message that costs a turn to act on.
+ */
+export function checkTierResolvable(
+  target: string,
+  evidence: PhaseEvidence,
+): string | undefined {
+  const { models, known } = evidence;
+  if (models === undefined) return undefined; // could not read the config ⇒ no policy
+  const bad = unresolvableTier(target, models, known ?? []);
+  if (bad === undefined) return undefined;
+  return (
+    `phase-gate: cannot commission the ${target} — ${DEV_STAGE_MODELS_RELATIVE} sets ` +
+    `"${bad.key}": "${bad.model}", and this session's model registry knows no such model. ` +
+    "A seat whose tier is configured must run on it: passing the pattern through would make the " +
+    "spawn fail outright, and dropping it would run this seat on the session default without " +
+    "saying so — which is how r15's reviewer, a judgment seat, quietly ran on whatever the " +
+    `session happened to be. Fix the pattern in ${DEV_STAGE_MODELS_RELATIVE} (` +
+    "`pi --list-models '<pattern>'` shows what resolves; the value is a full provider/id, " +
+    'optionally with a thinking suffix, e.g. "anthropic/claude-opus-4:high"), or remove the key ' +
+    "to run this seat on the session default deliberately."
+  );
 }
 
 /** The agent a `subagent` call is trying to start, if it names one. */

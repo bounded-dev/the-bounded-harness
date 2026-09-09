@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import installArchitectTools from "../extensions/architect-tools.ts";
 import installDevTools from "../extensions/dev-tools.ts";
 import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
-import { GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
+import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
 
 // The architect has no `bash`, so every capability it needs must exist as a
 // registered tool. That makes the tool NAMES load-bearing in a way they were
@@ -51,8 +51,41 @@ describe("architect tool registration matches the path policy", () => {
     expect(architectTools).toContain("git");
   });
 
-  test("registers nothing beyond the gates and git", () => {
-    expect([...architectTools].sort()).toEqual([...GATE_TOOLS, "git"].sort());
+  // The two non-gate tools are registered here too, so the exact-equality pin
+  // has to know about them — and naming them separately from GATE_TOOLS is the
+  // point: neither is a verdict a phase can turn on.
+  test("sleep and mutation_score are registered — the architect's two non-gate tools", () => {
+    for (const tool of ARCHITECT_UTILITY_TOOLS) {
+      expect(architectTools, `${tool} is in ARCHITECT_UTILITY_TOOLS but nothing registers it`).toContain(tool);
+    }
+  });
+
+  test("registers nothing beyond the gates, git, and the two utilities", () => {
+    expect([...architectTools].sort()).toEqual(
+      [...GATE_TOOLS, "git", ...ARCHITECT_UTILITY_TOOLS].sort(),
+    );
+  });
+
+  // `sleep` is a WAIT, not a verdict. r15's architect, with no wait primitive
+  // and a stalled reviewer, used design_gate as a clock — five gate runs and
+  // four junk scaffolds to pass time, which left the gate record describing a
+  // project nobody had changed. So the description has to say what the tool is
+  // for AND what it replaces, because the substitution it prevents is one the
+  // model reasoned its way into out loud.
+  test("the sleep description names the wait and forbids the gate-as-clock", () => {
+    const sleep = registeredTools(installArchitectTools).find((t) => t.name === "sleep");
+    expect(sleep).toBeDefined();
+    expect(sleep!.description).toMatch(/subagent|child|poll/i);
+    expect(sleep!.description).toMatch(/never call a gate to pass time/i);
+  });
+
+  // Advisory means advisory: a description that read as a gate would put the
+  // architect on a hunt to make a number go up, and there is no threshold.
+  test("the mutation_score description says it never blocks", () => {
+    const mutation = registeredTools(installArchitectTools).find((t) => t.name === "mutation_score");
+    expect(mutation).toBeDefined();
+    expect(mutation!.description).toMatch(/advisory/i);
+    expect(mutation!.description).toMatch(/never blocks|exit 0/i);
   });
 
   // The full allowlist has to resolve: built-ins (read/write/…), pi's own
@@ -99,7 +132,7 @@ describe("architect tool registration matches the path policy", () => {
   // The worker roles must never be handed one of these by a copy-paste.
   test("no gate tool leaks into a worker role's allowlist", () => {
     for (const role of ["test-writer", "builder", "reviewer"] as const) {
-      for (const gate of [...GATE_TOOLS, "git", "subagent"]) {
+      for (const gate of [...GATE_TOOLS, ...ARCHITECT_UTILITY_TOOLS, "git", "subagent"]) {
         expect(ROLE_TOOLS[role], `${role} must not hold '${gate}'`).not.toContain(gate);
       }
     }

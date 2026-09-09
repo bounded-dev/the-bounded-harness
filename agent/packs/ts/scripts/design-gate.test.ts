@@ -368,8 +368,9 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
 // test-writer and the builder both build on it, and run r13 measured 30–38
 // minutes to repair a contract defect discovered after that point. So the gate
 // refuses to freeze a design no reviewer has read AS IT NOW STANDS. It never
-// reads WHAT the review said — that is the architect's to settle — only that
-// one exists and that it covers the current bytes.
+// JUDGES what the review said — that is the architect's to settle — but it does
+// carry the claims out, because the architect holds no `record_design_review`
+// and this is the only route the reviewer's words have to it.
 describe("classifyReviewFreshness: which review, if any, stands", () => {
   const CURRENT = { "spec.md": "a".repeat(64), "src/x.contract.ts": "b".repeat(64) };
 
@@ -392,7 +393,7 @@ describe("classifyReviewFreshness: which review, if any, stands", () => {
     expect(classifyReviewFreshness([], CURRENT)).toEqual({ state: "missing" });
   });
 
-  test("a matching review is fresh, and carries its counts and its clock", () => {
+  test("a matching review is fresh, and carries its counts, its clock and its claims", () => {
     const event = reviewEvent(CURRENT, {
       blockers: 1,
       severities: ["blocker", "note"],
@@ -403,6 +404,30 @@ describe("classifyReviewFreshness: which review, if any, stands", () => {
       at: "2026-09-08T14:32:11.000Z",
       findings: 2,
       blockers: 1,
+      recorded: [
+        { severity: "blocker", summary: "x" },
+        { severity: "note", summary: "y" },
+      ],
+    });
+  });
+
+  // An older event that logged only the severities still yields its counts,
+  // and simply replays nothing. A gate that threw on it would make one
+  // superseded log format able to jam a design phase.
+  test("a review recorded without its findings is still fresh, with nothing to replay", () => {
+    const event: LoggedGuardEvent = {
+      ts: "2026-09-08T14:32:11.000Z",
+      guard: "design-review",
+      verdict: "pass",
+      summary: "2 findings (1 blocker) over 2 files",
+      // No `findings` key at all: the shape an older harness version wrote.
+      detail: { reviewed: CURRENT, blockers: 1, severities: ["blocker", "note"] },
+    };
+    expect(classifyReviewFreshness([event], CURRENT)).toMatchObject({
+      state: "fresh",
+      findings: 2,
+      blockers: 1,
+      recorded: [],
     });
   });
 
@@ -472,11 +497,36 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
     const r = reviewStepOutcome({
       state: "fresh",
       at: "2026-09-08T14:32:11.000Z",
-      findings: 2,
+      findings: 0,
       blockers: 0,
+      recorded: [],
     });
     expect(r.code).toBe(0);
-    expect(r.lines).toEqual(["design-review: fresh (2 findings, 0 blockers, recorded 14:32:11Z)"]);
+    expect(r.lines).toEqual(["design-review: fresh (0 findings, 0 blockers, recorded 14:32:11Z)"]);
+  });
+
+  // The architect holds no `record_design_review`, so this step is the only
+  // route the reviewer's words have to it. r15's architect went hunting through
+  // `git` for text this gate was already holding, then revived the reviewer to
+  // make it recite the findings — three failed calls and a whole child session
+  // to recover a string the log had all along.
+  test("a fresh review replays every finding verbatim, evidence included", () => {
+    const r = reviewStepOutcome({
+      state: "fresh",
+      at: "2026-09-08T14:32:11.000Z",
+      findings: 2,
+      blockers: 0,
+      recorded: [
+        { severity: "concern", summary: "Money has no currency", evidence: "src/money.contract.ts:12" },
+        { severity: "note", summary: "prorate() rounding is unstated" },
+      ],
+    });
+    expect(r.code).toBe(0);
+    expect(r.lines).toEqual([
+      "design-review: fresh (2 findings, 0 blockers, recorded 14:32:11Z)",
+      "  concern: Money has no currency — src/money.contract.ts:12",
+      "  note: prorate() rounding is unstated",
+    ]);
   });
 
   // Blockers do NOT fail the gate: the reviewer records claims, the architect
@@ -488,6 +538,7 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
       at: "2026-09-08T14:32:11.000Z",
       findings: 3,
       blockers: 1,
+      recorded: [],
     });
     expect(r.code).toBe(0);
     expect(r.lines[0]).toContain("3 findings, 1 blocker");

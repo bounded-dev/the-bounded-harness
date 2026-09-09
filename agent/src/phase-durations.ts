@@ -24,9 +24,57 @@
 // of the DESIGN boundary.
 //
 //   DESIGN  first event                 → the freeze
-//   TESTS   the freeze                   → the first `red-gate` pass
-//   BUILD   the first `red-gate` pass    → the first `green-gate` pass after it
+//   TESTS   the test-writer's first      → the first `red-gate` pass
+//           event, else the freeze
+//   BUILD   the builder's first event,   → the first `green-gate` pass after it
+//           else the first `red-gate` pass
 //   WRAP    the first `green-gate` pass  → the last `sign-off`/`deliver` event
+//
+// WHERE A WORKER'S PHASE OPENS (r15)
+//
+// The gate markers say when a phase ENDED; only the workers themselves say
+// when one began. Opening BUILD at the red-gate pass — the marker that closes
+// TESTS — makes the two phases meet at a single event by construction, so the
+// spans can touch but never overlap, and the parallel-workers row below could
+// not fire on any log this analysis produced. That is a measurement lost to an
+// artefact of the boundary, not to the run: the test-writer and the builder
+// are commissioned in parallel (ADR 2026-021), and "tests 8m37s then build
+// 5m42s" reads as 14m19s of sequence when the wall clock was 12m19s.
+//
+// So each worker phase opens at the first event ATTRIBUTABLE TO THAT WORKER.
+// Two guards already carry the attribution and neither was added for this:
+//
+//   · `typecheck` events carry `detail.role` — the tool scopes its diagnostics
+//     by the calling role, from the same binding the path gate acts on;
+//   · `run_tests` events are the BUILDER's by construction, because run_tests
+//     is builder-only (path-policy.ts) and enforced as such.
+//
+// The search runs from the freeze forward, so a worker event from an earlier
+// ticket in a shared log cannot pull a boundary back behind the design that
+// produced it, and the gate markers remain the fallback: a run whose workers
+// logged nothing attributable measures exactly as it did before. The phase
+// ENDS are untouched — a phase still ends where its gate says it ended.
+//
+// Two consequences, both accepted:
+//
+// * THE PHASES STOP BEING CONTIGUOUS when a worker opens its own. The minutes
+//   between the freeze and the test-writer's first call are the architect's,
+//   spent commissioning; billing them to TESTS was never right, and `totalMs`
+//   still measures the whole run, so the gap is visible as the phases failing
+//   to sum rather than hidden inside one of them.
+// * PARTIAL ATTRIBUTION UNDERSTATES a phase: a builder that reads for ten
+//   minutes before its first typecheck opens BUILD ten minutes late. The
+//   fallback covers no attribution at all, not half of it. Worth knowing when
+//   reading an old log — r15's own predates role-scoped typecheck, so only its
+//   `run_tests` events are attributable — and self-correcting as the guards
+//   that carry a role stay the ones workers reach for first.
+//
+// Block attribution is deliberately NOT moved with these boundaries. Blocks
+// are placed by index between the gate markers (see "Bounces" below), which is
+// what keeps a bounce on the line of the phase whose gate handed it back; the
+// spans and the block regions have never been the same intervals (DESIGN's
+// span already opens at the run-start marker while its region opens at the top
+// of the log).
 //
 // "The freeze" is a `checksum-gate` pass whose summary says it wrote the
 // manifest, or a `design-gate` pass (ADR 2026-019's composite, whose final
@@ -299,6 +347,27 @@ const isWrapEvent = (e: LoggedGuardEvent): boolean => e.guard === "sign-off" || 
 /** The path gate's first-gated-tool-call marker (see "The clock" in the header). */
 const isRunStart = (e: LoggedGuardEvent): boolean => e.guard === RUN_START_GUARD;
 
+/** The two roles whose phases have a worker-derived opening. */
+export type Worker = "test-writer" | "builder";
+
+/**
+ * Which worker an event is attributable to, or undefined when none.
+ *
+ * Two guards answer this and neither was added for it (see the header):
+ * `typecheck` records the calling role in `detail.role` because it scopes its
+ * diagnostics by it, and `run_tests` is the builder's tool by policy, so every
+ * `run_tests` event is a builder event by construction. Nothing else is
+ * attributable: a gate is run by the architect, and a path-gate block names a
+ * role in its detail but is a REFUSAL — a call that did not happen is not
+ * evidence that a worker was working.
+ */
+export function workerOf(e: LoggedGuardEvent): Worker | undefined {
+  if (e.guard === "run_tests") return "builder";
+  if (e.guard !== "typecheck") return undefined;
+  const role = (e.detail as { role?: unknown } | undefined)?.role;
+  return role === "test-writer" || role === "builder" ? role : undefined;
+}
+
 /** Any event that closes or opens a phase — the boundary a run-start must precede. */
 const isPhaseMarker = (e: LoggedGuardEvent): boolean =>
   isFreeze(e) || isRedPass(e) || isGreenPass(e) || isWrapEvent(e);
@@ -403,6 +472,21 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
   );
   const clockStartIdx = runStartIdx === -1 ? 0 : runStartIdx;
 
+  // Where each worker's phase OPENS: its own first event, when the log carries
+  // one after the freeze; the gate marker otherwise. Searching from the freeze
+  // keeps a previous ticket's worker events in a shared log from pulling a
+  // boundary back behind the design that produced it.
+  const openedBy = (worker: Worker, fallbackIdx: number, endIdx: number): number => {
+    if (freezeIdx === -1) return fallbackIdx; // no design boundary ⇒ nothing to search from
+    const first = firstIndexAfter(events, (e) => workerOf(e) === worker, freezeIdx);
+    // A worker event after the phase's own closing marker belongs to a later
+    // bounce, not to the opening; the marker is the better answer there.
+    if (first === -1 || (endIdx !== -1 && first >= endIdx)) return fallbackIdx;
+    return first;
+  };
+  const testsStartIdx = openedBy("test-writer", freezeIdx, redIdx);
+  const buildStartIdx = openedBy("builder", redIdx, greenIdx);
+
   const bounds: Record<PhaseName, Bounds> = {
     design: {
       startIdx: clockStartIdx,
@@ -410,14 +494,15 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
       missing: "no contract freeze (design_gate never passed)",
     },
     tests: {
-      startIdx: freezeIdx,
+      startIdx: testsStartIdx,
       endIdx: redIdx,
       missing: freezeIdx === -1 ? "no contract freeze (design_gate never passed)" : "no red_gate pass",
     },
     build: {
-      startIdx: redIdx,
+      startIdx: buildStartIdx,
       endIdx: greenIdx,
-      missing: redIdx === -1 ? "no red_gate pass" : "no green_gate pass",
+      missing:
+        buildStartIdx === -1 ? "no red_gate pass and no builder activity" : "no green_gate pass",
     },
     wrap: {
       startIdx: greenIdx,
@@ -665,13 +750,13 @@ function iterationText(friction: Friction): string {
 //   of them can "overlap" in arithmetic that means nothing. Such a pair falls
 //   back to the ordinary rows.
 //
-// Note what this does NOT do: with today's markers TESTS ends and BUILD begins
-// at the same event — the first `red-gate` pass — so the two windows touch
-// and never overlap, and the combined row cannot fire on a log the current
-// analysis produced. It fires on any PhaseDurations whose spans do overlap,
-// which is what per-worker boundaries will produce when the analysis learns
-// them. The formatter takes the spans as given rather than assuming adjacency,
-// which is why the presentation is ready ahead of the boundaries.
+// The boundaries now produce those overlaps from a real log: BUILD opens at the
+// builder's first attributable event rather than at the red-gate pass that
+// closes TESTS (see "Where a worker's phase opens" in the header), so two
+// workers commissioned in parallel show as two overlapping windows and this row
+// fires. The formatter still takes the spans as given and asserts nothing about
+// adjacency — it describes what the timestamps say, never how the run was
+// configured, and a genuinely sequential run prints exactly what it always did.
 
 interface Window {
   readonly start: number;

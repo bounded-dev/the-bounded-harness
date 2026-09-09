@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyDesignReview, readReviewed, runRecordDesignReview } from "./design-review.ts";
+import {
+  classifyDesignReview,
+  findingLines,
+  readReviewed,
+  recordedFindings,
+  runRecordDesignReview,
+} from "./design-review.ts";
 import { hashContract } from "./checksum-gate.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
@@ -107,6 +113,28 @@ describe("classifyDesignReview", () => {
     const text = r.lines.join("\n");
     expect(text).toMatch(/blocker: OrderId has no parse path .* — src\/x\.contract\.ts:12/);
     expect(text).toMatch(/note: two names for one concept/);
+  });
+
+  // A COUNT IS AN INDEX INTO A DOCUMENT NOBODY CAN OPEN. r15's architect was
+  // handed one, could not find the text, tried `git` three times, and finally
+  // revived the reviewer as a subagent to make it recite findings this call
+  // had already recorded. So the exact lines are pinned, not merely matched:
+  // severity, summary, and evidence, one finding per line.
+  test("the result carries every finding verbatim, not just the count", () => {
+    const findings = [
+      { severity: "blocker" as const, summary: "OrderId has no parse path", evidence: "src/x.contract.ts:12" },
+      { severity: "concern" as const, summary: "prorate() tie-break unstated" },
+      { severity: "note" as const, summary: "two names for one concept", evidence: "spec.md" },
+    ];
+    const lines = classifyDesignReview(findings, reviewed).lines;
+    expect(lines.slice(1, 4)).toEqual([
+      "  blocker: OrderId has no parse path — src/x.contract.ts:12",
+      "  concern: prorate() tie-break unstated",
+      "  note: two names for one concept — spec.md",
+    ]);
+    // And the same rendering the design_gate step replays, so the architect
+    // reads one shape whichever tool showed it.
+    expect(findingLines(findings)).toEqual(lines.slice(1, 4));
   });
 
   // The gate records a claim; the architect settles it. A blocker must not read
@@ -215,5 +243,34 @@ describe("runRecordDesignReview (guard log)", () => {
     expect(readGuardLog(dir).some((e) => e.guard === "design-review" && e.verdict === "pass")).toBe(
       false,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The round trip: what the reviewer records is what the architect can read
+// ---------------------------------------------------------------------------
+//
+// The reviewer holds `record_design_review` and the architect does not, so the
+// findings reach the architect only by being written to the guard log here and
+// read back by `design_gate`'s review step. That makes the two halves one
+// feature, and a detail key renamed on one side would break it silently.
+
+describe("recordedFindings: the guard log carries the claims back out", () => {
+  test("a recorded review round-trips its findings, evidence included", () => {
+    const dir = repo({ "spec.md": SPEC, "src/x.contract.ts": CONTRACT });
+    const findings = [
+      { severity: "blocker", summary: "OrderId has no parse path", evidence: "src/x.contract.ts:12" },
+      { severity: "note", summary: "two names for one concept" },
+    ];
+    runRecordDesignReview(dir, findings);
+    const event = readGuardLog(dir).findLast((e) => e.guard === "design-review");
+    expect(recordedFindings(event?.detail)).toEqual(findings);
+  });
+
+  test("a detail with no findings, or an unreadable one, replays nothing rather than throwing", () => {
+    expect(recordedFindings(undefined)).toEqual([]);
+    expect(recordedFindings({ blockers: 1 })).toEqual([]);
+    expect(recordedFindings({ findings: "corrupt" })).toEqual([]);
+    expect(recordedFindings({ findings: [{ severity: "urgent", summary: "x" }] })).toEqual([]);
   });
 });

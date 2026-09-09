@@ -6,11 +6,14 @@ import {
   MODEL_TIER_GUARD,
   SPAWN_AGENT_KEYS,
   applyModelTier,
+  isResumeCall,
   patternIsKnown,
   planModelTier,
   resetModelTierWarnings,
+  resumeRunId,
   spawnTarget,
   stripThinkingSuffix,
+  unresolvableTier,
   type KnownModel,
 } from "./model-tier.ts";
 import { devStageModelsPath, parseDevStageModels } from "./dev-stage-models.ts";
@@ -77,7 +80,7 @@ describe("which calls are spawns", () => {
   });
 
   // A retained resume keeps the child's stored model contract, so there is
-  // nothing to inject and nothing to log.
+  // nothing to inject.
   test("a resume is not a spawn even when it names an agent", () => {
     expect(planModelTier({ action: "resume", id: "r1", agent: "builder" }, MODELS).kind).toBe(
       "skip",
@@ -368,5 +371,106 @@ describe("extensions/model-tier.ts", () => {
     const input: Record<string, unknown> = { path: "src/x.ts", agent: "builder" };
     expect(hook({ toolName: "read", input }, { cwd })).toBeUndefined();
     expect(input["model"]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resumes: untierable by pi-subagents' own rule, and therefore worth a line
+// ---------------------------------------------------------------------------
+//
+// `action: "resume"` refuses a model override outright — `resumeAsyncRun` in
+// pi-subagents 0.52.1 returns "action='resume' reuses the persisted child model
+// and does not accept a model override" before doing anything else — so there
+// is nothing this module can inject. What it CAN do is stop the seat being
+// invisible: r15 resumed children twelve times and left no record of any of it.
+
+describe("resumes", () => {
+  test("a resume is recognised whatever else the call carries", () => {
+    expect(isResumeCall({ action: "resume", id: "r1" })).toBe(true);
+    expect(isResumeCall({ action: "launch", agent: "builder" })).toBe(false);
+    expect(isResumeCall({ agent: "builder" })).toBe(false);
+  });
+
+  test("the run is read from id, then runId, then dir", () => {
+    expect(resumeRunId({ id: "a", runId: "b", dir: "c" })).toBe("a");
+    expect(resumeRunId({ runId: "b", dir: "c" })).toBe("b");
+    expect(resumeRunId({ dir: "c" })).toBe("c");
+    expect(resumeRunId({})).toBeUndefined();
+    expect(resumeRunId({ id: "   " })).toBeUndefined();
+  });
+
+  test("a resume logs one untierable note and injects nothing", () => {
+    const cwd = project(BOTH);
+    const input: Record<string, unknown> = { action: "resume", id: "run-7", message: "carry on" };
+    const plan = applyModelTier({ toolName: "subagent", input, cwd, known: REGISTRY });
+    expect(plan).toEqual({ kind: "skip", why: "untierable-resume", note: "run-7" });
+    expect(input["model"]).toBeUndefined();
+    const events = tierEvents(cwd);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.verdict).toBe("pass");
+    expect(events[0]!.summary).toContain("run-7");
+    expect(events[0]!.summary).toMatch(/untierable/);
+    expect(events[0]!.detail).toMatchObject({ kind: "untierable-resume", role: "unknown" });
+  });
+
+  test("a resume that names a role records it, so the seat is accountable", () => {
+    const cwd = project(BOTH);
+    applyModelTier({
+      toolName: "subagent",
+      input: { action: "resume", agent: "builder", id: "run-8" },
+      cwd,
+      known: REGISTRY,
+    });
+    expect(tierEvents(cwd)[0]!.detail).toMatchObject({ role: "builder", run: "run-8" });
+  });
+
+  test("the note says WHY, in pi-subagents' own words", () => {
+    const cwd = project(BOTH);
+    applyModelTier({ toolName: "subagent", input: { action: "resume", id: "r" }, cwd });
+    expect((tierEvents(cwd)[0]!.detail as { why: string }).why).toContain(
+      "does not accept a model override",
+    );
+  });
+
+  test("every resume gets its own line — twelve seats are twelve entries", () => {
+    const cwd = project(BOTH);
+    for (const id of ["a", "b", "c"]) {
+      applyModelTier({ toolName: "subagent", input: { action: "resume", id }, cwd });
+    }
+    expect(tierEvents(cwd)).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unresolvableTier: the facts a refusal is written from
+// ---------------------------------------------------------------------------
+//
+// The prose lives in phase-gate.ts with every other spawn refusal; this is the
+// pure predicate it is written from. `undefined` is "nothing to report", and it
+// has to cover every ordinary case, because a false positive here refuses a
+// spawn that should have gone ahead.
+
+describe("unresolvableTier", () => {
+  test("a configured tier the registry does not know is reported, with its key", () => {
+    const stale = parseDevStageModels('{"designModel": "kimi-k3:high"}');
+    expect(unresolvableTier("reviewer", stale, REGISTRY)).toEqual({
+      key: "designModel",
+      model: "kimi-k3:high",
+    });
+    // Same config, a seat on the other tier: nothing to say.
+    expect(unresolvableTier("builder", stale, REGISTRY)).toBeUndefined();
+  });
+
+  test("a resolvable pattern, an unset tier, and a non-pipeline agent are all silent", () => {
+    expect(unresolvableTier("builder", MODELS, REGISTRY)).toBeUndefined();
+    expect(unresolvableTier("builder", parseDevStageModels("{}"), REGISTRY)).toBeUndefined();
+    expect(unresolvableTier("scout", parseDevStageModels('{"designModel": "nope/nope"}'), REGISTRY)).toBeUndefined();
+  });
+
+  // No snapshot is not evidence of a bad model. Refusing on an empty registry
+  // would make every session that cannot read one unable to spawn at all.
+  test("an empty registry snapshot reports nothing", () => {
+    const stale = parseDevStageModels('{"designModel": "kimi-k3:high"}');
+    expect(unresolvableTier("reviewer", stale, [])).toBeUndefined();
   });
 });

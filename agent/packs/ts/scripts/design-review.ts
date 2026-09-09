@@ -26,6 +26,15 @@
 // computes them, and any later edit makes the review demonstrably stale rather
 // than silently obsolete.
 //
+// THE FINDINGS TRAVEL WITH THE RECORD. r15's architect commissioned a review,
+// got a count back, and could not read what the reviewer had actually said: it
+// tried `git` three times looking for the text, then revived the reviewer as a
+// subagent purely to make it recite findings this tool had already stored. So
+// every rendering of a review — this tool's own result, and the design_gate
+// step that reads the record back out of the log — prints each finding
+// verbatim: severity, summary, and evidence. A count is an index into a
+// document nobody can open.
+//
 // Exit 0 recorded · 2 misuse (no spec.md, no contracts, malformed findings).
 // There is no exit 1: findings are not a failure, they are the deliverable.
 
@@ -90,6 +99,36 @@ export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { 
   return { ok: true, reviewed };
 }
 
+/**
+ * One indented line per finding: severity, summary, evidence. The ONE
+ * rendering, used by this gate's own output and by the `design_gate` step that
+ * replays a recorded review out of the guard log — two spellings of a finding
+ * would be two answers to "what did the reviewer say".
+ */
+export function findingLines(findings: readonly Finding[]): string[] {
+  return findings.map(
+    (f) => `  ${f.severity}: ${f.summary}${f.evidence === undefined ? "" : ` — ${f.evidence}`}`,
+  );
+}
+
+/**
+ * The findings a logged `design-review` event carries, or `[]` when its detail
+ * holds none in a readable shape.
+ *
+ * The log is written by this module and read back by design-gate, but it is
+ * still a FILE: hand-edited, truncated mid-write, or written by an older
+ * version that stored only counts. Anything that does not parse as a finding
+ * yields the empty list rather than a throw, exactly as `readGuardLog` skips a
+ * corrupt line — a review whose text cannot be recovered still happened, and
+ * the freshness check does not depend on the text.
+ */
+export function recordedFindings(detail: unknown): Finding[] {
+  const raw = (detail as { findings?: unknown } | undefined)?.findings;
+  if (!Array.isArray(raw)) return [];
+  const parsed = parseFindings(raw);
+  return parsed.ok ? parsed.findings : [];
+}
+
 /** Format the record. Pure: no I/O, no logging, no judgement of a finding. */
 export function classifyDesignReview(
   findings: readonly Finding[],
@@ -108,7 +147,7 @@ export function classifyDesignReview(
     summary,
     lines: [
       `design-review: RECORDED — ${summary}`,
-      ...findings.map((f) => `  ${f.severity}: ${f.summary}${f.evidence ? ` — ${f.evidence}` : ""}`),
+      ...findingLines(findings),
       ...(blockers.length > 0
         ? [
             "design-review: you recorded a blocker — it is a claim for the architect to settle, not a verdict; the design is not ready to freeze until it has been answered",

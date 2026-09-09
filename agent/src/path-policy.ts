@@ -117,8 +117,22 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 //     another empties it of meaning. A review the architect records of its own
 //     spec is not a second reading of it, and the whole reason the role exists
 //     is that the first reading already happened.
+/**
+ * The architect's tools that are NOT gates: they decide nothing and block
+ * nothing, so they are kept out of `GATE_TOOLS`, where "a gate" means "a
+ * verdict a phase can turn on".
+ *
+ *   · `sleep` — the wait primitive. The ROLE_TOOLS block below says what its
+ *     absence cost r15.
+ *   · `mutation_score` — the standing version of TN-26-002's hand-run mutation
+ *     matrix. Advisory by construction: it reports a number and never a
+ *     verdict, because the distribution real runs produce is not yet known and
+ *     a threshold set before that is a guess wearing a uniform.
+ */
+export const ARCHITECT_UTILITY_TOOLS: readonly string[] = ["sleep", "mutation_score"];
+
 const FORBIDDEN_ALL_ROLES = ["bash"] as const;
-const ARCHITECT_ONLY_TOOLS = ["subagent", "git"] as const;
+const ARCHITECT_ONLY_TOOLS = ["subagent", "git", ...ARCHITECT_UTILITY_TOOLS] as const;
 const BUILDER_ONLY_TOOLS = ["run_tests"] as const;
 const REVIEWER_ONLY_TOOLS = ["record_design_review"] as const;
 
@@ -183,9 +197,19 @@ export const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
 //     scripts to work out how to invoke them. A tool schema cannot be
 //     mis-invoked that way, and every call lands in the guard log — so "did
 //     the architect actually run the gate" becomes checkable, not trusted.
-//   · No `sleep` is reachable by anyone. Run 4's orchestrator ran `sleep 90`
-//     and then `sleep 60`; with no shell that failure mode stops existing
-//     rather than being a paragraph asking it not to.
+//   · `sleep` and `mutation_score` are the architect's two NON-gate tools, and
+//     they are its alone for the same reason the gates are: only the role that
+//     orchestrates has anything to wait for, and only the role that reads both
+//     sides has any use for a measurement of the suite. An earlier version of
+//     this file said no `sleep` was reachable by anyone, because Run 4's
+//     orchestrator had run `sleep 90` then `sleep 60` through a shell it no
+//     longer has. r15 showed what removing the shell actually removed: with a
+//     stalled reviewer and no wait primitive, its architect ran `design_gate`
+//     five times as a clock — four junk scaffolds, and a gate record that no
+//     longer described the project. A capability an agent genuinely needs does
+//     not disappear when you take the tool away; it reappears wearing the
+//     costume of a tool that is still there. So `sleep` is a named tool with
+//     bounds and a guard-log line, and the gates stay claims about the project.
 export const GATE_TOOLS: readonly string[] = [
   // The cheap single check, for iterating on a contract before the phase is
   // ready to advance.
@@ -222,6 +246,7 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
     "typecheck",
     "subagent",
     "git",
+    ...ARCHITECT_UTILITY_TOOLS,
     ...GATE_TOOLS,
   ],
   "test-writer": ["read", "grep", "find", "ls", "write", "edit", "remove", "typecheck"],

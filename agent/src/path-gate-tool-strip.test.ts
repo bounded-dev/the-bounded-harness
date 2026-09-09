@@ -104,6 +104,8 @@ const FULL_TOOLSET = [
   "record_design_review",
   "subagent",
   "git",
+  "sleep",
+  "mutation_score",
   "contract_purity",
   "design_gate",
   "check_drift",

@@ -2,9 +2,12 @@ import { describe, expect, test } from "vitest";
 import {
   checkSpawnPrecondition,
   checkSubagentCall,
+  checkTierResolvable,
   detectMultiSpawn,
   type PhaseEvidence,
 } from "./phase-gate.ts";
+import { parseDevStageModels } from "./dev-stage-models.ts";
+import type { KnownModel } from "./model-tier.ts";
 import { PIPELINE_ROLES } from "./path-gate.ts";
 import type { LoggedGuardEvent } from "./guard-log.ts";
 
@@ -440,7 +443,7 @@ describe("checkSubagentCall: the non-launch actions", () => {
   });
 
   // A blocked architect must still be able to inspect and steer what it started.
-  test.each(["status", "resume", "steer", "interrupt", "wait"])("%s passes through", (action) => {
+  test.each(["status", "steer", "interrupt", "wait"])("%s passes through", (action) => {
     expect(checkSubagentCall({ action, id: "run-1" }, EMPTY)).toEqual({ kind: "ignore" });
   });
 
@@ -454,5 +457,176 @@ describe("checkSubagentCall: the non-launch actions", () => {
       kind: "allow",
       target: "builder",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resumes (r15): a revived seat is a commissioned seat
+// ---------------------------------------------------------------------------
+//
+// r15's kimi architect made twelve `subagent` resume calls. Not one produced a
+// phase-gate or a model-tier event, so the run's own record could not say which
+// roles were working or on what. A resume is never refused for a PHASE reason —
+// the child exists, its preconditions were checked at launch, and blocking here
+// would strand a run — but it is recorded, and the two refusals that are about
+// the shape of a commission rather than its phase still apply.
+
+describe("resumes are recorded, not ignored", () => {
+  test("a resume that names only a run id is recorded with the role unknown", () => {
+    expect(checkSubagentCall({ action: "resume", id: "run-1", message: "carry on" }, EMPTY)).toEqual(
+      { kind: "resumed", target: "unknown", run: "run-1" },
+    );
+  });
+
+  // pi-subagents resolves the agent from the persisted run record, not from the
+  // input — so a named role is the caller's claim. Recording the claim beats
+  // recording nothing, and it is what makes a resumed `delegate` refusable.
+  test("a resume that names a role is recorded under it", () => {
+    expect(checkSubagentCall({ action: "resume", agent: "builder", id: "run-2" }, EMPTY)).toEqual({
+      kind: "resumed",
+      target: "builder",
+      run: "run-2",
+    });
+  });
+
+  test("runId and dir are accepted as the run the same way id is", () => {
+    for (const input of [
+      { action: "resume", runId: "run-3" },
+      { action: "resume", dir: "/tmp/async/run-3" },
+    ]) {
+      const v = checkSubagentCall(input, EMPTY);
+      expect(v.kind).toBe("resumed");
+      if (v.kind === "resumed") expect(v.run).toMatch(/run-3/);
+    }
+  });
+
+  test("a resume naming no run at all is still recorded, never silently nothing", () => {
+    expect(checkSubagentCall({ action: "resume", message: "go on" }, EMPTY)).toEqual({
+      kind: "resumed",
+      target: "unknown",
+      run: "unnamed run",
+    });
+  });
+
+  // The phase preconditions belong to the launch. A resume before the freeze is
+  // a child that was legitimately launched before the freeze — a reviewer, say —
+  // being spoken to again.
+  test("a resume is not subject to the phase preconditions", () => {
+    expect(checkSubagentCall({ action: "resume", agent: "test-writer", id: "r" }, EMPTY).kind).toBe(
+      "resumed",
+    );
+  });
+
+  test("resuming delegate is refused: continuing an unbound writer is still an unbound writer", () => {
+    const v = checkSubagentCall({ action: "resume", agent: "delegate", id: "r" }, READY);
+    expect(v.kind).toBe("block");
+    if (v.kind !== "block") throw new Error("expected a block");
+    expect(v.reason).toContain("delegate holds no role binding");
+    expect(v.reason).toMatch(/resuming one continues an unbound/);
+  });
+
+  test("a resume attaching a chain of pipeline roles is refused like any multi-spawn", () => {
+    const v = checkSubagentCall(
+      { action: "resume", id: "r", chain: [{ agent: "builder", task: "…" }] },
+      READY,
+    );
+    expect(v.kind).toBe("block");
+    if (v.kind !== "block") throw new Error("expected a block");
+    expect(v.reason).toContain("builder");
+    expect(v.reason).toMatch(/resume the child on its own/);
+  });
+
+  test("a resume attaching a fan-out of non-pipeline agents is left alone", () => {
+    const v = checkSubagentCall(
+      { action: "resume", id: "r", chain: [{ agent: "scout", task: "look" }] },
+      READY,
+    );
+    expect(v.kind).toBe("resumed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An unresolvable tier is a refusal, not a downtier (r15)
+// ---------------------------------------------------------------------------
+//
+// r15's first kimi reviewer ran on the session default because the project's
+// configured `kimi-k3:high` matched nothing in the registry. Injection skipped —
+// correctly, since pi-subagents throws on an unresolvable explicit model — and
+// the spawn went ahead regardless, so a judgment seat ran on a model nobody
+// chose and nothing said so. The seat's model is policy: if it cannot be
+// honoured, the seat does not run.
+
+describe("a configured tier the registry cannot resolve refuses the spawn", () => {
+  const REGISTRY: readonly KnownModel[] = [
+    { provider: "anthropic", id: "claude-opus-4" },
+    { provider: "fireworks", id: "accounts/fireworks/models/kimi-k3" },
+  ];
+  const BAD = parseDevStageModels('{"designModel": "kimi-k3:high"}');
+  const GOOD = parseDevStageModels('{"designModel": "anthropic/claude-opus-4:high"}');
+  const tiered = (models: ReturnType<typeof parseDevStageModels>, known = REGISTRY): PhaseEvidence => ({
+    ...READY,
+    models,
+    known,
+  });
+
+  test("the reviewer is refused when designModel names no model the registry knows", () => {
+    const v = checkSubagentCall({ agent: "reviewer", task: "read it" }, tiered(BAD));
+    expect(v.kind).toBe("block");
+  });
+
+  // The message has to carry everything needed to fix it in one turn: which
+  // file, which key, which pattern, and both ways out.
+  test("the refusal names the config file, the key, the bad pattern and the fix", () => {
+    const v = checkSubagentCall({ agent: "reviewer", task: "read it" }, tiered(BAD));
+    if (v.kind !== "block") throw new Error("expected a block");
+    expect(v.reason).toContain(".pi/dev-stage-models.json");
+    expect(v.reason).toContain("designModel");
+    expect(v.reason).toContain("kimi-k3:high");
+    expect(v.reason).toContain("pi --list-models");
+    expect(v.reason).toMatch(/remove the key/);
+  });
+
+  test("a resolvable tier is no obstacle at all", () => {
+    expect(checkSubagentCall({ agent: "reviewer", task: "read it" }, tiered(GOOD))).toEqual({
+      kind: "allow",
+      target: "reviewer",
+    });
+  });
+
+  // The never-fatal rule for the config itself is untouched: every way of
+  // having NO policy means allowed.
+  test("no config, no key for this tier, and no registry snapshot all allow the spawn", () => {
+    const noKey = parseDevStageModels('{"workerModel": "anthropic/claude-opus-4"}');
+    for (const evidence of [
+      READY, // models absent entirely — the caller could not read them
+      tiered(parseDevStageModels("{}")),
+      tiered(noKey), // reviewer draws on designModel, which is unset
+      tiered(BAD, []), // no snapshot ⇒ no evidence ⇒ no refusal
+      tiered(parseDevStageModels("not json at all")),
+    ]) {
+      expect(checkSubagentCall({ agent: "reviewer", task: "read it" }, evidence).kind).toBe("allow");
+    }
+  });
+
+  test("an agent with no tier — scout, delegate's read-only cousins — is never affected", () => {
+    expect(checkSubagentCall({ agent: "scout" }, tiered(BAD))).toEqual({
+      kind: "allow",
+      target: "scout",
+    });
+  });
+
+  // Order matters for the message the architect reads: one problem at a time,
+  // upstream first. A spawn that is too early is too early whatever model it
+  // would have used.
+  test("a phase precondition is reported before the tier", () => {
+    const v = checkSubagentCall({ agent: "builder", task: "…" }, { ...EMPTY, models: BAD, known: REGISTRY });
+    if (v.kind !== "block") throw new Error("expected a block");
+    expect(v.reason).toMatch(/no \*\.contract\.ts/);
+  });
+
+  test("checkTierResolvable is silent when there is nothing to say", () => {
+    expect(checkTierResolvable("reviewer", tiered(GOOD))).toBeUndefined();
+    expect(checkTierResolvable("reviewer", READY)).toBeUndefined();
+    expect(checkTierResolvable("scout", tiered(BAD))).toBeUndefined();
   });
 });

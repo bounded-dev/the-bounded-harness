@@ -59,6 +59,7 @@ import {
   recordToolStrip,
 } from "../src/path-gate.ts";
 import type { Role } from "../src/path-policy.ts";
+import { knownModels } from "./model-tier.ts";
 
 // This file lives at <harness>/extensions/path-gate.ts, so the harness root is
 // its parent's parent. Derived rather than configured: it must stay correct
@@ -150,6 +151,10 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
       input,
       cwd: ctx.cwd,
       harnessRoot: HARNESS_ROOT,
+      // Only a `subagent` call consults it, and the gate treats an empty
+      // snapshot as "cannot tell", so reading it on every call is safe as well
+      // as simpler than deciding here which calls will want it.
+      known: knownModels(ctx),
     };
 
     // Suppression is checked per CALL, not at install: extensions load in an

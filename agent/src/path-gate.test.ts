@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { logGuardEvent, readGuardLog } from "./guard-log.ts";
 import { asRole, evaluatePathGate, PIPELINE_ROLES } from "./path-gate.ts";
+import { devStageModelsPath } from "./dev-stage-models.ts";
+import type { KnownModel } from "./model-tier.ts";
 
 // TN-26-001 Phase 2: the path-gate's testable core — event + role + cwd →
 // {block,reason} | undefined, including the guard-log side effect on a block.
@@ -286,5 +288,143 @@ describe("delegate is refused inside the pipeline only", () => {
     });
     expect(result).toBeUndefined();
     expect(phaseEvents(cwd)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resumes are recorded here, because nothing else was recording them (r15)
+// ---------------------------------------------------------------------------
+
+describe("resuming a child", () => {
+  test("a resume passes and lands in the log as a commissioned seat", () => {
+    const cwd = readyProject();
+    const result = evaluatePathGate({
+      role: "architect",
+      toolName: "subagent",
+      input: { action: "resume", id: "run-42", message: "the red gate says X" },
+      cwd,
+    });
+    expect(result).toBeUndefined();
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({
+      verdict: "pass",
+      summary: "resumed unknown (run-42)",
+      detail: { kind: "resume", target: "unknown", run: "run-42" },
+    });
+  });
+
+  test("a resume that names a role records it", () => {
+    const cwd = readyProject();
+    evaluatePathGate({
+      role: "architect",
+      toolName: "subagent",
+      input: { action: "resume", agent: "builder", id: "run-9" },
+      cwd,
+    });
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({
+      summary: "resumed builder (run-9)",
+      detail: { kind: "resume", target: "builder", run: "run-9" },
+    });
+  });
+
+  test("resuming delegate is refused and logged like any other spawn refusal", () => {
+    const cwd = readyProject();
+    const result = evaluatePathGate({
+      role: "architect",
+      toolName: "subagent",
+      input: { action: "resume", agent: "delegate", id: "run-3" },
+      cwd,
+    });
+    expect(result?.block).toBe(true);
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({
+      verdict: "block",
+      detail: { kind: "spawn-refused", target: "delegate" },
+    });
+  });
+
+  // status/steer/wait remain untouched: they inspect, they do not commission.
+  test("the other management actions still write nothing", () => {
+    const cwd = readyProject();
+    for (const action of ["status", "steer", "wait", "interrupt"]) {
+      evaluatePathGate({
+        role: "architect",
+        toolName: "subagent",
+        input: { action, id: "run-1" },
+        cwd,
+      });
+    }
+    expect(phaseEvents(cwd)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The seat's model is policy: an unresolvable tier refuses the spawn (r15)
+// ---------------------------------------------------------------------------
+
+describe("a tier the registry cannot resolve", () => {
+  const REGISTRY: readonly KnownModel[] = [{ provider: "anthropic", id: "claude-opus-4" }];
+
+  function tiered(config: string): string {
+    const cwd = readyProject();
+    const path = devStageModelsPath(cwd);
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(path, config);
+    return cwd;
+  }
+
+  test("the spawn is refused, and the refusal names the file and the pattern", () => {
+    const cwd = tiered('{"designModel": "kimi-k3:high"}');
+    const result = evaluatePathGate({
+      role: "architect",
+      toolName: "subagent",
+      input: { agent: "reviewer", task: "read the design" },
+      cwd,
+      known: REGISTRY,
+    });
+    expect(result?.block).toBe(true);
+    expect(result!.reason).toContain(".pi/dev-stage-models.json");
+    expect(result!.reason).toContain("kimi-k3:high");
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({
+      verdict: "block",
+      detail: { kind: "spawn-refused", target: "reviewer" },
+    });
+  });
+
+  test("a resolvable tier commissions normally", () => {
+    const cwd = tiered('{"designModel": "anthropic/claude-opus-4:high"}');
+    const result = evaluatePathGate({
+      role: "architect",
+      toolName: "subagent",
+      input: { agent: "reviewer", task: "read the design" },
+      cwd,
+      known: REGISTRY,
+    });
+    expect(result).toBeUndefined();
+    expect(phaseEvents(cwd).at(-1)).toMatchObject({ summary: "commissioned reviewer" });
+  });
+
+  // Never fatal: no snapshot, no config, and a broken config all commission.
+  test("without a registry snapshot the same bad config commissions", () => {
+    const cwd = tiered('{"designModel": "kimi-k3:high"}');
+    expect(
+      evaluatePathGate({
+        role: "architect",
+        toolName: "subagent",
+        input: { agent: "reviewer" },
+        cwd,
+      }),
+    ).toBeUndefined();
+  });
+
+  test("a malformed config is ignored, not fatal", () => {
+    const cwd = tiered("{ this is not json");
+    expect(
+      evaluatePathGate({
+        role: "architect",
+        toolName: "subagent",
+        input: { agent: "reviewer" },
+        cwd,
+        known: REGISTRY,
+      }),
+    ).toBeUndefined();
   });
 });

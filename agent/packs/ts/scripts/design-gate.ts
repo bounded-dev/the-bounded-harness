@@ -16,6 +16,16 @@
 // review EXISTS and that it covers the current bytes, which is the half a
 // machine can decide.
 //
+// It also REPLAYS the findings verbatim. Not judging a finding is not the same
+// as not showing it, and the two were conflated: the step printed "fresh (3
+// findings, 1 blocker)" and stopped. The reviewer holds `record_design_review`
+// and the architect does not, so the count was the only thing about the review
+// the architect could ever see — and r15's architect duly went looking for the
+// text, tried `git` three times, and finally revived the reviewer to make it
+// recite what this gate was already holding. Printing the claims costs nothing
+// and settles them one round-trip earlier; judging them is still nobody's job
+// here.
+//
 // Why a composite at all. The four steps were four architect tool calls with a
 // mandatory order, and the order lived in prose. Across dogfood runs that cost
 // 3–6 minutes per ticket of round-trips, plus the ordering fumbles prose always
@@ -40,7 +50,8 @@ import { realpathSync } from "node:fs";
 import { runContractPurity } from "./contract-purity.ts";
 import { runScaffold } from "./scaffold-contract.ts";
 import { diffManifests, hasDrift, hasManifest, runChecksumGate } from "./checksum-gate.ts";
-import { readReviewed, type Reviewed } from "./design-review.ts";
+import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
+import type { Finding } from "./sign-off.ts";
 import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
@@ -189,12 +200,21 @@ async function runProjectTypecheck(cwd: string): Promise<{ code: number; lines: 
 /**
  * What the guard log says about the design AS IT NOW STANDS.
  *
- * `fresh` carries the counts rather than the findings: this gate reports that a
- * review happened and never reads what it said. Judging a finding is the
- * architect's call, and a gate that could judge one would not need a reviewer.
+ * `fresh` carries the counts AND the findings themselves. The counts are what
+ * the gate reasons about (nothing here judges a finding — that is the
+ * architect's call, and a gate that could judge one would not need a
+ * reviewer); the findings are what it hands on, because the architect cannot
+ * reach them any other way.
  */
 export type ReviewFreshness =
-  | { readonly state: "fresh"; readonly at: string; readonly findings: number; readonly blockers: number }
+  | {
+      readonly state: "fresh";
+      readonly at: string;
+      readonly findings: number;
+      readonly blockers: number;
+      /** The claims themselves, as the reviewer recorded them. */
+      readonly recorded: readonly Finding[];
+    }
   | { readonly state: "missing" }
   | {
       readonly state: "stale";
@@ -218,8 +238,17 @@ function reviewedBytes(event: LoggedGuardEvent): Reviewed | undefined {
   return out;
 }
 
-/** Findings and blockers as the review recorded them; a malformed detail counts zero. */
-function reviewCounts(event: LoggedGuardEvent): { findings: number; blockers: number } {
+/**
+ * What the review said: the counts the gate reasons about, and the claims it
+ * replays. A malformed detail counts zero and replays nothing — an older event
+ * that recorded only severities still yields its counts, which is why the
+ * counts are not simply `recorded.length`.
+ */
+function reviewCounts(event: LoggedGuardEvent): {
+  findings: number;
+  blockers: number;
+  recorded: Finding[];
+} {
   const detail = event.detail as
     | { findings?: unknown; severities?: unknown; blockers?: unknown }
     | undefined;
@@ -230,6 +259,7 @@ function reviewCounts(event: LoggedGuardEvent): { findings: number; blockers: nu
       typeof detail?.blockers === "number"
         ? detail.blockers
         : severities.filter((s) => s === "blocker").length,
+    recorded: recordedFindings(event.detail),
   };
 }
 
@@ -305,6 +335,9 @@ export function reviewStepOutcome(freshness: ReviewFreshness): {
         lines: [
           `design-review: fresh (${count(freshness.findings, "finding")}, ` +
             `${count(freshness.blockers, "blocker")}, recorded ${clock(freshness.at)})`,
+          // Verbatim, because you hold no `record_design_review` and this is
+          // the only place the reviewer's words reach you.
+          ...findingLines(freshness.recorded),
           ...(freshness.blockers > 0
             ? [
                 `design-review: ${count(freshness.blockers, "blocker")} recorded — advisory: the freeze does not wait on it`,
