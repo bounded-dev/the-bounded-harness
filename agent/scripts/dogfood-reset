@@ -6,6 +6,20 @@
 #   dogfood-reset --bare              # ONLY the bare arm
 #   dogfood-reset <prompt-file>       # any other prompt
 #
+#   dogfood-reset --design-model <pattern>   # the judgment seats' model
+#   dogfood-reset --worker-model <pattern>   # the production seats' model
+#
+# The two model flags set the harnessed arm's per-project model tiers (issue
+# #13): `designModel` is what the architect and the reviewer run on,
+# `workerModel` what the test-writer and the builder run on. A <pattern> is
+# pi's model pattern and carries the thinking level with it, so one string
+# sets both — `anthropic/claude-opus-4:high`, `fireworks/kimi-k3-fast:medium`.
+# Either flag may be given alone; whichever is omitted leaves that tier on the
+# session default. Both are written to `.pi/dev-stage-models.json` in the
+# harnessed arm and echoed in the summary, so the run's configuration is
+# visible rather than remembered. They do nothing for the bare arm, which has
+# no pipeline seats to tier.
+#
 # Reset one arm when the other is mid-run: a run dies for one-sided reasons
 # (wrong model, a broken skill) far more often than for both at once, and
 # wiping a healthy arm to restart a dead one throws away good data.
@@ -18,7 +32,13 @@
 #
 # The harnessed arm binds the architect role itself through
 # `.pi/dev-stage-role`, so plain `pi` is gated — read anything, write only
-# spec.md and *.contract.ts, no bash. Nothing to launch specially.
+# spec.md and *.contract.ts, no bash. Nothing to launch specially, and no
+# per-arm tool config: the path-gate extension REMOVES the architect's
+# forbidden tools from the session's toolset at session start, so the arm
+# gets the same "the tool was never there" property a subagent gets from its
+# frontmatter allowlist. (pi has no settings key for this — `defaultTools`
+# covers built-in tools only and leaves extension tools enabled — which is
+# why it is done in the extension rather than written into the arm's `.pi/`.)
 #
 # Both arms get an identical operational AGENTS.md. The prompt lives ONLY in
 # docs/dogfood/ — the arms carry no copy, so there is nothing to drift and
@@ -46,15 +66,31 @@ HARNESS="$AGENT"
 REPO="$(cd -P "$HARNESS/.." && pwd)"
 
 WHICH=both
+DESIGN_MODEL=""
+WORKER_MODEL=""
 ARGS=()
-for a in "$@"; do
-  case "$a" in
+# An index walk rather than `for a in "$@"`: the model flags take a value, and
+# a value-taking flag needs to consume the argument after it.
+while [ $# -gt 0 ]; do
+  case "$1" in
     --harnessed) WHICH=harnessed ;;
     --bare)      WHICH=bare ;;
     --both)      WHICH=both ;;
-    *)           ARGS+=("$a") ;;
+    --design-model)
+      shift; [ $# -gt 0 ] || { echo "dogfood-reset: --design-model needs a pi model pattern" >&2; exit 2; }
+      DESIGN_MODEL="$1" ;;
+    --worker-model)
+      shift; [ $# -gt 0 ] || { echo "dogfood-reset: --worker-model needs a pi model pattern" >&2; exit 2; }
+      WORKER_MODEL="$1" ;;
+    *)           ARGS+=("$1") ;;
   esac
+  shift
 done
+
+# Only the harnessed arm has seats to tier. Saying so beats a silent no-op.
+if [ "$WHICH" = "bare" ] && { [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; }; then
+  echo "dogfood-reset: --design-model/--worker-model apply to the harnessed arm only — ignored" >&2
+fi
 
 PROMPT_SRC="${ARGS[0]:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
 [ -f "$PROMPT_SRC" ] || { echo "dogfood-reset: no prompt at $PROMPT_SRC" >&2; exit 2; }
@@ -119,6 +155,22 @@ autosave() {
       -m "Auto-archived by dogfood-reset before wiping the $arm arm." \
       || echo "dogfood-reset: WARNING — archive failed; the arm was NOT wiped" >&2
   fi
+}
+
+# `.pi/dev-stage-models.json` — the per-project model tiers the harness reads
+# at every subagent spawn (agent/src/dev-stage-models.ts). A key that is not
+# set is simply absent: the reader treats a missing key as "no override", and
+# an empty string as a malformed value it warns about.
+write_models_json() {
+  local path="$1" design="$2" worker="$3" body=""
+  if [ -n "$design" ]; then
+    body="  \"designModel\": \"$design\""
+  fi
+  if [ -n "$worker" ]; then
+    if [ -n "$body" ]; then body="$body,"$'\n'; fi
+    body="$body  \"workerModel\": \"$worker\""
+  fi
+  printf '{\n%s\n}\n' "$body" > "$path"
 }
 
 scaffold() {
@@ -194,9 +246,16 @@ if [ "$WHICH" != "bare" ]; then
   scaffold "$HARNESSED" "$HARNESSED_LINE"
   # Only the harnessed arm is gated. The role is read from this file at session
   # start, so a plain `pi` in this directory IS the architect — no launcher, no
-  # flag, nothing to remember.
+  # flag, nothing to remember — and the same read strips bash, run_tests and
+  # record_design_review out of the toolset before the first turn.
   mkdir -p "$HARNESSED/.pi"
   printf 'architect\n' > "$HARNESSED/.pi/dev-stage-role"
+  # The model tiers live beside the role, read from the same `.pi/` at spawn
+  # time. Written only when asked for: an absent file means every seat runs on
+  # the session default, which is the pre-#13 behaviour and a valid arm.
+  if [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; then
+    write_models_json "$HARNESSED/.pi/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
+  fi
   ( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
 fi
 
@@ -212,6 +271,13 @@ if [ -d "$BARE" ] && [ -d "$HARNESSED" ]; then
   fi
 fi
 
+# The tier pair is reported every time, set or not: "which models did that run
+# use" is the first question asked of a timing result, and an unstated default
+# is the answer nobody can reconstruct a week later.
+MODEL_SUMMARY="  Model tiers (harnessed arm):
+      designModel (architect, reviewer)   ${DESIGN_MODEL:-<session default>}
+      workerModel (test-writer, builder)  ${WORKER_MODEL:-<session default>}"
+
 cat <<EOF
 
 Both arms ready. Operational blocks verified identical.
@@ -219,7 +285,11 @@ Both arms ready. Operational blocks verified identical.
   cd $BARE
       run Claude Code
   cd $HARNESSED
-      run pi                (gated as the architect automatically)
+      run pi                (gated as the architect automatically;
+                             bash, run_tests and record_design_review
+                             are absent from the toolset, not just refused)
+
+$MODEL_SUMMARY
 
   Paste the prompt from: $RENDERED_PROMPT
 
