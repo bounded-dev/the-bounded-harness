@@ -6,6 +6,7 @@ import ts from "typescript";
 import {
   HOSTILE_INPUT_EXPRESSIONS,
   ValueObjectLawsError,
+  hostileExpressionsFor,
   implementationModuleFor,
   lawsPathFor,
   valueObjectLawsSource,
@@ -59,7 +60,9 @@ describe("output path and implementation specifier", () => {
 describe("valueObjectsOf", () => {
   test("an exported class is a value object; @accepts tags are collected in order", () => {
     expect(valueObjectsOf(CURRENCY, CONTRACT)).toEqual([
-      { name: "Currency", accepts: ['"USD"', '"EUR"'], hasEquals: true },
+      // base "string" is inferred from the @accepts examples: Currency's nominal
+      // field is `code`, not `value`, so the field read falls through.
+      { name: "Currency", accepts: ['"USD"', '"EUR"'], hasEquals: true, base: "string" },
     ]);
   });
 
@@ -397,5 +400,226 @@ describe("the generated file typechecks under the dogfood tsconfig", () => {
         ),
       }),
     ).toEqual([]);
+  });
+});
+
+// --- base-typed hostile inputs (ADR 2026-024, dogfood run r17) -----------------
+//
+// r17's cockpit domain was the first with NUMERIC value objects. The universal
+// hostile corpus asserted that `parse(0)` and `parse(-1)` MUST return undefined,
+// but a Kelvin of 0–80 or a Fraction of 0–1 correctly ACCEPTS them — and the
+// equality laws call `parse(<@accepts example>)` and REQUIRE success, so the
+// same call was both required to pass and asserted hostile. The fix filters the
+// corpus by the VO's base primitive.
+
+/** Run a generated laws file for real: transpile to CJS, feed it a tiny vitest
+ *  shim and the given implementation modules, and return the law failures. A
+ *  green suite returns []. This is the end-to-end that a source-shape assertion
+ *  alone cannot give — it proves a correct impl actually passes every law. */
+function runGeneratedLaws(source: string, modules: Record<string, unknown>): string[] {
+  const js = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const failures: string[] = [];
+  const fmt = (v: unknown): string => {
+    try {
+      return typeof v === "bigint" ? `${v}n` : JSON.stringify(v) ?? String(v);
+    } catch {
+      return String(v);
+    }
+  };
+  const deepEqual = (a: unknown, b: unknown): boolean => {
+    if (Object.is(a, b)) return true;
+    if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+    const ak = Reflect.ownKeys(a as object);
+    const bk = Reflect.ownKeys(b as object);
+    if (ak.length !== bk.length) return false;
+    return ak.every(
+      (k) =>
+        Object.prototype.hasOwnProperty.call(b, k) &&
+        deepEqual((a as Record<PropertyKey, unknown>)[k], (b as Record<PropertyKey, unknown>)[k]),
+    );
+  };
+
+  const matchers = (actual: unknown) => ({
+    toBe: (e: unknown) => {
+      if (!Object.is(actual, e)) throw new Error(`expected ${fmt(actual)} toBe ${fmt(e)}`);
+    },
+    toEqual: (e: unknown) => {
+      if (!deepEqual(actual, e)) throw new Error(`expected ${fmt(actual)} toEqual ${fmt(e)}`);
+    },
+    toStrictEqual: (e: unknown) => {
+      if (!deepEqual(actual, e)) throw new Error(`expected ${fmt(actual)} toStrictEqual ${fmt(e)}`);
+    },
+    not: {
+      toBe: (e: unknown) => {
+        if (Object.is(actual, e)) throw new Error(`expected ${fmt(actual)} not toBe ${fmt(e)}`);
+      },
+    },
+  });
+  const expect = Object.assign((actual: unknown) => matchers(actual), {
+    fail: (m: string) => {
+      throw new Error(m);
+    },
+  });
+  const test = Object.assign(
+    (name: string, fn: () => void) => {
+      try {
+        fn();
+      } catch (e) {
+        failures.push(`${name}: ${(e as Error).message}`);
+      }
+    },
+    { skip: () => {} },
+  );
+  const describe = (_name: string, fn: () => void) => fn();
+  const vitest = { describe, test, expect };
+
+  const require = (id: string): unknown => {
+    if (id === "vitest") return vitest;
+    if (id in modules) return modules[id];
+    throw new Error(`unexpected import ${id}`);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  new Function("require", "exports", "module", js)(require, {}, { exports: {} });
+  return failures;
+}
+
+const IMPL = "./impl.js";
+
+// A correct range-checking numeric value object: accepts 0..80 inclusive
+// (so parse(0) and parse(20) succeed), rejects out-of-range, NaN, Infinity and
+// every non-number. This is what the architect refused to break in r17.
+class KelvinImpl {
+  private constructor(readonly value: number) {}
+  static parse(raw: unknown): KelvinImpl | undefined {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
+    if (raw < 0 || raw > 80) return undefined;
+    return new KelvinImpl(raw);
+  }
+}
+
+const KELVIN = `/**
+ * Absolute temperature in the cockpit range.
+ * @accepts 20
+ */
+export declare class Kelvin {
+  private readonly __brand: "Kelvin";
+  private constructor();
+  readonly value: number;
+  static parse(raw: unknown): Kelvin | undefined;
+}
+`;
+
+describe("numeric value objects: 0 and -1 are range decisions, not hostile", () => {
+  test("base is read from the nominal `readonly value: number` field", () => {
+    const [kelvin] = valueObjectsOf(KELVIN, CONTRACT);
+    expect(kelvin?.base).toBe("number");
+  });
+
+  test("Kelvin's hostile set drops 0/-1 but keeps cross-type and pathological inputs", () => {
+    const [kelvin] = valueObjectsOf(KELVIN, CONTRACT);
+    const hostiles = hostileExpressionsFor(kelvin!);
+    // The r17 bug: these two were asserted hostile to a numeric VO.
+    expect(hostiles).not.toContain("0");
+    expect(hostiles).not.toContain("-1");
+    // Cross-type inputs (strings, booleans, bigint, containers) and same-type
+    // pathological sentinels stay hostile — a Kelvin must still reject them all.
+    expect(hostiles).toEqual(
+      expect.arrayContaining([
+        "undefined",
+        "null",
+        "true",
+        "false",
+        "NaN",
+        "Infinity",
+        '""',
+        '" "',
+        "[]",
+        "{}",
+        "9007199254740993n",
+      ]),
+    );
+  });
+
+  test("a correct range-checking Kelvin passes every generated law (end to end)", () => {
+    const source = valueObjectLawsSource(KELVIN, CONTRACT, { implementationModule: IMPL });
+    expect(runGeneratedLaws(source, { [IMPL]: { Kelvin: KelvinImpl } })).toEqual([]);
+  });
+
+  test("the pre-fix corpus WOULD have failed this impl — 0 and -1 were the culprits", () => {
+    // Prove the reproduce is real: had the law asserted on 0/-1 (the old
+    // behaviour), KelvinImpl.parse(0) succeeding would have named them.
+    const wronglyAccepted = HOSTILE_INPUT_EXPRESSIONS.filter((expr) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const raw = new Function(`return (${expr});`)();
+      return KelvinImpl.parse(raw) !== undefined;
+    });
+    expect(wronglyAccepted).toEqual(["0"]); // -1 is out of range; 0 is the accepted boundary
+  });
+});
+
+describe("string value objects still reject cross-type numbers, not range-dependent strings", () => {
+  const ISBN = `export declare class Isbn {
+     private readonly __brand: "Isbn";
+     private constructor();
+     readonly value: string;
+     /** @accepts "9780306406157" */
+     static parse(raw: unknown): Isbn | undefined;
+     equals(other: Isbn): boolean;
+   }`;
+
+  class IsbnImpl {
+    private constructor(readonly value: string) {}
+    static parse(raw: unknown): IsbnImpl | undefined {
+      return typeof raw === "string" && /^\d{13}$/.test(raw) ? new IsbnImpl(raw) : undefined;
+    }
+    equals(other: IsbnImpl): boolean {
+      return this.value === other.value;
+    }
+  }
+
+  test("base is read from `readonly value: string`", () => {
+    const [isbn] = valueObjectsOf(ISBN, CONTRACT);
+    expect(isbn?.base).toBe("string");
+  });
+
+  test("cross-type numbers stay hostile; same-type empty/blank strings do not", () => {
+    const [isbn] = valueObjectsOf(ISBN, CONTRACT);
+    const hostiles = hostileExpressionsFor(isbn!);
+    expect(hostiles).toEqual(expect.arrayContaining(["0", "-1", "NaN", "Infinity"]));
+    expect(hostiles).not.toContain('""');
+    expect(hostiles).not.toContain('" "');
+  });
+
+  test("a correct Isbn passes every generated law (end to end)", () => {
+    const source = valueObjectLawsSource(ISBN, CONTRACT, { implementationModule: IMPL });
+    expect(runGeneratedLaws(source, { [IMPL]: { Isbn: IsbnImpl } })).toEqual([]);
+  });
+});
+
+describe("a VO's hostile set never contains its own @accepts examples (belt and braces)", () => {
+  test("a numeric VO that accepts 0 excludes 0 from its hostile set", () => {
+    const [zero] = valueObjectsOf(
+      `/** @accepts 0 */
+       export declare class Zero {
+         readonly value: number;
+         static parse(raw: unknown): Zero | undefined;
+       }`,
+      CONTRACT,
+    );
+    expect(hostileExpressionsFor(zero!)).not.toContain("0");
+  });
+
+  test("across a multi-VO contract, no VO's hostile set overlaps its @accepts", () => {
+    const contract = `/** @accepts 20 */
+      export declare class Kelvin { readonly value: number; static parse(raw: unknown): Kelvin | undefined; }
+      /** @accepts "USD" */
+      export declare class Currency { readonly value: string; static parse(raw: unknown): Currency | undefined; }`;
+    for (const vo of valueObjectsOf(contract, CONTRACT)) {
+      const hostiles = hostileExpressionsFor(vo);
+      for (const accepted of vo.accepts) expect(hostiles).not.toContain(accepted);
+    }
   });
 });

@@ -59,9 +59,19 @@ function fail(message: string): never {
 }
 
 /**
- * Inputs no value object may accept, whatever its domain — verbatim expression
- * source, emitted into the generated file as a named const so a failure can
- * name which ones wrongly passed.
+ * The UNIVERSAL hostile-input corpus — verbatim expression source, emitted into
+ * the generated file as a named const so a failure can name which ones wrongly
+ * passed. Every entry is hostile to SOME value object; which entries are hostile
+ * to a GIVEN one depends on its base primitive (see `hostileExpressionsFor`).
+ *
+ * The rule (ADR 2026-024): an input is hostile to a value object iff it is
+ * CROSS-TYPE to the VO's base primitive, OR a SAME-TYPE pathological sentinel no
+ * VO of that base could accept (`NaN`/`Infinity` for `number`). A same-type
+ * ORDINARY value — `0`/`-1` for a numeric base, `""`/`" "` for a string base —
+ * is a RANGE decision this law cannot make (a Kelvin of 0–80 accepts 0; a
+ * Percent rejects -1), so it is left to the test-writer's boundaries block.
+ * Cross-type inputs stay hostile for every base: a string VO must still reject
+ * the number 0, a numeric VO must reject "" and [].
  */
 export const HOSTILE_INPUT_EXPRESSIONS: readonly string[] = [
   "undefined",
@@ -81,6 +91,73 @@ export const HOSTILE_INPUT_EXPRESSIONS: readonly string[] = [
   "new Date()",
   "9007199254740993n",
 ];
+
+/** Base primitives a value object can wrap — the domains we can filter against.
+ *  A base outside this set (or an undetectable one) keeps the whole corpus. */
+const KNOWN_PRIMITIVES: ReadonlySet<string> = new Set(["number", "string", "boolean", "bigint", "symbol"]);
+
+/** Static typeof-classification of each fixed corpus expression. `undefined` and
+ *  `null` are given kinds that match no base, so they stay hostile everywhere. */
+const HOSTILE_KIND: Readonly<Record<string, string>> = {
+  undefined: "undefined",
+  null: "null",
+  true: "boolean",
+  false: "boolean",
+  "0": "number",
+  "-1": "number",
+  NaN: "number",
+  Infinity: "number",
+  '""': "string",
+  '" "': "string",
+  "[]": "object",
+  "{}": "object",
+  "() => {}": "function",
+  'Symbol("x")': "symbol",
+  "new Date()": "object",
+  "9007199254740993n": "bigint",
+};
+
+/** Same-type sentinels that NO value object of the base could accept, so they
+ *  stay hostile even though their typeof matches the base. */
+const PATHOLOGICAL_SAME_TYPE: Readonly<Record<string, ReadonlySet<string>>> = {
+  number: new Set(["NaN", "Infinity"]),
+};
+
+const NO_PATHOLOGICAL: ReadonlySet<string> = new Set();
+
+/** Classify a single `@accepts` example expression to its base primitive, for
+ *  the fallback when the nominal shape carries no `readonly value` field. */
+function classifyLiteral(expr: string): string | undefined {
+  const t = expr.trim();
+  if (/^["'`]/.test(t)) return "string";
+  if (/^[-+]?\d[\d_]*n$/.test(t)) return "bigint";
+  if (/^[-+]?(\d[\d_]*(\.\d*)?|\.\d+)(e[-+]?\d+)?$/i.test(t)) return "number";
+  if (t === "NaN" || t === "Infinity" || t === "-Infinity" || t === "+Infinity") return "number";
+  if (t === "true" || t === "false") return "boolean";
+  return undefined;
+}
+
+/**
+ * The corpus entries hostile to THIS value object. Cross-type entries and
+ * same-type pathological sentinels are kept; same-type ordinary values are
+ * dropped as range decisions. A VO's own `@accepts` example is ALWAYS excluded
+ * (belt and braces): the equality laws call `parse(example)` and REQUIRE it to
+ * succeed, so it can never also be asserted hostile — the contradiction that
+ * blocked dogfood run r17. When the base is unknown we keep the whole corpus and
+ * still honour that exclusion (fail safe toward more rejection).
+ */
+export function hostileExpressionsFor(vo: ValueObjectInfo): readonly string[] {
+  const base = vo.base;
+  const known = base !== undefined && KNOWN_PRIMITIVES.has(base);
+  const pathological = base !== undefined ? (PATHOLOGICAL_SAME_TYPE[base] ?? NO_PATHOLOGICAL) : NO_PATHOLOGICAL;
+  return HOSTILE_INPUT_EXPRESSIONS.filter((expr) => {
+    if (vo.accepts.includes(expr)) return false;
+    if (!known) return true;
+    const kind = HOSTILE_KIND[expr];
+    if (kind !== base) return true; // cross-type: hostile to every base
+    return pathological.has(expr); // same-type: only pathological sentinels
+  });
+}
 
 // --- paths --------------------------------------------------------------------
 
@@ -120,8 +197,28 @@ export interface ValueObjectInfo {
   /** Verbatim expression texts from JSDoc `@accepts` tags, in source order. */
   readonly accepts: readonly string[];
   readonly hasEquals: boolean;
+  /** The base primitive this value object wraps ("number" | "string" | …), read
+   *  from the nominal `readonly value: <primitive>` field (ADR 2026-015) or, when
+   *  absent, inferred from the first `@accepts` example. Absent when unknowable,
+   *  in which case the whole hostile corpus is kept. Drives `hostileExpressionsFor`. */
+  readonly base?: string;
   /** Why this class gets no executable laws. Absent when it gets them. */
   readonly unsupported?: string;
+}
+
+/** The base primitive from the nominal `readonly value: <primitive>` field
+ *  (ADR 2026-015), else the first `@accepts` example's literal type, else
+ *  undefined. Kept only when it names a primitive we know how to filter. */
+function baseOf(cls: ClassDeclaration, accepts: readonly string[]): string | undefined {
+  const prop = cls.getProperty("value");
+  const fromField = prop?.getTypeNode()?.getText() ?? cls.getGetAccessor("value")?.getReturnTypeNode()?.getText();
+  if (fromField !== undefined && KNOWN_PRIMITIVES.has(fromField)) return fromField;
+  const first = accepts[0];
+  if (first !== undefined) {
+    const inferred = classifyLiteral(first);
+    if (inferred !== undefined) return inferred;
+  }
+  return undefined;
 }
 
 /** Static `parse(raw: unknown)` is the single door in; without it there is
@@ -222,7 +319,14 @@ export function valueObjectsOf(contractSource: string, contractFileName: string)
       unsupported = checkParse(stmt, name);
     }
 
-    out.push(unsupported === undefined ? { name, accepts, hasEquals } : { name, accepts, hasEquals, unsupported });
+    const base = baseOf(stmt, accepts);
+    out.push({
+      name,
+      accepts,
+      hasEquals,
+      ...(base !== undefined ? { base } : {}),
+      ...(unsupported !== undefined ? { unsupported } : {}),
+    });
   }
   return out;
 }
@@ -244,8 +348,11 @@ const HEADER = (contractBase: string): readonly string[] => [
   "// The laws that hold for EVERY value object, whatever the domain: parse refuses",
   "// junk, equality is by value, parsing is deterministic. What these CANNOT cover",
   '// is an input of the right base type and the wrong value — "usd" is a string,',
-  "// and only someone thinking about currencies knows it must fail. That is the",
-  '// test-writer\'s `<Name> — boundaries` block (see ts-contract-authoring).',
+  "// and only someone thinking about currencies knows it must fail. Likewise a",
+  "// same-type value at the edge of a range — 0 for a Kelvin, -1 for a Percent —",
+  "// is a domain decision this file cannot make, so the hostile-input law does",
+  "// not assert on it. Both belong to the test-writer's `<Name> — boundaries`",
+  "// block (see ts-contract-authoring).",
   "//",
   "// Two properties of this file are forced by the red gate, which rejects any",
   "// failure that is not a NotImplementedError:",
@@ -362,9 +469,21 @@ function writeLaws(w: CodeBlockWriter, vo: ValueObjectInfo, contractBase: string
   }
 
   // Law 1 — needs no example, so it runs for every value object.
+  const hostiles = hostileExpressionsFor(vo);
   w.write(`test("refuses every hostile input", () => `).inlineBlock(() => {
+    w.writeLine("// The corpus entries hostile to THIS value object's base primitive:");
+    w.writeLine("// cross-type inputs, plus same-type pathological sentinels. Same-type");
+    w.writeLine("// ordinary values (a range decision) and this VO's own @accepts");
+    w.writeLine("// examples are excluded — see the generator's hostileExpressionsFor.");
+    w.write("const applicable = new Set<string>([");
+    w.newLine();
+    w.setIndentationLevel(w.getIndentationLevel() + 1);
+    for (const expr of hostiles) w.writeLine(`${q(expr)},`);
+    w.setIndentationLevel(w.getIndentationLevel() - 1);
+    w.writeLine("]);");
     w.writeLine("const wronglyAccepted = HOSTILE_INPUTS");
     w.setIndentationLevel(w.getIndentationLevel() + 1);
+    w.writeLine(".filter(([label]) => applicable.has(label))");
     w.write(".filter(([, raw]) => ").inlineBlock(() => {
       w.writeLine(`const result = ${name}.parse(raw);`);
       w.writeLine("return result !== undefined && result !== null;");
