@@ -29,7 +29,9 @@
 //                     the run produced is a BLOCK — merging is a design act.
 //   5. surface check  ship scripts/surface-check.ts into the target, add
 //                     `check:surface` to package.json, fold it into `check`,
-//                     pin ts-morph (the pack's own version).
+//                     pin ts-morph (the pack's own version) AND install it.
+//                     A pin nobody installed is a repo whose check dies with
+//                     ERR_MODULE_NOT_FOUND, so a failed install is a BLOCK.
 //   6. gitignore      ensure `.pi/` is ignored.
 //   7. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
@@ -37,12 +39,23 @@
 //                     project's own guard log (issue #13). Measure before
 //                     optimizing further — and the run that just finished is
 //                     the only one whose numbers nobody has to remember.
+//   9. check          READ-ONLY, and LAST: run the project's OWN canonical
+//                     `npm run check` and BLOCK if it is red. Every other step
+//                     is deliver's opinion of a finished repo; this one asks
+//                     the repo whether it satisfies its own definition of
+//                     done. r15 handed over two repos whose check was red on
+//                     arrival, because nothing in the pipeline had ever run it
+//                     (green_gate runs its own tsc and vitest — not the
+//                     command a colleague types).
 //
-// Idempotent: every step checks before acting; a second run applies 0 steps.
+// Idempotent: every step checks before acting; a second run applies 0 steps
+// (steps 8 and 9 only read, so they never count as applied).
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
 // source). The checker source is injectable for tests via options or
-// PI_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts).
+// PI_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts);
+// so is the npm runner steps 5 and 9 spawn (DeliverOptions.run).
 
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -70,6 +83,10 @@ import { skeletonPathFor } from "./scaffold-contract.ts";
 const GUARD = "deliver";
 const ERRORS_REL = "src/shared/errors.ts";
 const SURFACE_SCRIPT = "node --experimental-strip-types scripts/surface-check.ts";
+/** No shell is used anywhere in this file, so name the Windows shim explicitly. */
+const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+/** Generous: `npm run check` is a full typecheck plus the project's own suite. */
+const COMMAND_TIMEOUT_MS = 15 * 60_000;
 const BARREL_MARKER = "// Public API of this package";
 
 const README_SECTION = `## Contracts
@@ -84,10 +101,40 @@ its contract. Changing a contract is therefore a deliberate design act:
 edit the contract first, then bring the implementation along with it.
 `;
 
+/** One command invocation's outcome. `code` is null when the process never
+ *  started or was killed (timeout) — a failure either way. */
+export interface CommandOutcome {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** Runs a command in `cwd` and returns its captured output. Never throws for a
+ *  non-zero exit: deliver decides what a non-zero means. */
+export type CommandRun = (command: string, args: readonly string[], cwd: string) => CommandOutcome;
+
+/** The real runner: spawn the binary directly with an args ARRAY and no shell,
+ *  so nothing in a target path is ever interpreted. */
+export const spawnRun: CommandRun = (command, args, cwd) => {
+  const r = spawnSync(command, [...args], {
+    cwd,
+    encoding: "utf8",
+    shell: false,
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (r.error !== undefined) return { code: null, stdout: r.stdout ?? "", stderr: r.error.message };
+  return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+};
+
 export interface DeliverOptions {
   /** Path to the surface checker to ship. Default: this pack's
    *  surface-check.ts (or PI_DELIVER_SURFACE_CHECK). */
   readonly surfaceCheckSource?: string;
+  /** How to run npm — the ts-morph install (step 5) and the project's own
+   *  check (step 9). Default: {@link spawnRun}. Injectable so the wiring is
+   *  unit-testable without a registry round trip or a real suite run. */
+  readonly run?: CommandRun;
 }
 
 export interface DeliverResult {
@@ -188,6 +235,39 @@ export function stripConformance(source: string, fileName: string): string | nul
   return text.replace(/\n+$/, "\n");
 }
 
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+function outputLines(out: CommandOutcome): string[] {
+  return `${out.stdout}\n${out.stderr}`
+    .replace(ANSI, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+}
+
+/**
+ * The one line worth reprinting from a command that PASSED: the tally a reader
+ * actually wants ("Tests  12 passed (12)"), not the whole transcript. Falls
+ * back to the last line of output — a check script that says something else
+ * still says it.
+ */
+export function checkSummaryLine(out: CommandOutcome): string | undefined {
+  const lines = outputLines(out);
+  for (const pattern of [/^Tests\s+\d/, /^Test Files\s+\d/, /^surface-check: OK\b/]) {
+    const hit = lines.find((l) => pattern.test(l));
+    if (hit !== undefined) return hit.slice(0, 200);
+  }
+  return lines.at(-1)?.slice(0, 200);
+}
+
+/** The last few output lines of a command that FAILED — enough to see why
+ *  without replaying a whole suite into the reader's context. */
+export function outputTail(out: CommandOutcome, max = 12): string[] {
+  return outputLines(out)
+    .slice(-max)
+    .map((l) => l.slice(0, 200));
+}
+
 /** The barrel: one `export *` per implementation module (src-relative paths). */
 export function barrelFor(implRelToSrc: readonly string[]): string {
   const lines = [...implRelToSrc]
@@ -200,6 +280,7 @@ export function barrelFor(implRelToSrc: readonly string[]): string {
 
 export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverResult {
   const lines: string[] = [];
+  const run = options.run ?? spawnRun;
   let applied = 0;
 
   const log = (verdict: GuardVerdict, step: string, summary: string, detail: Record<string, unknown> = {}): void =>
@@ -362,13 +443,49 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       pkg.scripts["check"] += " && npm run check:surface";
       did.push("folded into check");
     }
+    const pin = pkg.devDependencies?.["ts-morph"] ?? tsMorphPin();
     if (pkg.devDependencies?.["ts-morph"] === undefined) {
-      const pin = tsMorphPin();
       const deps: Record<string, string> = { ...pkg.devDependencies, "ts-morph": pin };
       pkg.devDependencies = Object.fromEntries(Object.keys(deps).sort().map((k) => [k, deps[k]!]));
       did.push(`pinned ts-morph@${pin}`);
     }
     if (did.length > 0) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
+
+    // The pin must be MATERIALIZED, not merely written. r15 shipped two repos
+    // whose `npm run check` died on ERR_MODULE_NOT_FOUND: deliver added the
+    // devDependency and nothing ever installed it. Deliver ships no dependency
+    // it cannot resolve afterwards — a failed install is a BLOCK, not a repo
+    // handed over with a broken check.
+    //
+    // REJECTED ALTERNATIVE: vendor a ts-morph-free checker into the target
+    // (TypeScript's own compiler API, or text extraction) so delivery adds no
+    // dependency at all — which would also settle the AGENTS.md "do not add
+    // dependencies" tension outright. Rejected because it forks the checker in
+    // two: the harness would gate runs with the ts-morph version while targets
+    // shipped an untested twin, and the two would drift apart at the first
+    // rule change. ONE checker, copied verbatim (see surface-check.ts's
+    // DUAL-USE header), is the property worth paying an install for.
+    // CHOSEN: install the pinned version, then verify it resolves.
+    const tsMorphAbs = join(cwd, "node_modules", "ts-morph", "package.json");
+    if (!existsSync(tsMorphAbs)) {
+      const args = ["install", "--save-dev", "--save-exact", "--no-audit", "--no-fund", `ts-morph@${pin}`];
+      const out = run(NPM, args, cwd);
+      const fail = (why: string): DeliverResult => {
+        const tail = outputTail(out);
+        const result = block(
+          "surface-check",
+          `could not install ts-morph@${pin} into the target — ${why}; the shipped ` +
+            `check:surface script would die with ERR_MODULE_NOT_FOUND, so this repo is not delivered ` +
+            `(re-run deliver where the package registry is reachable)`,
+          { pin, exitCode: out.code, tail },
+        );
+        lines.push(...tail.map((t) => `  install: ${t}`));
+        return { ...result, lines };
+      };
+      if (out.code !== 0) return fail(`\`npm install\` ${out.code === null ? "never completed" : `exited ${out.code}`}`);
+      if (!existsSync(tsMorphAbs)) return fail("npm reported success but node_modules/ts-morph is still missing");
+      did.push(`installed ts-morph@${pin}`);
+    }
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
   }
 
@@ -432,6 +549,46 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       timing !== undefined ? { timing } : {},
     );
     lines.push(...rest);
+  }
+
+  // --- 9. the project's own check (issue: r15 shipped two red repos) ---
+  //
+  // Every step above is deliver's opinion of a finished repo. This one asks the
+  // REPO: `npm run check` is the project's own declared definition of done
+  // (AGENTS.md, ADR 2026-007), and until now nothing in the pipeline ever ran
+  // it — green_gate runs its own tsc and vitest, which is not the same command
+  // a colleague types, and is blind to whatever delivery itself just wired in.
+  //
+  // ORDERING. Last, for two reasons. It must judge the tree that actually
+  // ships, so it runs after every mutating step (the barrel, the stripped
+  // conformance blobs, the freshly wired check:surface and its install). And
+  // it runs after the read-only timing step so that a RED check still leaves
+  // the run's timing report on screen: the block is the headline, but the
+  // minutes are the thing nobody can reconstruct later.
+  //
+  // Read-only, so it is never an applied step — a second delivery re-runs it
+  // and still reports 0 steps applied.
+  {
+    const out = run(NPM, ["run", "check"], cwd);
+    if (out.code !== 0) {
+      const tail = outputTail(out);
+      const result = block(
+        "check",
+        `the project's own \`npm run check\` is RED ` +
+          `(${out.code === null ? "it never completed" : `npm exited ${out.code}`}) — the repo does not ` +
+          `satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver`,
+        { exitCode: out.code, tail },
+      );
+      lines.push(...tail.map((t) => `  check: ${t}`));
+      return { ...result, lines };
+    }
+    const summaryLine = checkSummaryLine(out);
+    pass(
+      "check",
+      false,
+      summaryLine === undefined ? "npm run check passed" : `npm run check passed — ${summaryLine}`,
+      { exitCode: 0, summary: summaryLine },
+    );
   }
 
   const summary = `deliver: OK — ${applied} steps applied`;

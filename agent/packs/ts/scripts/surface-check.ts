@@ -40,10 +40,17 @@
 //   · Implementation EXTRAS: private/protected members are free. A PUBLIC
 //     export, or a public member, the contract does not declare is a
 //     violation ("undeclared public surface") — the Money.signed case.
-//   · Contract interfaces and type aliases are satisfied by the scaffolded
-//     `export type * from "./x.contract.js"` re-export (not resolved
-//     structurally — re-exported types CANNOT drift) or by a local
-//     declaration of the name; flagged only when neither exists.
+//   · TYPE-ONLY contract exports — interfaces, type aliases (including
+//     string-literal unions) and the contract's own `export type { X } from`
+//     re-exports — are satisfied by the scaffolded `export type * from
+//     "./x.contract.js"` re-export (not resolved structurally — re-exported
+//     types CANNOT drift), by a type-only re-export of the name, or by a
+//     local declaration of it; flagged only when none of those exists. They
+//     are NEVER asked for a runtime export: an interface or a union has no
+//     value to export, so demanding one is an impossible instruction (r15
+//     spent 4m19 and three worker bounces on exactly that). Only VALUE
+//     declarations — classes, functions, consts, enums — require a reachable
+//     runtime export.
 //
 // HONEST LIMITS.
 //   · Type comparison is canonicalized TEXT, not type identity: `Array<Foo>`
@@ -495,6 +502,15 @@ function compareClassMembers(
   }
 }
 
+/** Contract exports that declare a TYPE and nothing else. No runtime value
+ *  exists for these by construction, so they can only ever be satisfied
+ *  type-only — never by a value export. `type-re-export` belongs here: a
+ *  contract that says `export type { BillingInterval } from "./x.js"` is
+ *  declaring a type, whatever the module it borrows it from. */
+function isTypeOnlyExport(kind: ExportKind): boolean {
+  return kind === "interface" || kind === "type-alias" || kind === "type-re-export";
+}
+
 /** Does an `export type * from "<specifier>"` point back at this contract? */
 function typeStarMatches(specifier: string, contractFileName: string): boolean {
   const stem = basename(contractFileName).replace(/\.ts$/, ""); // "money.contract"
@@ -521,17 +537,19 @@ export function compareSurfaces(
   for (const ce of contract.exports.values()) {
     const ie = impl.exports.get(ce.name);
 
-    if (ce.kind === "interface" || ce.kind === "type-alias") {
-      // Satisfied by the scaffolded type re-export (types that are re-exported
-      // cannot drift, so it is never resolved structurally) or a local
-      // declaration of the name.
+    if (isTypeOnlyExport(ce.kind)) {
+      // Satisfied by the scaffolded type-star re-export (types that are
+      // re-exported cannot drift, so it is never resolved structurally), by a
+      // type-only re-export of the name, or by a local declaration of it.
+      // PRESENCE is the whole test: there is no runtime value to look for.
       if (hasTypeStar || ie !== undefined) continue;
       const stem = basename(contractFileName).replace(/\.ts$/, "");
+      const declared = ce.kind === "type-re-export" ? "type" : ce.kind;
       out.push({
         file: implFileName,
         exportName: ce.name,
         kind: "missing-type-reexport",
-        message: `${ce.name}: the contract declares ${ce.kind} '${ce.name}' but the implementation neither re-exports the contract's types nor declares '${ce.name}' locally; add \`export type * from "./${stem}.js";\` — one line satisfies every contract type and cannot drift`,
+        message: `${ce.name}: the contract declares ${declared} '${ce.name}' but the implementation neither re-exports the contract's types nor declares '${ce.name}' locally; add \`export type * from "./${stem}.js";\` — one line satisfies every contract type and cannot drift`,
       });
       continue;
     }
@@ -546,6 +564,8 @@ export function compareSurfaces(
       continue;
     }
     if (ie.kind === "type-re-export") {
+      // Reachable only for a VALUE contract export (the type-only kinds all
+      // continued above), so asking for a runtime export is always possible.
       out.push({
         file: implFileName,
         exportName: ce.name,

@@ -241,6 +241,87 @@ ${fn}
     }
   });
 
+  // r15 (dogfood): the contract re-exported `BillingInterval` (a string-literal
+  // union) and `BillingPeriod` (an interface) from a sibling contract, the
+  // implementation re-exported both type-only — and the gate demanded a runtime
+  // value export: "export the value (drop the `type` keyword)". Impossible by
+  // construction, and it cost one arm 4m19 and three contradictory worker
+  // bounces. A contract's TYPE-only declarations are satisfied type-only;
+  // only VALUE declarations need a reachable runtime export.
+  describe("a contract that re-exports its types (r15)", () => {
+    const contract = `
+export type { BillingInterval, BillingPeriod } from "./billing-primitives.contract.js";
+
+export declare class Subscription {
+  private readonly __brand: "Subscription";
+  private constructor();
+  static parse(raw: unknown): Subscription | undefined;
+}
+
+export declare function renew(current: Subscription, interval: BillingInterval): Subscription;
+`;
+    const values = `
+export class Subscription {
+  private declare readonly __brand: "Subscription";
+  private constructor() {}
+  static parse(raw: unknown): Subscription | undefined { return undefined; }
+}
+
+export function renew(current: Subscription, interval: BillingInterval): Subscription { return current; }
+`;
+    const compareBilling = (impl: string): SurfaceViolation[] =>
+      compareSurfaces(contract, "src/billing/subscription.contract.ts", impl, "src/billing/subscription.ts");
+
+    test("type-only re-exports of the types + value exports of the class and function PASS", () => {
+      const impl = `
+export type { BillingInterval, BillingPeriod } from "./billing-primitives.contract.js";
+${values}`;
+      expect(compareBilling(impl)).toEqual([]);
+    });
+
+    test("the type-star re-export satisfies the contract's own type re-exports too", () => {
+      const impl = `
+export type * from "./subscription.contract.js";
+${values}`;
+      expect(compareBilling(impl)).toEqual([]);
+    });
+
+    test("a MISSING class value export still FAILS", () => {
+      const impl = `
+export type { BillingInterval, BillingPeriod } from "./billing-primitives.contract.js";
+
+export function renew(current: Subscription, interval: BillingInterval): Subscription { return current; }
+`;
+      const violations = compareBilling(impl);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ exportName: "Subscription", kind: "missing-export" });
+    });
+
+    test("a class re-exported TYPE-ONLY still FAILS — a value erased at runtime", () => {
+      const impl = `
+export type { BillingInterval, BillingPeriod } from "./billing-primitives.contract.js";
+export type { Subscription } from "./subscription.contract.js";
+
+export function renew(current: Subscription, interval: BillingInterval): Subscription { return current; }
+`;
+      const violations = compareBilling(impl);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ exportName: "Subscription", kind: "export-kind-mismatch" });
+      expect(violations[0]!.message).toContain("export the value");
+    });
+
+    test("a re-exported type the implementation drops is flagged as a type, not a value", () => {
+      const impl = `
+export type { BillingInterval } from "./billing-primitives.contract.js";
+${values}`;
+      const violations = compareBilling(impl);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toMatchObject({ exportName: "BillingPeriod", kind: "missing-type-reexport" });
+      expect(violations[0]!.message).toContain("the contract declares type 'BillingPeriod'");
+      expect(violations[0]!.message).not.toContain("export the value");
+    });
+  });
+
   test("a changed function signature is flagged", () => {
     const impl = `
 export type * from "./billing.contract.js";

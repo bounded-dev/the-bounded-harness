@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import { barrelFor, runDeliver, stripConformance } from "./deliver.ts";
+import { barrelFor, checkSummaryLine, runDeliver, spawnRun, stripConformance } from "./deliver.ts";
+import type { CommandOutcome, CommandRun } from "./deliver.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import type { PhaseDurations } from "../../../src/phase-durations.ts";
 
@@ -128,8 +129,59 @@ function surfaceStub(): string {
   return path;
 }
 
-function deliver(cwd: string) {
-  return runDeliver(cwd, { surfaceCheckSource: surfaceStub() });
+/** A passing `npm run check`, shaped like the real thing. */
+const CHECK_OK: CommandOutcome = {
+  code: 0,
+  stdout: `
+> fixture@ check
+> tsc --noEmit && vitest run && npm run check:surface
+
+surface-check: OK (1 contract pair)
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+`,
+  stderr: "",
+};
+
+interface NpmCall {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  /** Did the barrel exist when this call was made? (Step ordering, observed.) */
+  readonly barrelPresent: boolean;
+}
+
+interface FakeNpmOptions {
+  /** Outcome of `npm install …` (default: success). */
+  readonly install?: CommandOutcome;
+  /** Should a "successful" install actually create node_modules/ts-morph? */
+  readonly materialize?: boolean;
+  /** Outcome of `npm run check` (default: {@link CHECK_OK}). */
+  readonly check?: CommandOutcome;
+}
+
+/** npm, faked at the seam deliver spawns through: records every invocation and
+ *  materializes node_modules/ts-morph the way a real install would. The real
+ *  thing is covered once, offline-skippable, at the bottom of this file. */
+function fakeNpm(options: FakeNpmOptions = {}): { calls: NpmCall[]; run: CommandRun } {
+  const calls: NpmCall[] = [];
+  const run: CommandRun = (command, args, cwd) => {
+    calls.push({ command, args: [...args], cwd, barrelPresent: existsSync(join(cwd, "src/index.ts")) });
+    if (args[0] === "install") {
+      const outcome = options.install ?? { code: 0, stdout: "added 3 packages\n", stderr: "" };
+      if (outcome.code === 0 && (options.materialize ?? true)) {
+        mkdirSync(join(cwd, "node_modules", "ts-morph"), { recursive: true });
+        writeFileSync(join(cwd, "node_modules", "ts-morph", "package.json"), '{"name":"ts-morph"}\n');
+      }
+      return outcome;
+    }
+    return options.check ?? CHECK_OK;
+  };
+  return { calls, run };
+}
+
+function deliver(cwd: string, options: FakeNpmOptions = {}) {
+  return runDeliver(cwd, { surfaceCheckSource: surfaceStub(), run: fakeNpm(options).run });
 }
 
 describe("stripConformance (pure)", () => {
@@ -256,7 +308,8 @@ void NotImplementedError;
   test("idempotent: the second run applies 0 steps and changes no file", () => {
     const dir = proj();
     const stub = surfaceStub();
-    expect(runDeliver(dir, { surfaceCheckSource: stub }).code).toBe(0);
+    const npm = fakeNpm();
+    expect(runDeliver(dir, { surfaceCheckSource: stub, run: npm.run }).code).toBe(0);
     const snapshot = new Map<string, string>();
     for (const rel of [
       "package.json",
@@ -268,7 +321,7 @@ void NotImplementedError;
     ]) {
       snapshot.set(rel, readFileSync(join(dir, rel), "utf8"));
     }
-    const r2 = runDeliver(dir, { surfaceCheckSource: stub });
+    const r2 = runDeliver(dir, { surfaceCheckSource: stub, run: npm.run });
     expect(r2.code).toBe(0);
     expect(r2.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
     for (const [rel, content] of snapshot) {
@@ -290,7 +343,7 @@ void NotImplementedError;
   test("misuse: target without src/ or package.json is exit 2", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-deliver-empty-"));
     tmpDirs.push(dir);
-    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub() });
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: fakeNpm().run });
     expect(r.code).toBe(2);
   });
 });
@@ -355,7 +408,7 @@ describe("runDeliver: phase timing", () => {
     expect(out).toMatch(/^ {2}timing: wrap\s+\d+[hms]/m);
     // A clean run still says so: zero is the target, and a line that appears
     // only when there is friction makes "clean" and "unmeasured" look alike.
-    expect(r.lines).toContain("  friction: 0 unrouted blocks — target 0");
+    expect(r.lines).toContain("  friction: 0 refusals — target 0");
   });
 
   // Bounces are the pipeline working; unrouted blocks are the harness getting
@@ -365,18 +418,21 @@ describe("runDeliver: phase timing", () => {
     const dir = proj({ ".pi/guard-log.jsonl": FRICTION_GUARD_LOG });
     const r = deliver(dir);
     expect(r.code).toBe(0);
-    expect(r.lines).toContain("  friction: 3 unrouted blocks (path-gate 2, phase-gate 1) — target 0");
+    expect(r.lines).toContain("  friction: 3 refusals (path-gate 2, phase-gate 1) — target 0");
     // ...and the same numbers ride in the event detail, not a second tally.
     const event = readGuardLog(dir).find(
       (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "timing",
     );
     const timing = (event!.detail as { timing?: PhaseDurations }).timing!;
     expect(timing.friction).toEqual({
-      unroutedBlocks: 3,
-      byGuard: [
+      refusals: 3,
+      refusalsByGuard: [
         { guard: "path-gate", count: 2 },
         { guard: "phase-gate", count: 1 },
       ],
+      iteration: 0,
+      iterationByGuard: [],
+      unroutedBlocks: 3,
     });
   });
 
@@ -397,8 +453,9 @@ describe("runDeliver: phase timing", () => {
   test("timing is read-only: it applies no step and the second run reports again", () => {
     const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
     const stub = surfaceStub();
-    runDeliver(dir, { surfaceCheckSource: stub });
-    const second = runDeliver(dir, { surfaceCheckSource: stub });
+    const npm = fakeNpm();
+    runDeliver(dir, { surfaceCheckSource: stub, run: npm.run });
+    const second = runDeliver(dir, { surfaceCheckSource: stub, run: npm.run });
     expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
     expect(second.lines).toContain("  timing: design    4m00s");
   });
@@ -420,5 +477,185 @@ describe("runDeliver: phase timing", () => {
     }
     // the repo was still delivered
     expect(existsSync(join(dir, "src/index.ts"))).toBe(true);
+  });
+});
+
+// r15: BOTH delivered repos failed their own `npm run check`. deliver pinned
+// ts-morph into package.json for the shipped surface checker and never
+// installed it (ERR_MODULE_NOT_FOUND), and nothing in the whole pipeline ever
+// ran the project's canonical check command, so nobody found out until a human
+// typed it. Two halves, two fixes: materialize what you pin, and ask the repo
+// whether it satisfies its own definition of done.
+describe("runDeliver: the shipped surface check must actually resolve", () => {
+  test("installs the pinned ts-morph, exactly that dependency, in the target", () => {
+    const dir = proj();
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(0);
+
+    const pin = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).devDependencies["ts-morph"];
+    const install = npm.calls.find((c) => c.args[0] === "install");
+    expect(install).toBeDefined();
+    expect(install!.command).toBe(process.platform === "win32" ? "npm.cmd" : "npm");
+    expect(install!.args).toEqual([
+      "install",
+      "--save-dev",
+      "--save-exact",
+      "--no-audit",
+      "--no-fund",
+      `ts-morph@${pin}`,
+    ]);
+    expect(install!.cwd).toBe(dir);
+    expect(existsSync(join(dir, "node_modules/ts-morph/package.json"))).toBe(true);
+    expect(r.lines.join("\n")).toContain(`installed ts-morph@${pin}`);
+  });
+
+  test("does not install again when node_modules/ts-morph already resolves", () => {
+    const dir = proj();
+    deliver(dir); // first delivery installs
+    const npm = fakeNpm();
+    const second = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(second.code).toBe(0);
+    expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+    expect(npm.calls.map((c) => c.args[0])).toEqual(["run"]);
+  });
+
+  test("BLOCK when the install fails — no repo ships with a check that cannot run", () => {
+    const dir = proj();
+    const npm = fakeNpm({
+      install: { code: 1, stdout: "", stderr: "npm error code ENOTFOUND\nnpm error network request to https://registry.npmjs.org failed" },
+    });
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(1);
+    const out = r.lines.join("\n");
+    expect(out).toMatch(/^deliver: BLOCK — could not install ts-morph@/m);
+    expect(out).toContain("ERR_MODULE_NOT_FOUND");
+    expect(r.lines).toContain("  install: npm error code ENOTFOUND");
+    // the project's own check never ran: the tree is not deliverable
+    expect(npm.calls.map((c) => c.args[0])).toEqual(["install"]);
+    const event = readGuardLog(dir).find((e) => e.guard === "deliver" && e.verdict === "block");
+    expect((event!.detail as { step?: string }).step).toBe("surface-check");
+  });
+
+  test("BLOCK when npm claims success but ts-morph still does not resolve", () => {
+    const dir = proj();
+    const npm = fakeNpm({ materialize: false });
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("npm reported success but node_modules/ts-morph is still missing");
+  });
+});
+
+describe("runDeliver: the project's own check (final step)", () => {
+  test("runs `npm run check` in the target and prints its summary line", () => {
+    const dir = proj();
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("deliver: check — npm run check passed — Tests  5 passed (5)");
+
+    const check = npm.calls.find((c) => c.args[0] === "run");
+    expect(check!.args).toEqual(["run", "check"]);
+    expect(check!.cwd).toBe(dir);
+  });
+
+  test("it is LAST: the check sees the delivered tree, and the timing block is already out", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    // the barrel — the last mutating step's output — existed when check ran
+    expect(npm.calls.find((c) => c.args[0] === "run")!.barrelPresent).toBe(true);
+    const timingAt = r.lines.findIndex((l) => l.startsWith("deliver: timing —"));
+    const checkAt = r.lines.findIndex((l) => l.startsWith("deliver: check —"));
+    expect(timingAt).toBeGreaterThanOrEqual(0);
+    expect(checkAt).toBeGreaterThan(timingAt);
+    expect(checkAt).toBe(r.lines.length - 2); // only the OK summary follows
+  });
+
+  test("BLOCK when the project's own check is red, with the failing tail", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const npm = fakeNpm({
+      check: {
+        code: 1,
+        stdout: "src/orders/orders.ts(4,3): error TS2322: Type 'number' is not assignable to type 'string'.\n",
+        stderr: "npm error Lifecycle script `check` failed with error:\n",
+      },
+    });
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain(
+      "deliver: BLOCK — the project's own `npm run check` is RED (npm exited 1) — the repo does not " +
+        "satisfy its own definition of done, so it is not ready to hand over; fix it and re-run deliver",
+    );
+    expect(r.lines).toContain(
+      "  check: src/orders/orders.ts(4,3): error TS2322: Type 'number' is not assignable to type 'string'.",
+    );
+    // the timing report still made it out — the block is the headline, but the
+    // minutes are what nobody can reconstruct afterwards
+    expect(r.lines.findIndex((l) => l.startsWith("deliver: timing —"))).toBeGreaterThanOrEqual(0);
+    expect(r.lines.findIndex((l) => l.startsWith("deliver: BLOCK —"))).toBeGreaterThan(
+      r.lines.findIndex((l) => l.startsWith("deliver: timing —")),
+    );
+    const event = readGuardLog(dir).find((e) => e.guard === "deliver" && e.verdict === "block");
+    expect((event!.detail as { step?: string }).step).toBe("check");
+  });
+
+  test("a check that never completes (timeout) blocks too", () => {
+    const dir = proj();
+    const r = runDeliver(dir, {
+      surfaceCheckSource: surfaceStub(),
+      run: fakeNpm({ check: { code: null, stdout: "", stderr: "spawnSync npm ETIMEDOUT" } }).run,
+    });
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("is RED (it never completed)");
+  });
+});
+
+describe("checkSummaryLine (pure)", () => {
+  test("prefers vitest's test tally", () => {
+    expect(checkSummaryLine(CHECK_OK)).toBe("Tests  5 passed (5)");
+  });
+
+  test("falls back to the last line when the check speaks another language", () => {
+    expect(checkSummaryLine({ code: 0, stdout: "all good\n\n", stderr: "" })).toBe("all good");
+  });
+
+  test("strips ANSI colour so the line is greppable", () => {
+    const coloured = { code: 0, stdout: "\u001b[32m Tests  3 passed (3)\u001b[39m\n", stderr: "" };
+    expect(checkSummaryLine(coloured)).toBe("Tests  3 passed (3)");
+  });
+
+  test("silent output has no summary to print", () => {
+    expect(checkSummaryLine({ code: 0, stdout: "", stderr: "" })).toBeUndefined();
+  });
+});
+
+// The seam above can be wired perfectly to a fake and still be wrong about the
+// real npm, so exactly ONE test spawns it. It is skipped rather than failed
+// when the registry is unreachable: offline is a legitimate state to develop
+// this repo in, and a network flake must never turn the suite red.
+describe("runDeliver: the real npm install (integration)", () => {
+  test("materializes ts-morph in the target for real", { timeout: 300_000 }, (ctx) => {
+    const dir = proj({}, {
+      "package.json": '{\n  "name": "install-it",\n  "private": true,\n  "type": "module"\n}\n',
+      "src/orders/orders.contract.ts": CONTRACT_TS,
+      "src/orders/orders.ts": IMPL_TS,
+    });
+    // Real install, faked check: a real `npm run check` would need the
+    // fixture's whole toolchain too, which is a different and far slower test.
+    const r = runDeliver(dir, {
+      surfaceCheckSource: surfaceStub(),
+      run: (command, args, cwd) => (args[0] === "install" ? spawnRun(command, args, cwd) : CHECK_OK),
+    });
+    if (r.code !== 0) {
+      ctx.skip(`npm install unavailable here (offline?): ${r.lines.at(-1)}`);
+      return;
+    }
+    expect(existsSync(join(dir, "node_modules", "ts-morph", "package.json"))).toBe(true);
+    const pin = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).devDependencies["ts-morph"];
+    const installed = JSON.parse(
+      readFileSync(join(dir, "node_modules", "ts-morph", "package.json"), "utf8"),
+    ) as { version: string };
+    expect(installed.version).toBe(pin);
   });
 });
