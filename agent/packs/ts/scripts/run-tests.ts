@@ -65,7 +65,16 @@ export interface RunTestsResult extends RunSummary {
 }
 
 const DEFAULT_COMMAND = "npx";
-const DEFAULT_ARGS = ["vitest", "run", "--reporter=json"];
+// The default args carry `--exclude` for the harness's own scratch space:
+// `.pi/**` must never be collected by the project's suite. The red gate
+// rebuilds a SHADOW project at `.pi/shadow-red/` (red-gate.ts) whose tests are
+// copies of the project's own, running against regenerated skeletons — and
+// vitest globs test files with `dot: true` while its default exclude covers
+// only node_modules and .git. Without the flag every live run would collect
+// the shadow's copies too, and every one of them would fail with
+// NotImplementedError. The flag is ADDITIVE in vitest (`cliExclude`), so the
+// built-in excludes still apply.
+const DEFAULT_ARGS = ["vitest", "run", "--reporter=json", "--exclude=**/.pi/**"];
 
 /** Default runner: spawn, capture stdout/stderr, resolve on close.
  *

@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,8 +17,11 @@ import {
   classifyRed,
   collectRedGateSources,
   isNotImplementedFailure,
-  materializePristineProject,
+  materializeShadowProject,
   redGateProjectPlan,
+  SHADOW_RELATIVE,
+  shadowProjectDir,
+  testsTreeHash,
 } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
@@ -232,7 +245,7 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
  *  The repo also carries a real contract and a real test file, because the gate
  *  now builds a PRISTINE project before running anything and a project with no
  *  contracts (or no tests) cannot produce a valid red at all. The canned files
- *  are addressed absolutely, since the suite runs in the pristine copy rather
+ *  are addressed absolutely, since the suite runs in the shadow project rather
  *  than here. */
 function fixtureRepo(prefix: string, runJson: string, file = "run.json", tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -328,7 +341,7 @@ describe("red-gate CLI (fixture repos)", () => {
 //
 // But that constraint is an artifact of running the gate against the LIVE tree.
 // `scaffold` is deterministic and the contracts are checksum-frozen, so the
-// pristine skeleton can be reproduced at any moment. Run the suite against a
+// unimplemented skeleton can be reproduced at any moment. Run the suite against a
 // regenerated copy and the verdict is valid no matter what the builder has done
 // to the real src/ — which lets the test-writer and builder work in parallel and
 // turns the critical path from sum() into max().
@@ -380,7 +393,7 @@ describe("redGateProjectPlan", () => {
   });
 });
 
-// --- The pristine project (the plan, materialized) --------------------------------
+// --- The shadow project (the plan, materialized) ----------------------------------
 //
 // The point of these: the red verdict must not depend on what the builder has
 // done to the live src/. Everything below builds a tree in which the builder has
@@ -425,16 +438,19 @@ describe("collectRedGateSources", () => {
   });
 });
 
-describe("materializePristineProject", () => {
+describe("materializeShadowProject", () => {
   const live = liveTree();
-  const pristine = materializePristineProject(live, redGateProjectPlan(collectRedGateSources(live)));
-  afterAll(() => {
-    rmSync(live, { recursive: true, force: true });
-    rmSync(pristine, { recursive: true, force: true });
+  const shadow = materializeShadowProject(live, redGateProjectPlan(collectRedGateSources(live)));
+  afterAll(() => rmSync(live, { recursive: true, force: true }));
+
+  test("builds inside the project's own .pi, which delivery already gitignores", () => {
+    expect(shadow).toBe(join(live, ".pi", "shadow-red"));
+    expect(shadowProjectDir(live)).toBe(shadow);
+    expect(SHADOW_RELATIVE).toBe(".pi/shadow-red");
   });
 
   test("regenerates the skeleton instead of copying the implementation", () => {
-    const skeleton = readFileSync(join(pristine, "src", "money", "money.ts"), "utf8");
+    const skeleton = readFileSync(join(shadow, "src", "money", "money.ts"), "utf8");
     expect(skeleton).toContain("GENERATED from money.contract.ts");
     expect(skeleton).toContain('throw new NotImplementedError("Currency.parse")');
     // The builder's real implementation must not have reached the copy: it is
@@ -443,16 +459,16 @@ describe("materializePristineProject", () => {
   });
 
   test("regenerates the shared errors module rather than trusting the live one", () => {
-    const errors = readFileSync(join(pristine, "src", "shared", "errors.ts"), "utf8");
+    const errors = readFileSync(join(shadow, "src", "shared", "errors.ts"), "utf8");
     expect(errors).toContain("class NotImplementedError");
     expect(errors).not.toContain("stale");
   });
 
   test("carries the tests and the config across verbatim", () => {
-    expect(readFileSync(join(pristine, "tests", "money.test.ts"), "utf8")).toContain("// test");
-    expect(readFileSync(join(pristine, "tests", "generated", "money.laws.test.ts"), "utf8")).toContain("laws");
-    expect(existsSync(join(pristine, "package.json"))).toBe(true);
-    expect(existsSync(join(pristine, "tsconfig.json"))).toBe(true);
+    expect(readFileSync(join(shadow, "tests", "money.test.ts"), "utf8")).toContain("// test");
+    expect(readFileSync(join(shadow, "tests", "generated", "money.laws.test.ts"), "utf8")).toContain("laws");
+    expect(existsSync(join(shadow, "package.json"))).toBe(true);
+    expect(existsSync(join(shadow, "tsconfig.json"))).toBe(true);
   });
 
   test("leaves the live tree alone", () => {
@@ -627,5 +643,243 @@ describe("red-gate CLI: escape hatches in test sources", () => {
     writeFileSync(join(dir, "tests", "generated", "x.laws.test.ts"), "export const n: number = 1 as number;\n");
     const r = runGate(dir);
     expect(r.status).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The shadow project: rebuilt every run, left behind for the postmortem
+// ---------------------------------------------------------------------------
+
+describe("the shadow is rebuilt from scratch on every run", () => {
+  test("a poisoned shadow does not survive the next build", () => {
+    const live = liveTree();
+    const plan = redGateProjectPlan(collectRedGateSources(live));
+    const shadow = materializeShadowProject(live, plan);
+
+    // Poison it the way a stale shadow would be poisoned: a leftover test from
+    // a previous ticket, and an implementation where a skeleton belongs.
+    writeFileSync(join(shadow, "tests", "stale.test.ts"), "// from a previous run\n");
+    writeFileSync(join(shadow, "src", "money", "money.ts"), "export class Currency { static parse() {} }\n");
+
+    materializeShadowProject(live, plan);
+
+    // Nothing carries over: a shadow that accumulates is a shadow that can go
+    // stale, and a stale shadow is a verdict about a project that no longer exists.
+    expect(existsSync(join(shadow, "tests", "stale.test.ts"))).toBe(false);
+    expect(readFileSync(join(shadow, "src", "money", "money.ts"), "utf8")).toContain(
+      'throw new NotImplementedError("Currency.parse")',
+    );
+    rmSync(live, { recursive: true, force: true });
+  });
+
+  test("the wipe unlinks the node_modules symlink, never the project's modules", () => {
+    const live = liveTree();
+    const modules = join(live, "node_modules", "vitest");
+    mkdirSync(modules, { recursive: true });
+    writeFileSync(join(modules, "marker.txt"), "the real dependency tree\n");
+
+    const plan = redGateProjectPlan(collectRedGateSources(live));
+    const shadow = materializeShadowProject(live, plan);
+    expect(lstatSync(join(shadow, "node_modules")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(shadow, "node_modules", "vitest", "marker.txt"))).toBe(true);
+
+    materializeShadowProject(live, plan);
+    // If the wipe followed the link instead of unlinking it, this file is gone
+    // and the project can no longer run its own suite.
+    expect(readFileSync(join(modules, "marker.txt"), "utf8")).toContain("the real dependency tree");
+    rmSync(live, { recursive: true, force: true });
+  });
+
+  test("the shadow is left behind when the gate finishes — a deleted project cannot be inspected", () => {
+    const dir = fixtureRepo("red-keeps-shadow-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    expect(runGate(dir).status).toBe(0);
+    const shadow = shadowProjectDir(dir);
+    expect(existsSync(join(shadow, "tests", "money.test.ts"))).toBe(true);
+    expect(readFileSync(join(shadow, "src", "money", "money.ts"), "utf8")).toContain("NotImplementedError");
+  });
+});
+
+// --- testsTreeHash ---------------------------------------------------------------
+//
+// The fingerprint green binds itself to. Red proves THESE tests can fail; once
+// tests/ moves, the red is a claim about a suite that no longer exists.
+
+describe("testsTreeHash", () => {
+  function treeWithTests(files: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), "pi-tests-hash-"));
+    tmpDirs.push(dir);
+    for (const [rel, content] of Object.entries(files)) {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), content);
+    }
+    return dir;
+  }
+
+  test("is stable across reads and identical for identical trees", () => {
+    const a = treeWithTests({ "tests/money.test.ts": "a\n", "tests/generated/laws.test.ts": "b\n" });
+    const b = treeWithTests({ "tests/money.test.ts": "a\n", "tests/generated/laws.test.ts": "b\n" });
+    expect(testsTreeHash(a)).toBe(testsTreeHash(a));
+    expect(testsTreeHash(a)).toBe(testsTreeHash(b));
+    expect(testsTreeHash(a)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("changes when a test changes — that is the whole point", () => {
+    const dir = treeWithTests({ "tests/money.test.ts": "expect(x).toBe(1);\n" });
+    const before = testsTreeHash(dir);
+    writeFileSync(join(dir, "tests", "money.test.ts"), "expect(x).toBe(2);\n");
+    expect(testsTreeHash(dir)).not.toBe(before);
+  });
+
+  test("changes when a test is added, removed or renamed", () => {
+    const dir = treeWithTests({ "tests/a.test.ts": "same\n" });
+    const one = testsTreeHash(dir);
+    writeFileSync(join(dir, "tests", "b.test.ts"), "more\n");
+    const two = testsTreeHash(dir);
+    expect(two).not.toBe(one);
+    rmSync(join(dir, "tests", "b.test.ts"));
+    expect(testsTreeHash(dir)).toBe(one);
+    // A rename moves no bytes but changes what runs, so the path is hashed too.
+    writeFileSync(join(dir, "tests", "renamed.test.ts"), "same\n");
+    rmSync(join(dir, "tests", "a.test.ts"));
+    expect(testsTreeHash(dir)).not.toBe(one);
+  });
+
+  test("covers fixtures, not just *.ts — a JSON the suite reads is part of what red proved", () => {
+    const dir = treeWithTests({ "tests/a.test.ts": "x\n", "tests/fixtures/rates.json": '{"usd":1}\n' });
+    const before = testsTreeHash(dir);
+    writeFileSync(join(dir, "tests", "fixtures", "rates.json"), '{"usd":2}\n');
+    expect(testsTreeHash(dir)).not.toBe(before);
+  });
+
+  test("CRLF churn is not an edit", () => {
+    const lf = treeWithTests({ "tests/a.test.ts": "one\ntwo\n" });
+    const crlf = treeWithTests({ "tests/a.test.ts": "one\r\ntwo\r\n" });
+    expect(testsTreeHash(lf)).toBe(testsTreeHash(crlf));
+  });
+
+  test("the shadow project under .pi cannot hash itself", () => {
+    const dir = treeWithTests({ "tests/a.test.ts": "x\n" });
+    const before = testsTreeHash(dir);
+    mkdirSync(join(dir, ".pi", "shadow-red", "tests"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "shadow-red", "tests", "a.test.ts"), "x\n");
+    expect(testsTreeHash(dir)).toBe(before);
+  });
+
+  test("a project with no tests/ hashes to the empty digest rather than throwing", () => {
+    const dir = treeWithTests({ "src/a.ts": "x\n" });
+    expect(testsTreeHash(dir)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+// --- What the red records, so a later gate can bind to it -------------------------
+
+describe("the red-gate event carries the inputs the verdict is about", () => {
+  test("the contract manifest and the tests-tree hash", () => {
+    const dir = fixtureRepo("red-inputs-", vitestJson([{ name: "create order", status: "failed", message: NI }]));
+    expect(runGate(dir).status).toBe(0);
+    const event = readGuardLog(dir).find((e) => e.guard === "red-gate")!;
+    const detail = event.detail as { contractManifest?: Record<string, string>; testsTreeHash?: string; shadow?: string };
+    expect(Object.keys(detail.contractManifest ?? {})).toEqual(["src/money/money.contract.ts"]);
+    expect(detail.contractManifest!["src/money/money.contract.ts"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(detail.testsTreeHash).toBe(testsTreeHash(dir));
+    expect(detail.shadow).toBe(".pi/shadow-red");
+  });
+
+  test("a blocked red records them too — a bounce is worth auditing as much as a pass", () => {
+    const dir = fixtureRepo("red-inputs-block-", vitestJson([{ name: "math", status: "failed", message: "AssertionError: 1" }]));
+    expect(runGate(dir).status).toBe(1);
+    const detail = readGuardLog(dir).find((e) => e.guard === "red-gate")!.detail as { testsTreeHash?: string };
+    expect(detail.testsTreeHash).toBe(testsTreeHash(dir));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The headline property: red stands against a FINISHED implementation
+// ---------------------------------------------------------------------------
+//
+// The r13/r14 runs (kimi) died here. The builder had already implemented the
+// contract when red was called, so no failure could be a NotImplementedError
+// any more and the only way back to red was re-freezing the contracts to wipe
+// src/. With the shadow project the question never arises — these run REAL
+// vitest and REAL tsc against a project whose src/ is complete.
+
+const REAL_VITEST = join(import.meta.dirname, "..", "..", "..", "node_modules", ".bin", "vitest");
+const REAL_TSC = join(import.meta.dirname, "..", "..", "..", "node_modules", ".bin", "tsc");
+
+/** A project the builder has ALREADY finished: real contract, real tests, real
+ *  implementation, real node_modules (symlinked from the harness). */
+function finishedProject(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tmpDirs.push(dir);
+  mkdirSync(join(dir, "src"), { recursive: true });
+  mkdirSync(join(dir, "tests"), { recursive: true });
+  writeFileSync(join(dir, "package.json"), '{"name":"finished","type":"module","private":true}\n');
+  writeFileSync(
+    join(dir, "tsconfig.json"),
+    JSON.stringify(
+      { compilerOptions: { strict: true, noEmit: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } },
+      null,
+      2,
+    ) + "\n",
+  );
+  writeFileSync(join(dir, "src", "calc.contract.ts"), "export declare function add(a: number, b: number): number;\n");
+  // The builder, working in PARALLEL with the test-writer, is already done.
+  writeFileSync(join(dir, "src", "calc.ts"), "export function add(a: number, b: number): number {\n  return a + b;\n}\n");
+  writeFileSync(
+    join(dir, "tests", "calc.test.ts"),
+    [
+      'import { expect, test } from "vitest";',
+      'import { add } from "../src/calc.js";',
+      'test("adds", () => {',
+      "  expect(add(2, 3)).toBe(5);",
+      "});",
+      "",
+    ].join("\n"),
+  );
+  symlinkSync(join(import.meta.dirname, "..", "..", "..", "node_modules"), join(dir, "node_modules"), "dir");
+  return dir;
+}
+
+function runGateForReal(dir: string) {
+  return spawnSync(process.execPath, [SCRIPT], {
+    cwd: dir,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PI_GATE_TEST_CMD: REAL_VITEST,
+      PI_GATE_TEST_ARGS: JSON.stringify(["run", "--reporter=json"]),
+      PI_GATE_TSC_CMD: REAL_TSC,
+      PI_GATE_TSC_ARGS: JSON.stringify(["--noEmit", "--pretty", "false"]),
+    },
+  });
+}
+
+describe("red against a live tree the builder has already implemented", () => {
+  test("the red stands, and the live src/ is never touched", { timeout: 120_000 }, () => {
+    const dir = finishedProject("red-finished-");
+    const r = runGateForReal(dir);
+    expect(r.stdout + r.stderr).toMatch(/red-gate: OK — 1 NotImplemented failure/);
+    expect(r.status).toBe(0);
+
+    // The implementation is exactly where the builder left it …
+    expect(readFileSync(join(dir, "src", "calc.ts"), "utf8")).toContain("return a + b;");
+    // … and the skeleton the verdict was measured against lives in the shadow.
+    const shadowImpl = readFileSync(join(shadowProjectDir(dir), "src", "calc.ts"), "utf8");
+    expect(shadowImpl).toContain('throw new NotImplementedError("add")');
+    expect(shadowImpl).not.toContain("return a + b;");
+    // The shadow gets the tests verbatim and nothing else of the live src/.
+    expect(readdirSync(join(shadowProjectDir(dir), "tests"))).toEqual(["calc.test.ts"]);
+  });
+
+  test("a wrong-reason failure is still caught in the shadow", { timeout: 120_000 }, () => {
+    const dir = finishedProject("red-finished-wrong-");
+    writeFileSync(
+      join(dir, "tests", "wrong.test.ts"),
+      ['import { expect, test } from "vitest";', 'test("bad arithmetic", () => {', "  expect(1).toBe(2);", "});", ""].join("\n"),
+    );
+    const r = runGateForReal(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/not caused by NotImplementedError \(wrong-reason red\)/);
+    expect(r.stdout).toContain("red-gate: route → test-writer");
   });
 });

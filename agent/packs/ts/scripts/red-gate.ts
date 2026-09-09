@@ -19,20 +19,34 @@
 // test-writer's to fix and this is the last gate where that is cheap, so
 // catch them here and print one greppable `route → <role>` line.
 //
+// THE GATE RUNS AGAINST A SHADOW PROJECT, NOT THE LIVE TREE. The verdict
+// "every failure is a NotImplementedError" is only measurable against an
+// unimplemented skeleton, so running on the live tree made red impossible the
+// moment the builder wrote anything — which is why BUILD had to wait for TEST,
+// and why the r13/r14 runs jammed with an implemented tree and no way back to
+// red short of re-freezing the contracts to wipe src/. `scaffold` is
+// deterministic and the contracts are checksum-frozen, so the skeleton can be
+// reproduced at will: the gate rebuilds one at `<project>/.pi/shadow-red/`
+// from the contracts, the tests and the config, and runs every check there.
+// The verdict then holds regardless of what src/ contains, so the test-writer
+// and the builder are PARALLEL workers over disjoint write zones (tests/ and
+// src/) rather than a sequence.
+//
 // Exit 0 valid red · 1 invalid red (one greppable line each) · 2 misuse
 // (target unrunnable / bad invocation). Logs one guard event to the target's
-// .pi/guard-log.jsonl.
+// .pi/guard-log.jsonl, carrying the contract manifest and the tests-tree hash
+// the verdict was made against — green binds itself to both (green-gate.ts).
 //
 // The suite and tsc commands are injectable for testing via PI_GATE_TEST_CMD /
 // PI_GATE_TEST_ARGS and PI_GATE_TSC_CMD / PI_GATE_TSC_ARGS (JSON arrays);
 // defaults are `npx vitest run --reporter=json` and `npx tsc --noEmit`.
 
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -40,8 +54,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   boundaryRemedyLines,
   calledNames,
@@ -61,6 +74,7 @@ import {
   scaffoldContract,
   skeletonPathFor,
 } from "./scaffold-contract.ts";
+import { computeManifest } from "./checksum-gate.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
 import { lintTests } from "./lint-src.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
@@ -235,7 +249,7 @@ export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env
   return { command, args };
 }
 
-/** What a pristine red-gate project is built from. */
+/** What the shadow project is built from. */
 export interface RedGateSources {
   /** Project-relative *.contract.ts paths. */
   readonly contracts: readonly string[];
@@ -249,14 +263,14 @@ export interface RedGateSources {
 }
 
 export interface RedGateProjectPlan {
-  /** Files copied verbatim into the pristine project. */
+  /** Files copied verbatim into the shadow project. */
   readonly copy: readonly string[];
   /** Contracts to re-scaffold there, producing the throwing skeletons. */
   readonly regenerate: readonly string[];
 }
 
 /**
- * Plan a pristine project in which the red gate is valid regardless of what the
+ * Plan a shadow project in which the red gate is valid regardless of what the
  * builder has done to the real `src/`.
  *
  * The red gate asserts every failure is NotImplementedError, which is only
@@ -266,10 +280,10 @@ export interface RedGateProjectPlan {
  *
  * But that is an artifact of running against the live tree. `scaffold` is
  * deterministic and the contracts are checksum-frozen, so the skeleton can be
- * reproduced at will. Copy the contracts, the tests and the config into a temp
- * project, regenerate the skeletons there, and run: the verdict holds no matter
- * what exists in the real src/. That lets the test-writer and the builder work
- * in parallel, turning the critical path from sum() into max().
+ * reproduced at will. Copy the contracts, the tests and the config into a
+ * shadow project, regenerate the skeletons there, and run: the verdict holds no
+ * matter what exists in the real src/. That lets the test-writer and the
+ * builder work in parallel, turning the critical path from sum() into max().
  *
  * Blindness is untouched — regenerating a skeleton needs the contracts, never
  * the tests.
@@ -290,7 +304,7 @@ export function redGateProjectPlan(sources: RedGateSources): RedGateProjectPlan 
   };
 }
 
-// --- Building the pristine project ----------------------------------------------
+// --- Building the shadow project ------------------------------------------------
 
 const CONFIG_CANDIDATES = [
   "package.json",
@@ -312,7 +326,49 @@ function walkTs(root: string, dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** What a pristine project is built from, read off the live tree. Contracts and
+/** Project-relative paths, POSIX separators, of every file under `dir`.
+ *  `node_modules` and dot entries are skipped — the latter so that the shadow
+ *  project under `.pi/`, which holds a copy of these very files, can never
+ *  find its way into the hash of the tree it was built from. */
+function walkFiles(root: string, dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) walkFiles(root, full, out);
+    else if (entry.isFile()) out.push(relative(root, full).split(sep).join("/"));
+  }
+  return out;
+}
+
+/**
+ * A deterministic fingerprint of the tests tree.
+ *
+ * sha256 over every file under `tests/`, sorted by project-relative POSIX
+ * path; each file contributes its path and its newline-normalized content,
+ * NUL-separated so no rename can be disguised as a content change or vice
+ * versa. Newline normalization matches `hashContract` — CRLF/LF churn is not
+ * an edit. Every file counts, not just `*.ts`: a JSON fixture the suite reads
+ * is as much a part of what the red proved as the assertions are.
+ *
+ * This is what binds a green to a red (see green-gate.ts). The red proves
+ * THESE tests can fail; a test edited afterwards is unproven, and a green over
+ * an unproven suite is the Run 10 false green wearing a different hat. An
+ * absent `tests/` hashes to the empty digest, which is honest — there is
+ * nothing there — and red would have refused such a project anyway.
+ */
+export function testsTreeHash(cwd: string): string {
+  const hash = createHash("sha256");
+  for (const rel of walkFiles(cwd, join(cwd, "tests")).sort()) {
+    hash.update(rel, "utf8");
+    hash.update("\0");
+    hash.update(readFileSync(join(cwd, rel), "utf8").replace(/\r\n/g, "\n"), "utf8");
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/** What the shadow project is built from, read off the live tree. Contracts and
  *  tests are found the same way the rest of the pack finds them; implementation
  *  files are listed only so the plan can be asserted to exclude them. */
 export function collectRedGateSources(cwd: string): RedGateSources {
@@ -325,19 +381,48 @@ export function collectRedGateSources(cwd: string): RedGateSources {
   };
 }
 
+/** Where the shadow project lives, relative to the target project. Inside
+ *  `.pi/`, which delivery already gitignores, so a shadow can never reach a
+ *  commit. */
+export const SHADOW_RELATIVE = ".pi/shadow-red";
+
+/** Absolute path of the shadow project for `cwd`. Absolute deliberately: the
+ *  suite and the type checker are spawned WITH this as their working
+ *  directory, and vitest refuses a relative one — so `red-gate.ts .` must not
+ *  hand them `./.pi/shadow-red`. */
+export function shadowProjectDir(cwd: string): string {
+  return resolve(cwd, SHADOW_RELATIVE);
+}
+
 /**
- * Materialize a plan into a throwaway directory and return its path.
+ * Materialize a plan into the shadow project and return its path.
+ *
+ * WIPED AND REBUILT ON EVERY INVOCATION. A shadow that accumulates is a shadow
+ * that can go stale, and a stale shadow is a verdict about a project that no
+ * longer exists — the one thing a deterministic gate must never produce. Full
+ * rebuild is cheap (a handful of copies plus the scaffolder) and it makes the
+ * run's inputs a pure function of the live tree.
+ *
+ * It is LEFT BEHIND when the gate finishes, deliberately. A red that failed for
+ * a reason the output does not explain is diagnosed by looking at the project
+ * it actually ran against, and a directory that deletes itself is a postmortem
+ * you cannot do. Nothing reads it back — the next run rebuilds from scratch —
+ * so leaving it costs disk and buys evidence.
  *
  * `node_modules` is symlinked rather than copied: the suite needs vitest and
- * typescript, and a copy would cost more than the gate saves.
+ * typescript, and a copy would cost more than the gate saves. The wipe unlinks
+ * that symlink rather than following it, so the project's real modules are
+ * never touched.
  *
  * The skeletons are REGENERATED here, never copied — that is the whole point.
  * `scaffold` is deterministic and the contracts are checksum-frozen, so the
  * unimplemented skeleton can be reproduced at any moment, which is what makes
  * the verdict independent of whatever the builder has done to the real src/.
  */
-export function materializePristineProject(cwd: string, plan: RedGateProjectPlan): string {
-  const dir = mkdtempSync(join(tmpdir(), "pi-red-gate-"));
+export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan): string {
+  const dir = shadowProjectDir(cwd);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
 
   for (const rel of plan.copy) {
     const to = join(dir, rel);
@@ -437,16 +522,35 @@ function withObligations(cwd: string, base: GateResult, run: RunTestsResult): Ga
   };
 }
 
+/**
+ * The inputs this verdict is a claim ABOUT, recorded so a later gate can bind
+ * itself to them: the contract manifest (checksum-gate's own `computeManifest`,
+ * so "the contracts the red ran against" has exactly one definition) and the
+ * tests-tree hash. Green reads both back — a red is worth nothing once the
+ * things it was measured over have moved.
+ *
+ * Best effort: an unreadable tree must never turn a valid red into an error.
+ */
+function redInputs(cwd: string): Record<string, unknown> {
+  try {
+    return { contractManifest: computeManifest(cwd).files, testsTreeHash: testsTreeHash(cwd) };
+  } catch {
+    return {};
+  }
+}
+
 /** Run the red gate and return its verdict without printing or exiting.
  *  The `red_gate` tool and the CLI below are both thin wrappers over this, so
  *  there is exactly one implementation of "is this a valid red".
  *
- *  The suite runs against a PRISTINE regenerated copy of the project, not the
- *  live tree. A valid red asserts every failure is NotImplementedError, which
- *  is only measurable against an unimplemented skeleton — running against the
- *  live tree is what forced BUILD to wait for TEST, because the window shut the
- *  moment the builder wrote anything. Against a regenerated copy the verdict
- *  holds regardless, so the test-writer and the builder can run concurrently.
+ *  Every check runs in the SHADOW PROJECT at `.pi/shadow-red/`, rebuilt from
+ *  the contracts, the tests and the config on each invocation — not the live
+ *  tree. A valid red asserts every failure is NotImplementedError, which is
+ *  only measurable against an unimplemented skeleton — running against the live
+ *  tree is what forced BUILD to wait for TEST, because the window shut the
+ *  moment the builder wrote anything. Against a regenerated shadow the verdict
+ *  holds regardless, so the test-writer and the builder run concurrently over
+ *  disjoint write zones.
  *
  *  Blindness is untouched: regenerating a skeleton needs the contracts, never
  *  the tests. */
@@ -455,7 +559,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
   let plan: RedGateProjectPlan;
   try {
     plan = redGateProjectPlan(collectRedGateSources(cwd));
-    dir = materializePristineProject(cwd, plan);
+    dir = materializeShadowProject(cwd, plan);
   } catch (e) {
     const summary = e instanceof Error ? e.message : String(e);
     const result: GateResult = {
@@ -463,53 +567,51 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
       verdict: "error",
       summary,
       lines: [`red-gate: ERROR — ${summary}`],
-      detail: { reason: "pristine-project" },
+      detail: { reason: "shadow-project" },
     };
     logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary, detail: result.detail });
     return result;
   }
 
-  try {
-    const [run, tsc, testLint] = await Promise.all([
-      runTests(dir, gateOptionsFromEnv()),
-      typecheck(dir, gateTypecheckOptionsFromEnv()),
-      // Escape hatches in TEST sources: a suite that silences the type
-      // checker can assert its way past anything, and Run 10's helpers used
-      // `!` freely because only src/** was watched. Checked here because this
-      // is the last gate where the fix is cheap and the test-writer is live.
-      lintTests(cwd),
-    ]);
-    let base = classifyRed(run, tsc);
-    if (base.code === 0 && testLint.code === 1) {
-      base = {
-        code: 1,
-        verdict: "block",
-        summary: `${testLint.summary} in tests (route: test-writer)`,
-        lines: [
-          `red-gate: FAIL — the red is valid but the test sources switch the type checker off (${testLint.summary})`,
-          ...testLint.lines.slice(0, -1),
-          "red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it",
-          "red-gate: route → test-writer",
-        ],
-        detail: { reason: "test-escape-hatches", ...testLint.detail, route: "test-writer" },
-      };
-    }
-    // Obligations are only meaningful once the red itself is valid: against a
-    // broken suite "nothing reached parseCurrency" is noise, not a finding.
-    const result = base.code === 0 ? withObligations(cwd, base, run) : base;
-    logGuardEvent(cwd, {
-      guard: GUARD,
-      verdict: result.verdict,
-      summary: result.summary,
-      detail: { ...result.detail, pristine: true, contracts: plan.regenerate.length },
-    });
-    return result;
-  } finally {
-    // PI_GATE_KEEP_PRISTINE leaves the directory behind: when a red is invalid
-    // for a reason the output does not explain, the project it ran against is
-    // the first thing worth looking at.
-    if (!process.env["PI_GATE_KEEP_PRISTINE"]) rmSync(dir, { recursive: true, force: true });
+  const [run, tsc, testLint] = await Promise.all([
+    runTests(dir, gateOptionsFromEnv()),
+    typecheck(dir, gateTypecheckOptionsFromEnv()),
+    // Escape hatches in TEST sources: a suite that silences the type
+    // checker can assert its way past anything, and Run 10's helpers used
+    // `!` freely because only src/** was watched. Checked here because this
+    // is the last gate where the fix is cheap and the test-writer is live.
+    lintTests(cwd),
+  ]);
+  let base = classifyRed(run, tsc);
+  if (base.code === 0 && testLint.code === 1) {
+    base = {
+      code: 1,
+      verdict: "block",
+      summary: `${testLint.summary} in tests (route: test-writer)`,
+      lines: [
+        `red-gate: FAIL — the red is valid but the test sources switch the type checker off (${testLint.summary})`,
+        ...testLint.lines.slice(0, -1),
+        "red-gate: a non-null assertion, cast, any or ts-comment in a test helper undermines every assertion built on it",
+        "red-gate: route → test-writer",
+      ],
+      detail: { reason: "test-escape-hatches", ...testLint.detail, route: "test-writer" },
+    };
   }
+  // Obligations are only meaningful once the red itself is valid: against a
+  // broken suite "nothing reached parseCurrency" is noise, not a finding.
+  const result = base.code === 0 ? withObligations(cwd, base, run) : base;
+  logGuardEvent(cwd, {
+    guard: GUARD,
+    verdict: result.verdict,
+    summary: result.summary,
+    detail: {
+      ...result.detail,
+      shadow: SHADOW_RELATIVE,
+      contracts: plan.regenerate.length,
+      ...redInputs(cwd),
+    },
+  });
+  return result;
 }
 
 async function main(argv: string[]): Promise<number> {

@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { afterAll, describe, expect, test } from "vitest";
 import {
   type CommandRunner,
   extractReporterJson,
@@ -176,5 +177,44 @@ describe("failureNames", () => {
       ],
     } as RunTestsResult;
     expect(failureNames(r)).toEqual(["b", "c"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `.pi/` is the harness's, not the project's
+// ---------------------------------------------------------------------------
+//
+// The red gate rebuilds a SHADOW project at `.pi/shadow-red/` (red-gate.ts) and
+// leaves it there: copies of the project's own tests running against
+// regenerated skeletons. Vitest globs test files with `dot: true` and its
+// default exclude covers only node_modules and .git, so without the exclude in
+// DEFAULT_ARGS every live run would collect the shadow's copies as well — and
+// each one would fail with NotImplementedError, turning every green into a
+// false red. This runs REAL vitest to prove the default args hold that line.
+
+describe("the default suite invocation ignores .pi/", () => {
+  const dirs: string[] = [];
+  afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+  test("a suite inside .pi/shadow-red is not collected", { timeout: 120_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-run-tests-dotpi-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "tests"), { recursive: true });
+    mkdirSync(join(dir, ".pi", "shadow-red", "tests"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), '{"name":"probe","type":"module","private":true}\n');
+    writeFileSync(
+      join(dir, "tests", "live.test.ts"),
+      'import { expect, test } from "vitest";\ntest("live", () => { expect(1).toBe(1); });\n',
+    );
+    writeFileSync(
+      join(dir, ".pi", "shadow-red", "tests", "live.test.ts"),
+      'import { expect, test } from "vitest";\ntest("shadow", () => { expect(1).toBe(2); });\n',
+    );
+    symlinkSync(join(import.meta.dirname, "..", "..", "..", "node_modules"), join(dir, "node_modules"), "dir");
+
+    const result = await runTests(dir);
+    expect(result.blocked).toBeUndefined();
+    expect(result.results.map((r) => r.name)).toEqual(["live"]);
+    expect(result.ok).toBe(true);
   });
 });

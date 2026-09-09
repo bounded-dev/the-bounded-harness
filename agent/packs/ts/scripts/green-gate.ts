@@ -18,6 +18,13 @@
 // naming the furthest-upstream role that may repair what it found — a
 // tests/**-only failure bounces to the test-writer.
 //
+// GREEN IS BOUND TO A RED. Before running anything, the gate requires a
+// red-gate pass that is still standing: recorded after the last contract
+// freeze, AND made against the tests as they are now. Green runs on the LIVE
+// tree (that is what it is for); red runs on a shadow project, so the two
+// verdicts are only about the same work if the tests have not moved between
+// them. See `redBindingFor`.
+//
 // Exit 0 green · 1 not green (one greppable line each) · 2 misuse (target
 // unrunnable / bad invocation). Logs one guard event to the target's
 // .pi/guard-log.jsonl.
@@ -28,7 +35,12 @@
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { runTests, type RunTestsResult } from "./run-tests.ts";
-import { gateOptionsFromEnv, gateTypecheckOptionsFromEnv, type GateResult } from "./red-gate.ts";
+import {
+  gateOptionsFromEnv,
+  gateTypecheckOptionsFromEnv,
+  testsTreeHash,
+  type GateResult,
+} from "./red-gate.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
@@ -240,18 +252,71 @@ function priorGreenFailures(cwd: string): string[][] {
 export function redPassStandsForCurrentContracts(
   events: readonly { guard: string; verdict: string; summary: string }[],
 ): boolean {
+  return lastStandingRedPass(events) !== undefined;
+}
+
+/** A guard event as the binding reads it: verdict, summary, and the detail the
+ *  gate recorded about what it ran against. */
+interface BindingEvent {
+  readonly guard: string;
+  readonly verdict: string;
+  readonly summary: string;
+  readonly detail?: Readonly<Record<string, unknown>>;
+}
+
+/** The red-gate pass that came after the last contract freeze, if there is one. */
+function lastStandingRedPass(events: readonly BindingEvent[]): BindingEvent | undefined {
   let lastFreeze = -1;
   let lastRedPass = -1;
   events.forEach((e, i) => {
     if (e.guard === "checksum-gate" && e.verdict === "pass" && e.summary.includes("wrote manifest")) lastFreeze = i;
     if (e.guard === "red-gate" && e.verdict === "pass") lastRedPass = i;
   });
-  return lastRedPass > lastFreeze;
+  return lastRedPass > lastFreeze ? events[lastRedPass] : undefined;
 }
 
-export async function runGreenGate(cwd: string): Promise<GateResult> {
-  if (!redPassStandsForCurrentContracts(readGuardLog(cwd))) {
-    const result: GateResult = {
+/** Why the standing red does not cover this green, or `ok`. */
+export type RedBinding =
+  | { readonly ok: true }
+  /** No red-gate pass since the contracts were last frozen (Run 10). */
+  | { readonly ok: false; readonly reason: "no-red" }
+  /** A red stands, but tests/** has been edited since it was measured. */
+  | { readonly ok: false; readonly reason: "tests-changed" }
+  /** A red stands but recorded no tests hash, so nothing can be bound to it. */
+  | { readonly ok: false; readonly reason: "unbound-red" };
+
+/**
+ * Does a red still cover the work green is about to bless?
+ *
+ * Two halves, both enforced rather than asked:
+ *
+ *  · CONTRACTS — a red pass after the most recent freeze (see
+ *    `redPassStandsForCurrentContracts` and Run 10's 148/148 false green).
+ *
+ *  · TESTS — that red pass must have been measured over THESE tests. Red now
+ *    runs against a shadow project so that the test-writer and the builder can
+ *    work in parallel; the cost of that freedom is that the two workers move
+ *    independently, and a test edited after the red went green is a test
+ *    nothing has ever proven CAN fail. Comparing `testsTreeHash` closes it:
+ *    the red records the hash of the tree it ran against, and green refuses
+ *    unless the tree still hashes the same. The fix is one command — re-run
+ *    red_gate, which does not disturb src/ — so the message says so.
+ *
+ * Pure: the caller supplies the events and the current hash.
+ */
+export function redBindingFor(events: readonly BindingEvent[], testsHash: string): RedBinding {
+  const red = lastStandingRedPass(events);
+  if (red === undefined) return { ok: false, reason: "no-red" };
+  const recorded = (red.detail as { testsTreeHash?: unknown } | undefined)?.testsTreeHash;
+  if (typeof recorded !== "string" || recorded === "") return { ok: false, reason: "unbound-red" };
+  return recorded === testsHash ? { ok: true } : { ok: false, reason: "tests-changed" };
+}
+
+/** The verdict when no red covers this green. One shape per reason, each
+ *  naming the role that can fix it and the command that fixes it. */
+function refusal(reason: "no-red" | "tests-changed" | "unbound-red"): GateResult {
+  if (reason === "no-red") {
+    return {
       code: 1,
       verdict: "block",
       summary: "no valid red for the current contracts",
@@ -264,6 +329,31 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
       ],
       detail: { reason: "no-red", route: "architect" },
     };
+  }
+  const headline =
+    reason === "tests-changed"
+      ? "green-gate: FAIL — tests/ has changed since the red-gate pass that covers it"
+      : "green-gate: FAIL — the standing red-gate pass recorded no tests hash, so no red covers these tests";
+  return {
+    code: 1,
+    verdict: "block",
+    summary: reason === "tests-changed" ? "tests changed since the red" : "standing red records no tests hash",
+    lines: [
+      headline,
+      "  The red proved THOSE tests can fail; a test edited afterwards is unproven, and",
+      "  a green over an unproven test is the same false green in new clothes.",
+      "  Re-run red_gate — it builds its own shadow project, so it neither needs nor",
+      "  touches src/, and the builder can keep working while it runs.",
+      "green-gate: route → test-writer",
+    ],
+    detail: { reason, route: "test-writer" },
+  };
+}
+
+export async function runGreenGate(cwd: string): Promise<GateResult> {
+  const binding = redBindingFor(readGuardLog(cwd), testsTreeHash(cwd));
+  if (!binding.ok) {
+    const result = refusal(binding.reason);
     logGuardEvent(cwd, { guard: GUARD, verdict: result.verdict, summary: result.summary, detail: result.detail });
     return result;
   }

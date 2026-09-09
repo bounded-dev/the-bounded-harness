@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { classifyGreen, redPassStandsForCurrentContracts } from "./green-gate.ts";
+import { classifyGreen, redBindingFor, redPassStandsForCurrentContracts } from "./green-gate.ts";
+import { testsTreeHash } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
@@ -178,14 +179,27 @@ function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   // Green refuses without a red pass since the last freeze (Run 10). Seed the
   // normal history: frozen, then a valid red.
   mkdirSync(join(dir, ".pi"), { recursive: true });
+  seedRedPass(dir);
+  return dir;
+}
+
+/** The normal history green expects: contracts frozen, then a red pass — and
+ *  that red carries the hash of the tests tree it ran against, because green is
+ *  bound to BOTH (the contracts it was frozen for and the tests it proved). */
+function seedRedPass(dir: string, testsHash: string = testsTreeHash(dir)): void {
   writeFileSync(
     join(dir, ".pi", "guard-log.jsonl"),
     [
       JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
-      JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
+      JSON.stringify({
+        ts: "2026-09-04T00:01:00.000Z",
+        guard: "red-gate",
+        verdict: "pass",
+        summary: "RED OK (5 NotImplemented failures, 0 passed)",
+        detail: { shadow: ".pi/shadow-red", testsTreeHash: testsHash },
+      }),
     ].join("\n") + "\n",
   );
-  return dir;
 }
 
 function runGate(dir: string, typeErrors = false) {
@@ -457,5 +471,118 @@ describe("green requires a red for the CURRENT contracts", () => {
     // A checksum VERIFY (no drift) is not a freeze — it must not void the red.
     const verify = { guard: "checksum-gate", verdict: "pass", summary: "OK (1 contract file, no drift)" };
     expect(redPassStandsForCurrentContracts([freeze, red, verify])).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Green is bound to the TESTS the red proved, not just to the contracts
+// ---------------------------------------------------------------------------
+//
+// Red now runs against a shadow project (red-gate.ts) so the test-writer and
+// the builder can work in parallel. The price of that freedom is that the two
+// move independently: a test edited after the red passed has never been shown
+// to fail, and a green over it is the Run 10 false green in new clothes. So the
+// red records the hash of the tests tree it ran against, and green refuses
+// unless the tree still hashes the same.
+
+describe("redBindingFor (pure)", () => {
+  const freeze = { guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" };
+  const red = (hash: string) => ({
+    guard: "red-gate",
+    verdict: "pass",
+    summary: "RED OK",
+    detail: { testsTreeHash: hash },
+  });
+
+  test("a red for the current contracts AND the current tests binds", () => {
+    expect(redBindingFor([freeze, red("abc")], "abc")).toEqual({ ok: true });
+  });
+
+  test("a red whose tests have since moved does not bind", () => {
+    expect(redBindingFor([freeze, red("abc")], "def")).toEqual({ ok: false, reason: "tests-changed" });
+  });
+
+  test("no red since the freeze outranks any hash question", () => {
+    expect(redBindingFor([red("abc"), freeze], "abc")).toEqual({ ok: false, reason: "no-red" });
+    expect(redBindingFor([], "abc")).toEqual({ ok: false, reason: "no-red" });
+  });
+
+  test("a red that recorded no hash proves nothing about these tests", () => {
+    const unhashed = { guard: "red-gate", verdict: "pass", summary: "RED OK" };
+    expect(redBindingFor([freeze, unhashed], "abc")).toEqual({ ok: false, reason: "unbound-red" });
+  });
+
+  test("the LATEST red is the one that counts", () => {
+    expect(redBindingFor([freeze, red("old"), red("new")], "new")).toEqual({ ok: true });
+    expect(redBindingFor([freeze, red("new"), red("old")], "new")).toEqual({ ok: false, reason: "tests-changed" });
+  });
+});
+
+describe("green-gate CLI: the tests must be the ones the red proved", () => {
+  const allPassing = vitestJson([{ name: "renews", status: "passed" }]);
+
+  function withTests(prefix: string, source: string): string {
+    const dir = fixtureRepo(prefix, allPassing);
+    mkdirSync(join(dir, "tests"), { recursive: true });
+    writeFileSync(join(dir, "tests", "billing.test.ts"), source);
+    seedRedPass(dir); // red passed against the tests as written above
+    return dir;
+  }
+
+  test("hashes match → green passes on the live tree as before", () => {
+    const dir = withTests("green-hashok-", "// the tests the red ran against\n");
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/green-gate: OK — 1 passed, 1 total/);
+  });
+
+  test("a test edited after the red → refused, routed to the test-writer", () => {
+    const dir = withTests("green-hashdrift-", "// the tests the red ran against\n");
+    writeFileSync(join(dir, "tests", "billing.test.ts"), "// edited after the red went green\n");
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("green-gate: FAIL — tests/ has changed since the red-gate pass that covers it");
+    expect(r.stdout).toContain("  Re-run red_gate — it builds its own shadow project, so it neither needs nor");
+    expect(r.stdout).toContain("green-gate: route → test-writer");
+    expect(greenEntry(dir)).toMatchObject({
+      guard: "green-gate",
+      verdict: "block",
+      summary: "tests changed since the red",
+      detail: { reason: "tests-changed", route: "test-writer" },
+    });
+  });
+
+  test("a NEW test file added after the red is an edit too", () => {
+    const dir = withTests("green-hashadd-", "// the tests the red ran against\n");
+    writeFileSync(join(dir, "tests", "extra.test.ts"), "// written after the red\n");
+    expect(runGate(dir).status).toBe(1);
+  });
+
+  test("the refusal happens before the suite runs — nothing is measured against unproven tests", () => {
+    const dir = withTests("green-hashearly-", "// the tests the red ran against\n");
+    writeFileSync(join(dir, "tests", "billing.test.ts"), "// edited\n");
+    rmSync(join(dir, "run.json")); // the suite could not run even if it wanted to
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    // Not "suite did not run": the gate never got that far.
+    expect(r.stdout).toContain("green-gate: FAIL — tests/ has changed since the red-gate pass that covers it");
+    expect(r.stdout).not.toMatch(/suite did not run/);
+  });
+
+  test("a red from before the binding existed records no hash and is refused", () => {
+    const dir = withTests("green-unbound-", "// the tests the red ran against\n");
+    writeFileSync(
+      join(dir, ".pi", "guard-log.jsonl"),
+      [
+        JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
+        JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(
+      "green-gate: FAIL — the standing red-gate pass recorded no tests hash, so no red covers these tests",
+    );
+    expect(r.stdout).toContain("green-gate: route → test-writer");
   });
 });
