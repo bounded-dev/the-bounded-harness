@@ -79,6 +79,19 @@ describe("classifyDesignGate", () => {
     expect(r.lines).toContain("design-gate: FAIL — freeze blocked");
   });
 
+  // On the re-freeze fast path the review is evaluated FIRST, so the steps that
+  // never ran sit before it as well as after it. "Everything after the failure"
+  // would have under-reported them by three.
+  test("a failure names every step that did not run, not just the ones after it", () => {
+    const r = classifyDesignGate([
+      step("design-review", 1, 40, ["design-review: BLOCK — reviewed at 14:32:11Z, then edited"]),
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain(
+      "design-gate: FAIL — design-review missing (or stale); contract-purity, scaffold, typecheck, freeze did not run",
+    );
+  });
+
   // The review step runs nothing, so "blocked" would send the architect looking
   // for output that does not exist. The one FAIL line has to say which of the
   // two states it is in — and the step's own lines above it say which file.
@@ -624,5 +637,139 @@ describe("design-gate CLI: the freeze requires a fresh review", () => {
     };
     expect(detail.steps.map((s) => s.step)).toEqual([...DESIGN_STEPS]);
     expect(detail.review).toMatchObject({ state: "fresh", findings: 1, blockers: 1 });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The re-freeze fast path (r14): don't pay a full pass to be told to review
+// ---------------------------------------------------------------------------
+//
+// Freshness compares the guard log against the CURRENT bytes of spec.md and the
+// contracts, and no other step writes those — so its answer does not depend on
+// purity, scaffolding or tsc, and evaluating it first is sound. On a project
+// that has already been frozen once, that saves the whole pipeline pass r14 paid
+// repeatedly just to be told at step four to commission the reviewer.
+//
+// A FIRST run keeps today's order: there is no earlier review to be stale
+// against, and scaffolding has to happen before anything can typecheck at all.
+
+describe("design-gate CLI: a re-freeze checks the review first", () => {
+  const EARLY =
+    "design-gate: already frozen, so design-review is checked FIRST — a stale review blocks before anything is re-run";
+
+  /** How many times each guard has spoken so far — the fail-fast evidence. */
+  function guardCounts(dir: string): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const e of readGuardLog(dir)) counts[e.guard] = (counts[e.guard] ?? 0) + 1;
+    return counts;
+  }
+
+  test("a stale review on a frozen design blocks BEFORE purity, scaffold or typecheck run", () => {
+    const dir = fixtureRepo("design-refreeze-stale-", CLEAN_CONTRACT);
+    review(dir);
+    expect(runGate(dir).status).toBe(0); // the manifest now exists: the next run is a re-freeze
+    const before = guardCounts(dir);
+
+    writeFileSync(join(dir, "spec.md"), `${SPEC}\nRounding is half-up.\n`);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(EARLY);
+    expect(r.stdout).toMatch(/design-review: BLOCK — reviewed at \d\d:\d\d:\d\dZ, then edited/);
+    expect(r.stdout).toContain("  changed since that review: spec.md");
+    expect(r.stdout).toContain(
+      "design-gate: FAIL — design-review missing (or stale); contract-purity, scaffold, typecheck, freeze did not run",
+    );
+    expect(r.stdout).toContain("design-gate: route → architect");
+
+    // FAIL-FAST, proven from the log rather than from the printed text: not one
+    // of the three expensive steps logged a single new event.
+    const after = guardCounts(dir);
+    for (const guard of ["contract-purity", "scaffold", "checksum-gate"]) {
+      expect(after[guard] ?? 0, `${guard} must not have run`).toBe(before[guard] ?? 0);
+    }
+    // ...and nothing they print reached the transcript either.
+    expect(r.stdout).not.toMatch(/contract-purity:/);
+    expect(r.stdout).not.toMatch(/scaffold:/);
+    expect(r.stdout).not.toMatch(/typecheck:/);
+    expect(after["design-gate"]).toBe((before["design-gate"] ?? 0) + 1);
+  });
+
+  test("the fast-path block is recorded as a re-freeze that checked the review first", () => {
+    const dir = fixtureRepo("design-refreeze-log-", CLEAN_CONTRACT);
+    review(dir);
+    expect(runGate(dir).status).toBe(0);
+    writeFileSync(join(dir, "spec.md"), `${SPEC}\nRevised.\n`);
+    expect(runGate(dir).status).toBe(1);
+
+    const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
+    expect(composite).toHaveLength(2);
+    const detail = composite[1].detail as {
+      steps: { step: string }[];
+      reFreeze: boolean;
+      checkedFirst: string;
+      failed: string;
+      review: { state: string };
+    };
+    expect(detail.steps.map((s) => s.step)).toEqual(["design-review"]);
+    expect(detail).toMatchObject({
+      reFreeze: true,
+      checkedFirst: "design-review",
+      failed: "design-review",
+      review: { state: "stale" },
+    });
+  });
+
+  // Nothing may be frozen on the fast path either: a block is a block.
+  test("the fast path leaves the previous manifest exactly as it was", () => {
+    const dir = fixtureRepo("design-refreeze-manifest-", CLEAN_CONTRACT);
+    review(dir);
+    expect(runGate(dir).status).toBe(0);
+    const frozen = readFileSync(join(dir, MANIFEST), "utf8");
+    writeFileSync(
+      join(dir, "src", "money", "money.contract.ts"),
+      `${CLEAN_CONTRACT}\nexport declare function reformat(money: Money): Currency;\n`,
+    );
+    expect(runGate(dir).status).toBe(1);
+    expect(readFileSync(join(dir, MANIFEST), "utf8")).toBe(frozen);
+  });
+
+  // The PASSING narrative is the half read twice, so it keeps the canonical
+  // order: the pre-flight is silent and design-review reports in its own slot,
+  // between typecheck and freeze.
+  test("a fresh review on a re-freeze reads in the canonical order, and says nothing early", () => {
+    const dir = fixtureRepo("design-refreeze-fresh-", CLEAN_CONTRACT);
+    review(dir);
+    expect(runGate(dir).status).toBe(0);
+    const r = runGate(dir); // re-freeze, review still fresh
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain(EARLY);
+    const order = r.stdout
+      .split("\n")
+      .filter((l) => /^(contract-purity|scaffold|typecheck|design-review|freeze): (PASS|BLOCK|ERROR)/.test(l))
+      .map((l) => l.split(":")[0]);
+    expect(order).toEqual([...DESIGN_STEPS]);
+    expect(r.stdout).toMatch(/design-gate: OK — contract-purity → scaffold → typecheck → design-review → freeze/);
+    const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
+    expect((composite[1].detail as { reFreeze: boolean }).reFreeze).toBe(true);
+  });
+
+  // A FIRST run has nothing to be stale against, and scaffolding must happen
+  // before anything can typecheck. So it keeps today's order: the skeleton is
+  // generated, the typecheck runs, and only then is the missing review named.
+  test("a FIRST run keeps today's order: it scaffolds and typechecks before naming the review", () => {
+    const dir = fixtureRepo("design-firstrun-", CLEAN_CONTRACT);
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toContain(EARLY);
+    expect(r.stdout).toMatch(/contract-purity: PASS/);
+    expect(r.stdout).toMatch(/scaffold: PASS/);
+    expect(r.stdout).toMatch(/typecheck: PASS/);
+    expect(r.stdout).toContain("design-review: BLOCK — this design has never been reviewed");
+    expect(r.stdout).toContain("design-gate: FAIL — design-review missing (or stale); freeze did not run");
+    expect(existsSync(join(dir, SKELETON))).toBe(true);
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+    expect((readGuardLog(dir).find((e) => e.guard === "design-gate")!.detail as { reFreeze: boolean }).reFreeze)
+      .toBe(false);
   });
 });

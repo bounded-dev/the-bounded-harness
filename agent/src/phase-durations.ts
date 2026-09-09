@@ -103,6 +103,26 @@
 // `unattributedBlocks`: with the boundary unknown it genuinely is not known
 // which phase it belongs to, and guessing would put TEST's bounces on DESIGN's
 // line.
+//
+// ---------------------------------------------------------------------------
+// Friction
+// ---------------------------------------------------------------------------
+//
+// A bounce is work handed back on purpose: a gate found a defect and named
+// whose it is. An UNROUTED block is the other thing — a tool call refused
+// before it did anything, a composite's inner step failing alongside the
+// composite. Those are the run's friction: minutes spent arguing with the
+// harness rather than with the problem, and unlike bounces the target for
+// them is zero.
+//
+// The per-phase lines already carry their counts, but the number that says
+// whether the harness is in anyone's way is the RUN total, broken down by the
+// guard that did the refusing — "14 of the 17 were path-gate" points at a
+// write-zone that is wrong, which no per-phase line does. So `friction`
+// counts every unrouted block in the log, INCLUDING the ones no pair of
+// markers could place: a path-gate denial in an unmeasurable stretch cost the
+// same as one inside DESIGN, and dropping it would make the headline disagree
+// with the log for no reason a reader could reconstruct.
 
 import type { LoggedGuardEvent } from "./guard-log.ts";
 
@@ -115,6 +135,20 @@ export interface RouteCount {
   /** The role a gate handed the work back to (`detail.route`). */
   readonly route: string;
   readonly count: number;
+}
+
+export interface GuardCount {
+  /** The guard that logged the block. */
+  readonly guard: string;
+  readonly count: number;
+}
+
+/** Every unrouted block in the run, and which guard refused. Target: zero. */
+export interface Friction {
+  /** Unrouted blocks across the whole log, placed in a phase or not. */
+  readonly unroutedBlocks: number;
+  /** Most-frequent guard first, then alphabetical. */
+  readonly byGuard: readonly GuardCount[];
 }
 
 export interface PhaseSpan {
@@ -150,6 +184,8 @@ export interface PhaseDurations {
   readonly bounces: number;
   /** Blocks in a stretch no pair of markers delimits. */
   readonly unattributedBlocks: number;
+  /** Run-total unrouted blocks, by guard — the harness getting in the way. */
+  readonly friction: Friction;
   /** Set when nothing could be measured at all; the report degrades to this line. */
   readonly unavailable?: string;
 }
@@ -236,6 +272,7 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
       skipped,
       bounces: 0,
       unattributedBlocks: 0,
+      friction: { unroutedBlocks: 0, byGuard: [] },
       unavailable:
         skipped > 0
           ? `no usable guard events (${skipped} unreadable) — the log is corrupt`
@@ -286,6 +323,10 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
     wrap: new Map(),
   };
   const unrouted: Record<PhaseName, number> = { design: 0, tests: 0, build: 0, wrap: 0 };
+  // Friction is counted per GUARD across the whole run, so it is tallied here
+  // rather than derived from the per-phase numbers: the phase totals cannot
+  // see the unattributed blocks, and neither carries the guard name.
+  const byGuard = new Map<string, number>();
   let unattributedBlocks = 0;
   let bounces = 0;
 
@@ -293,6 +334,7 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
     if (e.verdict !== "block") continue;
     const route = routeOf(e);
     if (route !== undefined) bounces += 1;
+    else byGuard.set(e.guard, (byGuard.get(e.guard) ?? 0) + 1);
     const phase = PHASES.find((p) => {
       const region = regions[p];
       return region !== undefined && i >= region[0] && i < region[1];
@@ -304,6 +346,13 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
     if (route === undefined) unrouted[phase] += 1;
     else routed[phase].set(route, (routed[phase].get(route) ?? 0) + 1);
   }
+
+  const friction: Friction = {
+    unroutedBlocks: [...byGuard.values()].reduce((n, c) => n + c, 0),
+    byGuard: [...byGuard]
+      .map(([guard, count]) => ({ guard, count }))
+      .sort((a, b) => b.count - a.count || (a.guard < b.guard ? -1 : 1)),
+  };
 
   const phases: PhaseSpan[] = PHASES.map((phase) => {
     const { startIdx, endIdx, missing } = bounds[phase];
@@ -329,6 +378,7 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
     skipped,
     bounces,
     unattributedBlocks,
+    friction,
   };
 }
 
@@ -387,6 +437,20 @@ function bounceText(span: PhaseSpan): string | undefined {
 }
 
 /**
+ * The friction summary: how many tool calls the harness refused outright, and
+ * which guard did it. Pure.
+ */
+function frictionText(friction: Friction): string {
+  const n = friction.unroutedBlocks;
+  const noun = `${n} unrouted block${n === 1 ? "" : "s"}`;
+  const breakdown =
+    friction.byGuard.length > 0
+      ? ` (${friction.byGuard.map((g) => `${g.guard} ${g.count}`).join(", ")})`
+      : "";
+  return `${noun}${breakdown} — target 0`;
+}
+
+/**
  * The human block a delivery prints.
  *
  * Line 0 is the headline (the house convention every gate follows); the rest
@@ -427,6 +491,13 @@ export function formatPhaseDurations(durations: PhaseDurations): string[] {
       `  timing: ${durations.unattributedBlocks} block${durations.unattributedBlocks === 1 ? "" : "s"} outside any measurable phase`,
     );
   }
+
+  // ALWAYS printed, including at zero. A friction line that appears only when
+  // there is friction leaves "the harness stayed out of the way" and "nobody
+  // measured" looking identical in the transcript, and zero is the target — it
+  // is worth seeing hit. The `friction:` tag is its own, not `timing:`: this is
+  // a run total, not one phase's row, and it should grep out separately.
+  lines.push(`  friction: ${frictionText(durations.friction)}`);
 
   const counted = `${durations.events} guard event${durations.events === 1 ? "" : "s"}`;
   const unreadable = durations.skipped > 0 ? `, ${durations.skipped} unreadable` : "";

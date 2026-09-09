@@ -10,10 +10,12 @@ import {
   ERRORS_MODULE_SOURCE,
   ScaffoldError,
   errorsModuleFor,
+  isGeneratedArtifact,
   scaffoldContract,
   runScaffold,
   skeletonPathFor,
 } from "./scaffold-contract.ts";
+import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
 
 const TESTDATA = join(import.meta.dirname, "testdata");
 const fixture = (name: string) => readFileSync(join(TESTDATA, name), "utf8");
@@ -487,5 +489,184 @@ export declare function start(plan: Plan): Plan;
     const result = runScaffold(dir);
     expect(result.code).toBe(0);
     expect(readFileSync(join(dir, "src/billing.ts"), "utf8")).toContain("NotImplementedError");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The scaffold step is a SYNC: deleting a contract deletes what it generated
+// ---------------------------------------------------------------------------
+//
+// Run r14: an architect deleted a scratch contract, and its skeleton and law
+// suite stayed. Generated files live in write zones the architect does not
+// hold, so removing them cost ~10 minutes and two failed delegate spawns for
+// two files nobody wrote. The generator owns its output on the way out as well
+// as on the way in — deleting the contract is the whole gesture.
+
+describe("runScaffold prunes orphaned generated files", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  const project = (files: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "scaffold-prune-"));
+    dirs.push(dir);
+    for (const [rel, source] of Object.entries(files)) {
+      const path = join(dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    return dir;
+  };
+
+  /** A value object, so the contract generates a law suite as well as a skeleton. */
+  const CURRENCY = `/** Currency: ISO-4217 alphabetic code — three uppercase letters. */
+export declare class Currency {
+  private readonly __brand: "Currency";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): Currency | undefined;
+}
+
+export declare function normalize(currency: Currency): Currency;
+`;
+
+  const KEEPER = `export type Id = string & { readonly __brand: "Id" };
+export declare function get(id: Id): string;
+`;
+
+  // Both generators must keep emitting the marker the sync recognises. If one
+  // ever stopped, the sync would quietly leak that generator's output forever
+  // — the failure would be invisible, so it is pinned here rather than trusted.
+  test("every generated file this pack writes carries the marker the sync looks for", () => {
+    expect(isGeneratedArtifact(scaffoldContract(CURRENCY, "src/money/money.contract.ts"))).toBe(true);
+    expect(isGeneratedArtifact(valueObjectLawsSource(CURRENCY, "src/money/money.contract.ts"))).toBe(true);
+    expect(isGeneratedArtifact(ERRORS_MODULE_SOURCE)).toBe(false);
+    expect(isGeneratedArtifact("export const x = 1;\n")).toBe(false);
+  });
+
+  test("deleting a contract removes its skeleton and its law suite on the next run", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    const skeleton = join(dir, "src/money/money.ts");
+    const laws = join(dir, lawsPathFor("src/money/money.contract.ts"));
+    expect(existsSync(skeleton)).toBe(true);
+    expect(existsSync(laws)).toBe(true);
+
+    rmSync(join(dir, "src/money/money.contract.ts"));
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("scaffold: pruned src/money/money.ts — its contract no longer exists");
+    expect(r.lines).toContain(
+      "scaffold: pruned tests/generated/money.laws.test.ts — its contract no longer exists",
+    );
+    expect(existsSync(skeleton)).toBe(false);
+    expect(existsSync(laws)).toBe(false);
+    // The surviving contract's own skeleton is untouched.
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+  });
+
+  test("a directory the prune empties goes too", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    rmSync(join(dir, "src/money/money.contract.ts"));
+    const r = runScaffold(dir);
+    expect(r.lines).toContain("scaffold: removed empty directory src/money");
+    expect(r.lines).toContain("scaffold: removed empty directory tests/generated");
+    expect(existsSync(join(dir, "src/money"))).toBe(false);
+    expect(existsSync(join(dir, "tests"))).toBe(false);
+  });
+
+  // The marker is the whole safety argument. A hand-written file that merely
+  // sits where a skeleton would sit is somebody's work, and no amount of
+  // name-matching may delete it.
+  test("a marker-less file with a generated file's exact name survives", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    const handWritten = "export const rate = 1; // written by a person, before the contract existed\n";
+    writeFileSync(join(dir, "src/money/money.ts"), handWritten);
+    writeFileSync(join(dir, lawsPathFor("src/money/money.contract.ts")), handWritten);
+    rmSync(join(dir, "src/money/money.contract.ts"));
+
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.filter((l) => l.includes("pruned"))).toEqual([]);
+    expect(readFileSync(join(dir, "src/money/money.ts"), "utf8")).toBe(handWritten);
+    expect(readFileSync(join(dir, lawsPathFor("src/money/money.contract.ts")), "utf8")).toBe(handWritten);
+  });
+
+  test("the prune is idempotent: the second run has nothing to say", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    rmSync(join(dir, "src/money/money.contract.ts"));
+    expect(runScaffold(dir).lines.some((l) => l.includes("pruned"))).toBe(true);
+    const again = runScaffold(dir);
+    expect(again.code).toBe(0);
+    expect(again.lines.filter((l) => l.includes("pruned") || l.includes("removed empty"))).toEqual([]);
+  });
+
+  test("normal generation is untouched: nothing is pruned when every contract stands", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    const first = runScaffold(dir);
+    expect(first.lines.filter((l) => l.includes("pruned"))).toEqual([]);
+    const second = runScaffold(dir);
+    expect(second.code).toBe(0);
+    expect(second.lines.filter((l) => l.includes("pruned"))).toEqual([]);
+    expect(existsSync(join(dir, "src/money/money.ts"))).toBe(true);
+    expect(existsSync(join(dir, lawsPathFor("src/money/money.contract.ts")))).toBe(true);
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+    // The shared errors module carries no marker and must never be swept up.
+    expect(existsSync(join(dir, "src/shared/errors.ts"))).toBe(true);
+  });
+
+  test("the prune is logged, so a run's own record says what it removed", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    runScaffold(dir);
+    rmSync(join(dir, "src/money/money.contract.ts"));
+    runScaffold(dir);
+    const prune = readGuardLog(dir).filter((e) => e.summary?.includes("orphaned generated file"));
+    expect(prune).toHaveLength(1);
+    expect(prune[0]).toMatchObject({ guard: "scaffold", verdict: "pass" });
+    expect(prune[0].summary).toBe("pruned 2 orphaned generated files");
+    expect((prune[0].detail as { pruned: string[] }).pruned).toEqual([
+      "src/money/money.ts",
+      "tests/generated/money.laws.test.ts",
+    ]);
+  });
+
+  // A run that failed part-way has an incomplete picture of what it generated,
+  // so it must remove nothing at all.
+  test("a scaffold that blocked prunes nothing", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    rmSync(join(dir, "src/money/money.contract.ts"));
+    // A contract that cannot be scaffolded at all: the run returns before the sync.
+    writeFileSync(join(dir, "src/orders/orders.contract.ts"), "export const runtimeValue = 42;\n");
+    const r = runScaffold(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.some((l) => l.includes("pruned"))).toBe(false);
+    expect(existsSync(join(dir, "src/money/money.ts"))).toBe(true);
   });
 });

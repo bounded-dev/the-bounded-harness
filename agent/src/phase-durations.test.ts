@@ -316,6 +316,7 @@ describe("formatPhaseDurations", () => {
       "  timing: build    28m00s  (1 bounce: 1 → builder)",
       "  timing: wrap      4m00s",
       "  timing: total    52m00s",
+      "  friction: 1 unrouted block (contract-purity 1) — target 0",
     ]);
   });
 
@@ -328,7 +329,7 @@ describe("formatPhaseDurations", () => {
       ]),
     );
     expect(lines).toContain("  timing: build         —  (incomplete: no green_gate pass)");
-    expect(lines.at(-1)).toBe("  timing: total    15m00s  (log span; the phases above do not sum to it)");
+    expect(lines).toContain("  timing: total    15m00s  (log span; the phases above do not sum to it)");
   });
 
   test("unattributed blocks get their own line rather than being silently dropped", () => {
@@ -353,5 +354,94 @@ describe("formatPhaseDurations", () => {
       phaseDurations([at(0, "contract-purity", "pass"), { ts: "nope", guard: "x", verdict: "pass", summary: "" } as LoggedGuardEvent]),
     );
     expect(lines[0]).toBe("where the minutes went (1 guard event, 1 unreadable, taken as one run)");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Friction (r14): the number that says whether the harness is in the way
+// ---------------------------------------------------------------------------
+//
+// The bounce counts measure the WORK bouncing between roles, which is the
+// pipeline doing its job. Unrouted blocks measure something else: calls the
+// harness refused outright — a write outside a role's zone, a phase-gate
+// spawn too early. Bounces have no target; these have one, and it is zero.
+// Per-phase lines already carry the counts, but the guard that did the
+// refusing is what points at the fix, and only a run total can show it.
+
+describe("friction", () => {
+  test("every unrouted block is counted, and attributed to the guard that refused", () => {
+    const events = [
+      at(0, "contract-purity", "pass"),
+      at(1, "path-gate", "block", "builder may not write tests/x.test.ts", { role: "builder" }),
+      at(2, "path-gate", "block", "builder may not write tests/y.test.ts", { role: "builder" }),
+      at(3, "phase-gate", "block", "test-writer may not spawn before the freeze"),
+      at(4, "checksum-gate", "pass", FREEZE),
+      at(6, "red-gate", "pass", "RED OK"),
+      at(9, "path-gate", "block", "test-writer may not write src/x.ts", { role: "test-writer" }),
+      at(12, "green-gate", "block", "1 failing test", { route: "builder" }),
+      at(15, "green-gate", "pass", "GREEN"),
+    ];
+    const d = phaseDurations(events);
+    expect(d.friction).toEqual({
+      unroutedBlocks: 4,
+      byGuard: [
+        { guard: "path-gate", count: 3 },
+        { guard: "phase-gate", count: 1 },
+      ],
+    });
+    // A routed block is a bounce, never friction: the two never double-count.
+    expect(d.bounces).toBe(1);
+  });
+
+  // The run total is the point. A denial the markers could not place cost the
+  // architect exactly as much as one inside DESIGN, and dropping it would make
+  // the headline disagree with the log for no reason a reader could reconstruct.
+  test("blocks no phase could claim still count as friction", () => {
+    const events = [
+      at(0, "contract-purity", "pass"),
+      at(1, "path-gate", "block", "denied"), // no freeze anywhere: nothing delimits a phase
+      at(2, "red-gate", "pass", "RED OK"),
+    ];
+    const d = phaseDurations(events);
+    expect(d.unattributedBlocks).toBe(1);
+    expect(d.phases.every((p) => p.unroutedBlocks === 0)).toBe(true);
+    expect(d.friction).toEqual({ unroutedBlocks: 1, byGuard: [{ guard: "path-gate", count: 1 }] });
+  });
+
+  test("the line is printed even at zero — a target hit is worth seeing", () => {
+    const lines = formatPhaseDurations(
+      phaseDurations([
+        at(0, "contract-purity", "pass"),
+        at(2, "checksum-gate", "pass", FREEZE),
+        at(6, "red-gate", "pass", "RED OK"),
+        at(12, "green-gate", "pass", "GREEN"),
+        at(14, "deliver", "pass", "OK"),
+      ]),
+    );
+    expect(lines).toContain("  friction: 0 unrouted blocks — target 0");
+  });
+
+  test("the line names each guard, most-frequent first", () => {
+    const lines = formatPhaseDurations(
+      phaseDurations([
+        at(0, "contract-purity", "pass"),
+        ...Array.from({ length: 14 }, (_, i) => at(1, "path-gate", "block", `denied ${i}`)),
+        at(2, "git", "block", "nothing to commit"),
+        at(2, "git", "block", "nothing to commit"),
+        at(3, "phase-gate", "block", "too early"),
+        at(4, "checksum-gate", "pass", FREEZE),
+        at(6, "red-gate", "pass", "RED OK"),
+      ]),
+    );
+    expect(lines).toContain("  friction: 17 unrouted blocks (path-gate 14, git 2, phase-gate 1) — target 0");
+  });
+
+  test("an unavailable summary reports no friction rather than a false zero breakdown", () => {
+    const d = phaseDurations([]);
+    expect(d.friction).toEqual({ unroutedBlocks: 0, byGuard: [] });
+    expect(formatPhaseDurations(d)).toEqual([
+      "unavailable — the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+    ]);
   });
 });

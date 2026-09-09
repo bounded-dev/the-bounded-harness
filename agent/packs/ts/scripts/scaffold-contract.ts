@@ -21,15 +21,24 @@
 // namespaces, default-exported values, `export =`, computed member names,
 // overloaded class methods/constructors.
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, posix, relative, sep } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
-import { findContractFiles } from "./checksum-gate.ts";
+import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -77,6 +86,70 @@ export function skeletonPathFor(contractPath: string): string {
     throw new ScaffoldError(`scaffold: '${contractPath}' is not a *.contract.ts path`);
   }
   return contractPath.slice(0, -CONTRACT_SUFFIX.length) + ".ts";
+}
+
+/**
+ * The header every generated file carries, as a pattern.
+ *
+ * This marker is the ONLY thing that makes a file provably machine-generated,
+ * and the orphan sync below deletes nothing without it. A hand-written file
+ * that merely happens to sit where a skeleton would sit — `src/orders/orders.ts`
+ * written by someone before the contract existed — has no marker and survives.
+ * Both generators (this file and value-object-laws.ts) emit it as line 1; the
+ * suite pins that, so the two cannot drift apart into "generated" files the
+ * sync no longer recognises and therefore silently leaks.
+ */
+const GENERATED_MARKER = /^\/\/ GENERATED from \S+ by packs\/ts\/scripts\/[a-z-]+\.ts — do not edit\.\s*$/;
+
+/** Was this text written by a pack generator? Line 1 decides, and only line 1. */
+export function isGeneratedArtifact(source: string): boolean {
+  const firstNewline = source.indexOf("\n");
+  return GENERATED_MARKER.test(firstNewline === -1 ? source : source.slice(0, firstNewline));
+}
+
+/**
+ * Delete generated files whose source contract is gone, and the directories
+ * that leaves empty. Returns what it removed, project-relative and posix.
+ *
+ * `keep` is every artifact this run just generated, absolute. Anything else
+ * carrying the marker was generated from a contract that no longer exists —
+ * either deleted outright, or revised until it stopped producing that file
+ * (a contract that loses its last value object loses its law suite).
+ *
+ * Why this belongs to the scaffolder and not to the person deleting the
+ * contract: run r14 cost an architect ten minutes and two failed delegate
+ * spawns trying to remove a scratch contract's leftovers, because generated
+ * files live in write zones the architect does not hold. Deleting the contract
+ * is the whole gesture; the generator owns its own output on the way back out
+ * exactly as it owns it on the way in.
+ */
+function pruneOrphans(
+  cwd: string,
+  keep: ReadonlySet<string>,
+): { readonly files: string[]; readonly dirs: string[] } {
+  const files: string[] = [];
+  const dirs: string[] = [];
+  for (const path of findFilesUnder(cwd, (name) => name.endsWith(".ts"))) {
+    if (keep.has(resolve(path))) continue;
+    let source: string;
+    try {
+      source = readFileSync(path, "utf8");
+    } catch {
+      continue; // vanished under us (a concurrent delete) — nothing to prune
+    }
+    if (!isGeneratedArtifact(source)) continue;
+    rmSync(path);
+    files.push(relative(cwd, path).split(sep).join("/"));
+    // Walk up while the pruning has emptied a directory, stopping at the
+    // project root: `tests/generated/` with nothing left in it is debris too.
+    let dir = dirname(path);
+    while (resolve(dir) !== resolve(cwd) && existsSync(dir) && readdirSync(dir).length === 0) {
+      rmdirSync(dir);
+      dirs.push(relative(cwd, dir).split(sep).join("/"));
+      dir = dirname(dir);
+    }
+  }
+  return { files, dirs };
 }
 
 /** Template convention: the shared errors module lives at <root>/shared/errors,
@@ -587,6 +660,11 @@ export function scaffoldContract(
  * Also fixes the ordering nit recorded in docs/dogfooding.md: the skeleton is
  * GENERATED (which is what rejects a bad contract) before anything is written,
  * so a rejected scaffold no longer leaves a stray shared errors module behind.
+ *
+ * This is a SYNC, not an append: on a complete pass it also PRUNES generated
+ * files whose contract has gone (see pruneOrphans). The set of generated files
+ * is a function of the set of contracts, and a step that only ever adds makes
+ * that false the moment a contract is deleted.
  */
 export function runScaffold(
   cwd: string,
@@ -603,6 +681,10 @@ export function runScaffold(
   const typesOnly: string[] = [];
   const strandedOps: string[] = [];
   let implementable = 0;
+  // Every artifact this run generated, absolute — the other half of the SYNC.
+  // Whatever carries the generated marker and is NOT in here has lost its
+  // contract, and the prune at the end of a complete pass removes it.
+  const generated = new Set<string>();
 
   for (const contractPath of contracts) {
     let skeleton: string;
@@ -649,6 +731,7 @@ export function runScaffold(
     }
     const out = skeletonPathFor(contractPath);
     writeFileSync(out, skeleton);
+    generated.add(resolve(cwd, out));
     lines.push(`scaffold: wrote ${out}`);
     logGuardEvent(cwd, {
       guard: "scaffold",
@@ -689,6 +772,7 @@ export function runScaffold(
       }
       mkdirSync(dirname(lawsPath), { recursive: true });
       writeFileSync(lawsPath, laws);
+      generated.add(resolve(cwd, lawsPath));
       lines.push(`scaffold: wrote ${lawsRel} (value-object laws)`);
       logGuardEvent(cwd, {
         guard: "scaffold",
@@ -696,12 +780,11 @@ export function runScaffold(
         summary: `wrote ${lawsRel}`,
         detail: { contract: contractRel, laws: lawsRel },
       });
-    } else {
-      // A stale suite from an earlier revision would assert laws about value
-      // objects the contract no longer has.
-      const stale = join(cwd, lawsPathFor(contractRel));
-      if (existsSync(stale)) rmSync(stale);
     }
+    // A contract that has lost its last value object simply generates no laws
+    // file this run, so it is not in `generated` — the sync below removes the
+    // stale suite for exactly the same reason it removes a deleted contract's,
+    // and says so, where the old bespoke unlink was silent.
   }
 
   if (implementable === 0) {
@@ -742,6 +825,24 @@ export function runScaffold(
         ...how,
       ],
     };
+  }
+
+  // --- SYNC: generated files whose contract is gone ---------------------------
+  //
+  // Only on a COMPLETE pass. A run that blocked part-way through returned
+  // above with `generated` half-filled, and pruning against a half-filled
+  // keep-set would delete the artifacts of contracts this run never reached.
+  // "Nothing was removed" is always the safe answer to a scaffold that failed.
+  const pruned = pruneOrphans(cwd, generated);
+  for (const file of pruned.files) lines.push(`scaffold: pruned ${file} — its contract no longer exists`);
+  for (const dir of pruned.dirs) lines.push(`scaffold: removed empty directory ${dir}`);
+  if (pruned.files.length > 0) {
+    logGuardEvent(cwd, {
+      guard: "scaffold",
+      verdict: "pass",
+      summary: `pruned ${pruned.files.length} orphaned generated file${pruned.files.length === 1 ? "" : "s"}`,
+      detail: { pruned: pruned.files, removedDirs: pruned.dirs },
+    });
   }
   return { code: 0, lines };
 }

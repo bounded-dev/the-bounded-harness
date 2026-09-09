@@ -39,24 +39,45 @@ export interface Drift {
   readonly removed: string[];
 }
 
+/**
+ * Has this project ever been frozen? Callers that need to know whether a run
+ * is a FIRST freeze or a RE-freeze ask here rather than hard-coding the path,
+ * so the manifest location stays one string.
+ */
+export function hasManifest(root: string): boolean {
+  return existsSync(join(root, MANIFEST_RELATIVE));
+}
+
 function relPosix(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
 }
 
-/** All *.contract.ts files under root, sorted by project-relative posix path. */
-export function findContractFiles(root: string): string[] {
+/**
+ * Every file under root whose basename satisfies `match`, sorted by
+ * project-relative posix path.
+ *
+ * One walker, one ignore list. The scaffolder's orphan sync needs the same
+ * traversal this gate needs, and a second copy of "which directories a project
+ * scan skips" is a second thing to keep in step.
+ */
+export function findFilesUnder(root: string, match: (name: string) => boolean): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         if (!IGNORE_DIRS.has(entry.name)) walk(join(dir, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith(CONTRACT_SUFFIX)) {
+      } else if (entry.isFile() && match(entry.name)) {
         out.push(join(dir, entry.name));
       }
     }
   };
   walk(root);
   return out.sort((a, b) => (relPosix(root, a) < relPosix(root, b) ? -1 : 1));
+}
+
+/** All *.contract.ts files under root, sorted by project-relative posix path. */
+export function findContractFiles(root: string): string[] {
+  return findFilesUnder(root, (name) => name.endsWith(CONTRACT_SUFFIX));
 }
 
 /** sha256 over newline-normalized content — CRLF/LF churn is not drift. */

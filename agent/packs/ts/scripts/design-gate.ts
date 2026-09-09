@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { runContractPurity } from "./contract-purity.ts";
 import { runScaffold } from "./scaffold-contract.ts";
-import { diffManifests, hasDrift, runChecksumGate } from "./checksum-gate.ts";
+import { diffManifests, hasDrift, hasManifest, runChecksumGate } from "./checksum-gate.ts";
 import { readReviewed, type Reviewed } from "./design-review.ts";
 import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
@@ -135,7 +135,13 @@ export function classifyDesignGate(steps: readonly StepOutcome[]): {
     };
   }
 
-  const skipped = DESIGN_STEPS.slice(DESIGN_STEPS.indexOf(failed.step) + 1);
+  // What did NOT run is every step absent from `steps`, in canonical order —
+  // not "everything after the failure". On the normal path those are the same
+  // list, because the sequence is a prefix. On the re-freeze fast path below
+  // the review is evaluated FIRST, so the steps that never ran sit BEFORE the
+  // failure as well as after it, and slicing would quietly under-report them.
+  const ran = new Set(steps.map((s) => s.step));
+  const skipped = DESIGN_STEPS.filter((step) => !ran.has(step));
   const what = failed.code === 1 ? (BLOCK_PHRASE[failed.step] ?? "blocked") : "could not run";
   return {
     code: failed.code === 1 ? 1 : 2,
@@ -356,10 +362,71 @@ function runDesignReviewStep(cwd: string): {
 }
 
 /**
+ * The one line an early-blocked re-freeze prints before the review's own
+ * output, so the transcript says why design-review is speaking out of turn.
+ */
+const EARLY_NOTICE =
+  `${GUARD}: already frozen, so design-review is checked FIRST — a stale review blocks before anything is re-run`;
+
+/** Classify, log the composite event, return. Shared by both entry paths so a
+ *  fast-path block is reported and recorded exactly like any other. */
+function finishDesignGate(
+  cwd: string,
+  steps: readonly StepOutcome[],
+  review: ReviewFreshness | undefined,
+  extra: Readonly<Record<string, unknown>>,
+): DesignGateResult {
+  const verdict = classifyDesignGate(steps);
+  const failed = steps.find((s) => s.code !== 0);
+  const detail = {
+    steps: steps.map((s) => ({
+      step: s.step,
+      code: s.code,
+      verdict: guardVerdictOf(s.code),
+      ms: s.ms,
+    })),
+    ms: steps.reduce((sum, s) => sum + s.ms, 0),
+    ...(review !== undefined ? { review } : {}),
+    ...(failed !== undefined ? { failed: failed.step, route: "architect" } : {}),
+    ...extra,
+  };
+  logGuardEvent(cwd, { guard: GUARD, verdict: verdict.verdict, summary: verdict.summary, detail });
+  return { ...verdict, steps: [...steps], detail };
+}
+
+/**
  * Run the whole DESIGN phase and return one verdict.
  *
  * The architect reaches this through the `design_gate` tool and the CLI below
  * reaches it here, so the gate cannot differ by how it was invoked.
+ *
+ * ORDER, AND THE ONE EXCEPTION. The five steps have exactly one legal order and
+ * the sequence below is it. But on a RE-FREEZE — a project that already has a
+ * checksum manifest, so this design has been through the gate before — the
+ * review-freshness step is evaluated first, as a pre-flight, and a stale or
+ * missing review blocks there.
+ *
+ * That is sound because freshness is the one step whose answer does not depend
+ * on any other: it compares the guard log against the CURRENT bytes of spec.md
+ * and the contracts, and neither purity nor scaffolding nor tsc writes those.
+ * (Scaffolding writes skeletons and law suites, which no review covers.) It is
+ * worth doing because run r14 paid a full purity + scaffold + typecheck pass,
+ * repeatedly, only to be told at step four to go and commission the reviewer.
+ *
+ * It applies only to a re-freeze. A FIRST run has no earlier review to be stale
+ * against, so the fast path could only ever report "never reviewed" — which is
+ * the normal state of a design being frozen for the first time — and it would
+ * report it before scaffolding, which is what has to happen before anything can
+ * typecheck at all.
+ *
+ * HOW THE TWO CASES READ. An early block prints EARLY_NOTICE, then the review's
+ * own lines, then the one FAIL line naming the four steps that did not run: the
+ * out-of-turn position is stated rather than left to be inferred. An early PASS
+ * is SILENT — the pre-flight prints nothing and the step runs again in its own
+ * position, where its `design-review: fresh (…)` line appears between typecheck
+ * and freeze exactly as it always has. The second evaluation costs one guard-log
+ * read and keeps the passing narrative in the canonical order, which is the half
+ * of the transcript anyone reads twice.
  */
 export async function runDesignGate(
   cwd: string,
@@ -368,6 +435,27 @@ export async function runDesignGate(
   // Set by the design-review step below, so the composite event can record what
   // the review said as well as that it ran.
   let review: ReviewFreshness | undefined;
+
+  const reFreeze = hasManifest(cwd);
+  if (reFreeze) {
+    const started = Date.now();
+    const early = runDesignReviewStep(cwd);
+    if (early.code !== 0) {
+      return finishDesignGate(
+        cwd,
+        [
+          {
+            step: "design-review",
+            code: early.code,
+            lines: [EARLY_NOTICE, ...early.lines],
+            ms: Date.now() - started,
+          },
+        ],
+        early.freshness,
+        { reFreeze: true, checkedFirst: "design-review" },
+      );
+    }
+  }
   const sequence: readonly {
     readonly step: DesignStep;
     readonly run: () => Promise<{ code: number; lines: readonly string[] }>;
@@ -401,26 +489,7 @@ export async function runDesignGate(
     if (r.code !== 0) break; // stop at the first failure — nothing downstream is meaningful
   }
 
-  const verdict = classifyDesignGate(steps);
-  const failed = steps.find((s) => s.code !== 0);
-  const detail = {
-    steps: steps.map((s) => ({
-      step: s.step,
-      code: s.code,
-      verdict: guardVerdictOf(s.code),
-      ms: s.ms,
-    })),
-    ms: steps.reduce((sum, s) => sum + s.ms, 0),
-    ...(review !== undefined ? { review } : {}),
-    ...(failed !== undefined ? { failed: failed.step, route: "architect" } : {}),
-  };
-  logGuardEvent(cwd, {
-    guard: GUARD,
-    verdict: verdict.verdict,
-    summary: verdict.summary,
-    detail,
-  });
-  return { ...verdict, steps, detail };
+  return finishDesignGate(cwd, steps, review, { reFreeze });
 }
 
 // --- CLI ------------------------------------------------------------------------

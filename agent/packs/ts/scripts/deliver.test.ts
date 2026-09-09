@@ -80,6 +80,26 @@ const SEEDED_GUARD_LOG = [
   .map((e) => JSON.stringify(e))
   .join("\n") + "\n";
 
+/** The same run, plus the refusals r14 spent its afternoon on. */
+const FRICTION_GUARD_LOG = [
+  { ts: "2026-03-01T09:00:00.000Z", guard: "contract-purity", verdict: "pass", summary: "OK (1 file)" },
+  { ts: "2026-03-01T09:01:00.000Z", guard: "path-gate", verdict: "block", summary: "architect may not write src/x.ts" },
+  { ts: "2026-03-01T09:02:00.000Z", guard: "phase-gate", verdict: "block", summary: "test-writer may not spawn yet" },
+  { ts: "2026-03-01T09:04:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" },
+  { ts: "2026-03-01T09:20:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" },
+  { ts: "2026-03-01T09:30:00.000Z", guard: "path-gate", verdict: "block", summary: "builder may not write tests/y.test.ts" },
+  {
+    ts: "2026-03-01T09:40:00.000Z",
+    guard: "green-gate",
+    verdict: "block",
+    summary: "1 failing test (route: builder)",
+    detail: { route: "builder" },
+  },
+  { ts: "2026-03-01T09:48:00.000Z", guard: "green-gate", verdict: "pass", summary: "GREEN (5/5 passed, typecheck clean)" },
+]
+  .map((e) => JSON.stringify(e))
+  .join("\n") + "\n";
+
 /** A minimal finished-run-shaped project: package.json + one contract pair. */
 function proj(extra: Record<string, string> = {}, base: Record<string, string> | null = null): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-deliver-"));
@@ -290,6 +310,31 @@ describe("runDeliver: phase timing", () => {
     // WRAP is closed by this very delivery's own events, so its span is live
     // wall clock — assert it was measured, not what it measured to.
     expect(out).toMatch(/^ {2}timing: wrap\s+\d+[hms]/m);
+    // A clean run still says so: zero is the target, and a line that appears
+    // only when there is friction makes "clean" and "unmeasured" look alike.
+    expect(r.lines).toContain("  friction: 0 unrouted blocks — target 0");
+  });
+
+  // Bounces are the pipeline working; unrouted blocks are the harness getting
+  // in the way, and r14 ended a run with 17 of them without any single line
+  // ever saying so. The guard breakdown is what points at the fix.
+  test("the friction line totals the unrouted blocks and names the guards", () => {
+    const dir = proj({ ".pi/guard-log.jsonl": FRICTION_GUARD_LOG });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("  friction: 3 unrouted blocks (path-gate 2, phase-gate 1) — target 0");
+    // ...and the same numbers ride in the event detail, not a second tally.
+    const event = readGuardLog(dir).find(
+      (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "timing",
+    );
+    const timing = (event!.detail as { timing?: PhaseDurations }).timing!;
+    expect(timing.friction).toEqual({
+      unroutedBlocks: 3,
+      byGuard: [
+        { guard: "path-gate", count: 2 },
+        { guard: "phase-gate", count: 1 },
+      ],
+    });
   });
 
   test("the structured summary rides along in the deliver guard event's detail", () => {
