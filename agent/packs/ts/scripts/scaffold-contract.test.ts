@@ -10,6 +10,7 @@ import {
   ERRORS_MODULE_SOURCE,
   ScaffoldError,
   errorsModuleFor,
+  implementationSpecifierFor,
   isGeneratedArtifact,
   scaffoldContract,
   runScaffold,
@@ -28,7 +29,7 @@ const PAIRS = ["functions", "queue", "types", "values"] as const;
 
 // The path passed for each fixture reflects its assumed project layout
 // (the errors-module specifier is derived from it): queue lives one level
-// down because its contract imports '../shared/money.contract.js'.
+// down because its contract imports '../shared/money.js'.
 const LAYOUT: Record<(typeof PAIRS)[number], string> = {
   functions: "functions.contract.ts",
   queue: "queue/queue.contract.ts",
@@ -64,9 +65,14 @@ function writeTmp(files: Record<string, string>): string {
 
 function typecheck(files: Record<string, string>): string[] {
   const dir = writeTmp(files);
+  // NodeNext + verbatimModuleSyntax is what a target project actually runs
+  // (agent/scripts/dogfood-reset); without `"type": "module"` every ESM import
+  // in a generated file is an error there but not here.
+  writeFileSync(join(dir, "package.json"), `{"name":"scaffold-fixture","type":"module"}\n`);
   const program = ts.createProgram(
     Object.keys(files).map((f) => join(dir, f)),
     {
+      verbatimModuleSyntax: true,
       // Very strict, per the harness TS philosophy: inference-first,
       // no implicit anything. noUnusedParameters stays off deliberately —
       // a throwing skeleton's parameters are unused by design.
@@ -90,6 +96,10 @@ function typecheck(files: Record<string, string>): string[] {
 }
 
 const MONEY_CONTRACT = "export interface Money {\n  cents: number;\n  currency: string;\n}\n";
+// Cross-component types are imported from the IMPLEMENTATION module, never from
+// the sibling contract (ADR 2026-023) — so the fixture needs the module that
+// re-exports them, exactly as the scaffolder would have written it.
+const MONEY_MODULE = scaffoldContract(MONEY_CONTRACT, "shared/money.contract.ts");
 
 // Every skeleton project has the template's shared errors module.
 const SHARED = { "shared/errors.ts": ERRORS_MODULE_SOURCE };
@@ -111,6 +121,7 @@ describe("skeletons compile against their contracts", () => {
         "queue/queue.contract.ts": contractOf("queue"),
         "queue/queue.ts": goldenOf("queue"),
         "shared/money.contract.ts": MONEY_CONTRACT,
+        "shared/money.ts": MONEY_MODULE,
         ...SHARED,
       }),
     ).toEqual([]);
@@ -148,6 +159,146 @@ describe("skeletons compile against their contracts", () => {
     });
     expect(diags.length).toBeGreaterThan(0);
     expect(diags.join("\n")).toMatch(/identity/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ONE CLASS IDENTITY PER VALUE OBJECT (ADR 2026-023)
+// ---------------------------------------------------------------------------
+//
+// THE r15 FAILURE, in one arm's own words: "red-phase typecheck is unsatisfiable
+// for contracts whose operation signatures carry branded value objects
+// constructed from a sibling implementation module." It cost ~44 of 76 live
+// minutes — 41 type errors in the shadow red, all of them "separate
+// declarations of a private property '__brand'", and an architect inventing
+// eight `parse*` boundary functions and re-freezing mid-loop to make red
+// satisfiable at all.
+//
+// The mechanism is not subtle once seen. `values.contract.ts` declares the
+// nominal class (ADR 2026-015); the scaffolder turns it into the RUNTIME class
+// in `values.ts`. Those are two declarations of the same private `__brand`, and
+// TypeScript treats two such declarations as unrelated types. Any other
+// contract that reaches for `Money` through `values.contract.js` therefore
+// declares operations over a type NOTHING can produce: `Money.parse` — the only
+// legal door in — returns the other one.
+//
+// The fix is that the second declaration must never be reachable: cross-
+// component types are imported from the IMPLEMENTATION module, which
+// re-exports every type its contract declares and shadows the ambient class
+// with the real one. This block is the spec.
+
+const VO_CONTRACT = `/** Money: minor units of a single currency. */
+export declare class Money {
+  private readonly __brand: "Money";
+  private constructor();
+  readonly cents: number;
+  static parse(raw: unknown): Money | undefined;
+  equals(other: Money): boolean;
+}
+`;
+
+/** The consuming contract, written the one-identity way. */
+const OP_CONTRACT = `import type { Money } from "../values/values.js";
+
+export interface Receipt {
+  readonly total: Money;
+}
+
+export declare function charge(amount: Money): Receipt;
+`;
+
+/** The r15 shape: the value object reached through the sibling CONTRACT. */
+const OP_CONTRACT_VIA_CONTRACT = OP_CONTRACT.replace(
+  '"../values/values.js"',
+  '"../values/values.contract.js"',
+);
+
+/** What the test-writer writes at red: build the value through the only legal
+ *  route — the runtime class — and hand it to the operation. */
+const CONSUMER_TEST = `import { describe, expect, test } from "vitest";
+import { Money } from "../src/values/values.js";
+import { charge } from "../src/billing/billing.js";
+import type { Receipt } from "../src/billing/billing.js";
+
+describe("charge", () => {
+  test("accepts a Money built through the runtime class", () => {
+    const amount = Money.parse(500);
+    if (amount === undefined) throw new Error("unparseable");
+    const receipt: Receipt = charge(amount);
+    const total: Money = receipt.total;
+    expect(total).toBe(amount);
+  });
+});
+`;
+
+/** vitest is not installed in the throwaway project, and \`types: []\` means
+ *  nothing ambient is present either. The consumer test uses three names. */
+const VITEST_STUB = `declare module "vitest" {
+  export function describe(name: string, fn: () => void): void;
+  export function test(name: string, fn: () => void): void;
+  export function expect(actual: unknown): { toBe(expected: unknown): void };
+}
+`;
+
+function twoContractProject(opContract: string, opSkeleton?: string): Record<string, string> {
+  return {
+    "src/values/values.contract.ts": VO_CONTRACT,
+    "src/values/values.ts": scaffoldContract(VO_CONTRACT, "src/values/values.contract.ts"),
+    "src/billing/billing.contract.ts": opContract,
+    "src/billing/billing.ts":
+      opSkeleton ?? scaffoldContract(opContract, "src/billing/billing.contract.ts"),
+    "src/shared/errors.ts": ERRORS_MODULE_SOURCE,
+    "tests/charge.test.ts": CONSUMER_TEST,
+    "tests/vitest.d.ts": VITEST_STUB,
+  };
+}
+
+describe("one class identity per value object", () => {
+  // The spec, stated positively: a red phase over this project is SATISFIABLE.
+  // Everything throws NotImplementedError and nothing fails to compile, which
+  // is exactly the state the red gate demands and r15 could not reach.
+  test("scaffolded project + a consumer test typecheck clean before anything is implemented", () => {
+    expect(typecheck(twoContractProject(OP_CONTRACT))).toEqual([]);
+  });
+
+  // The mechanism itself, pinned. If this ever stops reproducing, the compiler
+  // changed and the rule below can be revisited — until then it is why the
+  // rule exists.
+  test("reaching the value object through the sibling contract is a second identity", () => {
+    const skeleton = scaffoldContract(OP_CONTRACT, "src/billing/billing.contract.ts").replace(
+      '"../values/values.js"',
+      '"../values/values.contract.js"',
+    );
+    const diags = typecheck(twoContractProject(OP_CONTRACT_VIA_CONTRACT, skeleton)).join("\n");
+    expect(diags).toMatch(/separate declarations of a private property '__brand'/);
+  });
+
+  // ...which is why the generator refuses to produce that project at all. The
+  // architect fixes the contract, never the skeleton — and the message carries
+  // the replacement line, because "import it from somewhere else" is not a fix.
+  test("the scaffolder refuses such a contract, naming the import that fixes it", () => {
+    const run = (): string =>
+      scaffoldContract(OP_CONTRACT_VIA_CONTRACT, "src/billing/billing.contract.ts");
+    expect(run).toThrowError(ScaffoldError);
+    expect(run).toThrowError(/separate declarations of a private property '__brand'/);
+    expect(run).toThrowError(/import type \{ Money \} from "\.\.\/values\/values\.js";/);
+  });
+
+  // The same laundering one level out: re-exporting another contract's types
+  // puts the ambient declaration back on this contract's surface.
+  test("re-exporting from a sibling contract is refused too", () => {
+    const source = 'export type * from "../values/values.contract.js";\nexport declare function f(): void;\n';
+    const run = (): string => scaffoldContract(source, "src/billing/billing.contract.ts");
+    expect(run).toThrowError(ScaffoldError);
+    expect(run).toThrowError(/export type … from "\.\.\/values\/values\.js";/);
+  });
+
+  test("implementationSpecifierFor maps a contract module to its sibling, and leaves others alone", () => {
+    expect(implementationSpecifierFor("../values/values.contract.js")).toBe("../values/values.js");
+    expect(implementationSpecifierFor("./money.contract")).toBe("./money");
+    expect(implementationSpecifierFor("../values/values.js")).toBeUndefined();
+    expect(implementationSpecifierFor("node:crypto")).toBeUndefined();
+    expect(implementationSpecifierFor("zod")).toBeUndefined();
   });
 });
 
@@ -651,6 +802,113 @@ export declare function get(id: Id): string;
       "src/money/money.ts",
       "tests/generated/money.laws.test.ts",
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // ...and the same marker governs writing. Run r15: a re-freeze ran the
+  // scaffold step over two finished arms, and both had their implementations
+  // overwritten by throwing skeletons. One survived only because the work
+  // happened to be in the index on a `git add -A`; the other rebuilt 28
+  // minutes of code. The scaffolder writes a skeleton where there is nothing
+  // to lose — an absent file, or another skeleton — and skips anything else
+  // out loud.
+  // -------------------------------------------------------------------------
+
+  const IMPLEMENTED = `import { NotImplementedError } from "../shared/errors.js";
+
+export type * from "./money.contract.js";
+
+export class Currency {
+  private readonly __brand = "Currency" as const;
+  private constructor(readonly value: string) {}
+  static parse(raw: unknown): Currency | undefined {
+    return typeof raw === "string" && /^[A-Z]{3}$/.test(raw) ? new Currency(raw) : undefined;
+  }
+}
+
+export function normalize(currency: Currency): Currency {
+  void NotImplementedError;
+  return currency;
+}
+`;
+
+  test("an implemented file survives a re-scaffold byte-identical", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/money/money.ts"), IMPLEMENTED);
+
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(dir, "src/money/money.ts"), "utf8")).toBe(IMPLEMENTED);
+  });
+
+  // The line has to be loud and greppable: a silent skip is how a stale
+  // implementation survives a contract change without anyone noticing, and the
+  // remedy — read the type errors, they are yours — belongs in the line itself.
+  test("the skip says so, and says where the drift will surface", () => {
+    const dir = project({ "src/money/money.contract.ts": CURRENCY });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/money/money.ts"), IMPLEMENTED);
+
+    expect(runScaffold(dir).lines).toContain(
+      "scaffold: kept src/money/money.ts — implemented; contract drift will surface as type errors routed to the builder",
+    );
+  });
+
+  test("the skip is in the run's own record, not just its output", () => {
+    const dir = project({ "src/money/money.contract.ts": CURRENCY });
+    runScaffold(dir);
+    writeFileSync(join(dir, "src/money/money.ts"), IMPLEMENTED);
+    runScaffold(dir);
+
+    const kept = readGuardLog(dir).filter((e) => e.summary?.startsWith("kept "));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ guard: "scaffold", verdict: "pass" });
+    expect(kept[0].summary).toBe("kept src/money/money.ts (implemented)");
+    expect(kept[0].detail).toMatchObject({ skeleton: "src/money/money.ts", kept: true });
+  });
+
+  // The other half: a file that IS a skeleton has nothing to lose, so a changed
+  // contract still regenerates it. Skipping everything would be the same bug
+  // with the sign flipped.
+  test("a genuine skeleton is still regenerated when the contract changes", () => {
+    const dir = project({ "src/money/money.contract.ts": CURRENCY });
+    expect(runScaffold(dir).code).toBe(0);
+    const before = readFileSync(join(dir, "src/money/money.ts"), "utf8");
+    expect(before).toContain("normalize");
+
+    writeFileSync(
+      join(dir, "src/money/money.contract.ts"),
+      CURRENCY.replace("normalize(currency: Currency)", "rename(currency: Currency)"),
+    );
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.some((l) => l.startsWith("scaffold: wrote src/money/money.ts"))).toBe(true);
+    const after = readFileSync(join(dir, "src/money/money.ts"), "utf8");
+    expect(after).toContain("rename");
+    expect(after).not.toContain("normalize");
+  });
+
+  // Keeping an implementation must not make it prunable, and must not stop the
+  // prune from doing its job elsewhere.
+  test("an implemented file is kept while a deleted contract's leftovers are still pruned", () => {
+    const dir = project({
+      "src/money/money.contract.ts": CURRENCY,
+      "src/orders/orders.contract.ts": KEEPER,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/money/money.ts"), IMPLEMENTED);
+    rmSync(join(dir, "src/orders/orders.contract.ts"));
+
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("scaffold: pruned src/orders/orders.ts — its contract no longer exists");
+    expect(readFileSync(join(dir, "src/money/money.ts"), "utf8")).toBe(IMPLEMENTED);
+    // Its law suite is a generated file and still belongs to the live contract.
+    expect(existsSync(join(dir, lawsPathFor("src/money/money.contract.ts")))).toBe(true);
   });
 
   // A run that failed part-way has an incomplete picture of what it generated,

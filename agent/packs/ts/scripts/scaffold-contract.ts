@@ -16,6 +16,15 @@
 // module (template convention: <root>/shared/errors.ts) so its identity is
 // stable across components and gates.
 //
+// ONE CLASS IDENTITY PER VALUE OBJECT (ADR 2026-023). A contract's
+// `declare class Money` and the runtime `class Money` in its sibling
+// implementation module are two declarations of the same private `__brand`,
+// and TypeScript treats those as unrelated nominal types. So a contract may
+// NOT import types from another contract's `*.contract.ts`: it imports them
+// from that contract's IMPLEMENTATION module (`../values/values.js`), which
+// re-exports every type its contract declares and shadows the ambient class
+// with the real one. Anything else is rejected below, loudly, with the fix.
+//
 // v1 known limits (fail loudly, by design): enums (use string-literal
 // unions — the declaration-only lint rule agrees), value exports inside
 // namespaces, default-exported values, `export =`, computed member names,
@@ -168,6 +177,14 @@ function relativeSpecifier(fromFile: string, toModuleNoExt: string): string {
 
 function fail(message: string): never {
   throw new ScaffoldError(`scaffold: ${message}`);
+}
+
+/** `./values.contract.js` → `./values.js`; anything that is not a contract
+ *  module → undefined. Extension is preserved (NodeNext writes `.js`; a
+ *  bare `./values.contract` keeps its bare form). */
+export function implementationSpecifierFor(moduleSpecifier: string): string | undefined {
+  const m = /^(.*)\.contract(\.[cm]?[jt]s)?$/.exec(moduleSpecifier);
+  return m === null ? undefined : `${m[1]}${m[2] ?? ""}`;
 }
 
 // --- AST collection -----------------------------------------------------------
@@ -355,6 +372,28 @@ function collect(sf: SourceFile): ContractInfo {
         if (!typeOnly) {
           fail(`value import '${source}' in contract — use 'import type' (declaration-only lint should have caught this)`);
         }
+        // ONE IDENTITY PER VALUE OBJECT (ADR 2026-023). Reaching into a sibling
+        // CONTRACT picks up its ambient `declare class`, which is a second,
+        // nominally distinct declaration of the same private `__brand` — so a
+        // test that builds the value through the only legal route (the runtime
+        // class in the implementation module) cannot pass it to any operation
+        // declared this way. That is r15's 41-error unsatisfiable red, and no
+        // amount of skeleton rewriting fixes it, because the contract's own
+        // interfaces carry the wrong identity too. The implementation module
+        // re-exports every type its contract declares, so the fix is total.
+        const implSpecifier = implementationSpecifierFor(source);
+        if (implSpecifier !== undefined) {
+          const what = named.length > 0 ? named.slice().sort().join(", ") : "types";
+          fail(
+            `'${sf.getBaseName()}' imports { ${what} } from "${source}" — a contract's ambient ` +
+              `declarations are a SECOND identity: a value object declared there is nominally distinct from ` +
+              `the runtime class in that contract's implementation module, and TypeScript rejects every value ` +
+              `built through the real class with "separate declarations of a private property '__brand'". ` +
+              `There is exactly one identity per value object, so import the implementation module instead — ` +
+              `it re-exports every type its contract declares: ` +
+              `import type { ${what} } from "${implSpecifier}";`,
+          );
+        }
         info.imports.push({ source, names: named, verbatim: stmt.getText() });
       }
       continue;
@@ -409,6 +448,18 @@ function collect(sf: SourceFile): ContractInfo {
     }
     if (Node.isExportDeclaration(stmt)) {
       if (!stmt.isTypeOnly()) fail("value re-export in contract — use 'export type …'");
+      // Re-exporting another contract's declarations launders the second
+      // identity into this contract's surface, which is the same defect one
+      // level of indirection further out.
+      const from = stmt.getModuleSpecifierValue();
+      const implSpecifier = from === undefined ? undefined : implementationSpecifierFor(from);
+      if (from !== undefined && implSpecifier !== undefined) {
+        fail(
+          `'${sf.getBaseName()}' re-exports from "${from}" — a contract's ambient declarations are a ` +
+            `SECOND identity for every value object they declare. Re-export the implementation module ` +
+            `instead: export type … from "${implSpecifier}";`,
+        );
+      }
       continue;
     }
     if (Node.isExportAssignment(stmt)) fail("'export =' is CommonJS interop — use named exports");
@@ -665,6 +716,11 @@ export function scaffoldContract(
  * files whose contract has gone (see pruneOrphans). The set of generated files
  * is a function of the set of contracts, and a step that only ever adds makes
  * that false the moment a contract is deleted.
+ *
+ * And the sync is NON-DESTRUCTIVE in both directions: it writes a skeleton
+ * only over absence or over another skeleton, and it deletes only files
+ * carrying the generated marker. Real work is never a casualty of re-running
+ * a generator (ADR 2026-023).
  */
 export function runScaffold(
   cwd: string,
@@ -730,15 +786,43 @@ export function runScaffold(
       lines.push(`scaffold: created ${errorsPath} (template shared errors module)`);
     }
     const out = skeletonPathFor(contractPath);
-    writeFileSync(out, skeleton);
-    generated.add(resolve(cwd, out));
-    lines.push(`scaffold: wrote ${out}`);
-    logGuardEvent(cwd, {
-      guard: "scaffold",
-      verdict: "pass",
-      summary: `wrote ${out}`,
-      detail: { contract: contractPath, skeleton: out, createdErrorsModule },
-    });
+    const outRel = relative(cwd, resolve(cwd, out)).split(sep).join("/");
+    // NON-DESTRUCTIVE SYNC (ADR 2026-023). The scaffolder writes a skeleton
+    // only where there is nothing to lose: the target is absent, or it is
+    // itself a generated skeleton — the same marker, and the same licence,
+    // that lets the prune below delete a file. Run r15 re-froze the contracts
+    // mid-loop and the scaffold step overwrote finished implementations in
+    // BOTH arms; one survived on a lucky `git add -A`, the other rebuilt 28
+    // minutes of work. Nothing about re-running a generator should be able to
+    // cost that.
+    //
+    // Skipping does not hide contract drift: the kept implementation is checked
+    // against the new contract by design_gate's typecheck step and by green's
+    // surface check, and both route the resulting errors to the builder — who
+    // is the only role that can reconcile them anyway.
+    const existing = existsSync(out) ? readFileSync(out, "utf8") : undefined;
+    if (existing !== undefined && !isGeneratedArtifact(existing)) {
+      // Keep it out of the prune's sights too: "keep" is one decision, not two.
+      generated.add(resolve(cwd, out));
+      const kept = `scaffold: kept ${outRel} — implemented; contract drift will surface as type errors routed to the builder`;
+      lines.push(kept);
+      logGuardEvent(cwd, {
+        guard: "scaffold",
+        verdict: "pass",
+        summary: `kept ${outRel} (implemented)`,
+        detail: { contract: contractPath, skeleton: outRel, kept: true, createdErrorsModule },
+      });
+    } else {
+      writeFileSync(out, skeleton);
+      generated.add(resolve(cwd, out));
+      lines.push(`scaffold: wrote ${outRel}`);
+      logGuardEvent(cwd, {
+        guard: "scaffold",
+        verdict: "pass",
+        summary: `wrote ${outRel}`,
+        detail: { contract: contractPath, skeleton: outRel, createdErrorsModule },
+      });
+    }
 
     // The value-object law suite is generated from the same frozen contract, in
     // the same breath, for the same reason the skeleton is: nobody hand-writes
