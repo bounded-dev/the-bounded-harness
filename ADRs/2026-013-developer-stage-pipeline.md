@@ -34,3 +34,14 @@ red/green test gates), not prompt instructions. Design in TN-26-001.
 - Pipeline-managed components require `*.contract.ts` + separated `tests/`
   layout; the rest of a repo is untouched.
 - Phase-gate mechanics get their own ADR when v1 lands (parked).
+
+## Amendments
+
+- **The orchestrator was folded into the architect** (issue #12, on five runs
+  of evidence). The driving session *is* the architect; there is no separate
+  orchestrating role, and the PLAN phase went with it.
+- **A fourth role joined**: the read-only `reviewer`, which reads the design
+  before the freeze and records what it found (ADR 2026-020).
+- **The parked phase-gate ADR landed** as ADR 2026-021, which gates the spawn
+  itself — and removes the ordering between the two workers, since the red is
+  proven in a shadow project and green is bound to the tests it covered.

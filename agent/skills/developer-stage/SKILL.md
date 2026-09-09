@@ -25,7 +25,9 @@ evidence.
 **You have no `bash`.** The gates are tools (`contract_purity`, `design_gate`,
 `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`), `git` is a
 tool, and there is no `sleep` to reach for. Use `subagent_wait` to wait on a
-worker.
+worker. The tools your role may not hold are not refused when you call them —
+they are removed from your visible toolset when the session starts, logged once
+as a `tool-strip` guard event. There is nothing there to plan around.
 
 Loop granularity is **per component**, not per feature.
 
@@ -38,14 +40,19 @@ the other has to queue behind — so the critical path is max(TEST, BUILD) rathe
 than the sum.
 
 What makes that safe is where the red gate runs. It no longer inspects the live
-tree: it copies the contracts, the tests and the config into a **pristine
-project**, regenerates the skeletons there, and runs *that*
+tree: every call rebuilds a **shadow project** at `.pi/shadow-red` — contracts,
+tests and config copied in, the skeletons *regenerated* there from the frozen
+contracts, `node_modules` symlinked — and proves the red in there
 (`redGateProjectPlan` in `red-gate.ts` copies no implementation file, on
 purpose — one copied `src/` file would turn `NotImplementedError` failures into
 ordinary assertion failures and the red would lie). So a half-written `src/`
-cannot spoil a red, and there is nothing for the test-writer to wait behind.
-The builder is blind to the tests anyway; it was never reading them while it
-waited.
+cannot spoil a red, a valid red is establishable at any moment whatever the
+builder has done, and there is nothing for the test-writer to wait behind. The
+builder is blind to the tests anyway; it was never reading them while it
+waited. The shadow is wiped and rebuilt per run and left behind afterwards on
+purpose — a red that failed for a reason its output does not explain is
+diagnosed by reading the project it actually ran against — and `deliver`
+removes it at the end of the run.
 
 1. **DESIGN** — you decide the approach and write `spec.md` plus the
    component's contract files (`src/**/*.contract.ts` — as many as the design
@@ -94,8 +101,19 @@ waited.
    - the builder implements `src/**` (except contracts), blind to test source,
      debugging through the sanitized `run_tests` tool.
 
-   Commission them in one turn. If you commission the builder only after the
-   red passes, you have paid for the sequencing and bought nothing.
+   Commission them in the same turn — two spawn calls, back to back — and
+   there is **no ordering between them**: if you commission the builder only
+   after the red passes, you have paid for the sequencing and bought nothing.
+
+   **One child per call, in the plain `subagent` form** (ADR 2026-021). A
+   `workflowScript`, `chain` or `parallel` spawn naming a pipeline role is
+   refused: those forms bury the target role inside a script or a batch, where
+   neither the phase gate that checks the transition nor the model tier that
+   picks the seat's model can read it. `delegate` is refused inside a pipeline
+   session outright — an unbound writer has no zone for the path gate to apply,
+   which is the one way around every boundary this stage exists to hold;
+   `scout` and `product-expert` are read-only and stay available. Two ordinary
+   spawns in one turn is what parallel looks like here.
 
 3. **GATE EACH INDEPENDENTLY** — one worker finishing is one gate to run, not a
    phase transition for both.
@@ -103,16 +121,24 @@ waited.
      suite runs, and every failure is `NotImplementedError`. Wrong-reason red
      (import/type/config errors, ordinary assertion failures, or a fully-green
      suite) is rejected, and so is a red on a project that does not compile.
-     Because it runs against the pristine project, a builder mid-flight cannot
-     affect this verdict.
+     Because it runs against the shadow project, a builder mid-flight cannot
+     affect this verdict — and you can re-establish a red at any point in the
+     loop without disturbing `src/` or the builder working in it.
    - **Builder done → `green_gate`**, from *your own* invocation. Every test
      passes **and the project typechecks**, or the gate fails and names each
      failing test and each type error.
-   - **The one ordering that survives: green requires a passed red.** If the
-     builder lands first, wait — a green over a suite no red gate ever
-     validated is a green over tests that may assert nothing, which is the
-     failure this whole pipeline exists to prevent. Concurrency removes the
-     *waiting*, never the *evidence*.
+   - **The one ordering that survives: green requires a red that covers these
+     tests.** Two halves, both mechanical. *Contracts:* a red pass since the
+     most recent freeze — a green over a suite no red gate ever validated is a
+     green over tests that may assert nothing, which is the failure this whole
+     pipeline exists to prevent. *Tests:* that red must have run against the
+     tests as they are **now** — the red records a hash of the `tests/` tree
+     and green refuses unless the tree still hashes the same. **Editing a test
+     after the red voids the red**; the gate routes that one to the
+     test-writer, and the remedy is a single call — `red_gate` again, which
+     builds its own shadow project and so neither needs nor touches `src/`
+     while the builder keeps working. Concurrency removes the *waiting*, never
+     the *evidence*.
 
 4. **VERDICTS** — the builder returns `GREEN | BLOCKED | DISPUTE`. You confirm
    green yourself; you arbitrate disputes (below). A passing green is not the
@@ -127,6 +153,13 @@ waited.
    the contract convention. Idempotent; it blocks if any unimplemented export
    survived to delivery. The output of this stage is a repo you would hand a
    colleague, not a lab bench.
+
+   Its timing block ends with a `friction:` line — every tool call the harness
+   refused outright, counted by the guard that refused it, printed even at
+   zero. Bounces have a budget; **friction has a target, and the target is 0**.
+   A non-zero count is almost always a zone or an affordance problem — a role
+   reaching for a tool it does not hold, a search spanning a denied path — not
+   a role misbehaving. Read it as a bug report about the harness.
 
 ## Gates are tools, not judgment
 
@@ -151,6 +184,13 @@ recorded in the guard log automatically.
 Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.
+
+**The seats may run on different models.** Where a project carries
+`.pi/dev-stage-models.json`, a spawn of a judgment seat (architect, reviewer)
+takes its `designModel` and a spawn of a production seat (test-writer, builder)
+takes its `workerModel`, injected as the spawn happens and recorded as a
+`model-tier` guard event (ADR 2026-022). That line in the log is the tier being
+applied, not an anomaly, and nothing else about the loop changes.
 
 ### If a gate blocks
 
@@ -187,7 +227,7 @@ never the right move — you cannot tell "not finished" from "finished badly".
 **Wait on both children, not one at a time.** With the workers running
 concurrently, `subagent_wait` over both ids returns whichever finishes first;
 gate that one, then wait on the other. Waiting on the test-writer alone, then
-starting to think about the builder, re-serializes by hand what the pristine
+starting to think about the builder, re-serializes by hand what the shadow
 red gate just made parallel.
 
 **`subagent_wait` is correct here, whatever its result text says.** The tool's
@@ -231,6 +271,8 @@ In particular:
 
 - Type errors in `tests/**` → **test-writer**. The builder is blind to test
   source and the path gate would refuse its edit, so bouncing there deadlocks.
+  Any repair to a test voids the standing red, so re-run `red_gate` before you
+  reach for `green_gate` — one call, and it does not disturb the builder.
 - Type errors in a contract → **architect**, which is *you*: revise the
   contract with a logged rationale, re-review it, re-run `design_gate`, and
   re-run the red gate. A contract revision invalidates both the red and the
@@ -244,7 +286,9 @@ In particular:
 Frozen tests plus a wrong test would deadlock the loop, so the builder has a
 voice, not a pen. Route disputes; don't let workers overrule each other.
 
-- `BLOCKED` — the suite can't run → bounce to the **test-writer**.
+- `BLOCKED` — the suite can't run → bounce to the **test-writer**. Whatever
+  the test-writer changes, the red that covered the old tests no longer covers
+  these: re-run `red_gate` before green.
 - `DISPUTE(test, evidence)` — "this test contradicts the spec because…" →
   route to the **test-writer**, which fixes the test or defends it with a spec
   citation. **Two unresolved rounds and you decide** — read the test and the

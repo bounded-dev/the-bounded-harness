@@ -52,3 +52,25 @@ review would be doing the first reading again rather than a second one, so
 
 The post-red suite-adversary variant of the same idea — a reviewer over the
 tests once the red stands — remains open in issue #13.
+
+## Presentation: fail loud early, pass silent in order
+
+A gate's failure output and its success output answer different questions. On
+failure the reader wants the cheapest true statement, as early as possible —
+hence the freshness check running first on a re-freeze (ADR 2026-019). On
+success the reader wants the canonical sequence, because that is what teaches
+the phase. So an early failure is reported loudly with the steps it never
+reached listed as not-run, and an early pass is silent: the run continues and
+reports purity → scaffold → typecheck → design-review → freeze as always.
+
+## The stopping rule
+
+Zero blockers means freeze now. The gate asks two questions — does a review
+exist, does it cover these bytes — and once both are yes the phase is over.
+Concerns and notes are settled by the architect's decision, recorded in the
+design or in writing at `sign_off`; they are not settled by looking again. A
+re-review is owed only when bytes changed, and reads the whole design as it
+then stands rather than a diff. Run r14's kimi arm spent nine review cycles
+polishing advisory findings the gate had never asked about, which is the
+failure mode this rule names: an advisory role can absorb unbounded time
+unless the stopping condition is written down.

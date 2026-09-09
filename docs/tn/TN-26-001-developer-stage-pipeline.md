@@ -50,6 +50,35 @@ ORCHESTRATOR (a pi session; interactive mode = main session)
               test-writer → architect → user
 ```
 
+**How it runs today.** The block above is the original design. The shape the
+gates now enforce is shorter, and its middle is not a sequence:
+
+```
+ARCHITECT (a pi session bound to the role at launch, via pi-ticket)
+  1. DESIGN   architect writes spec.md + *.contract.ts
+              · reviewer subagent reads the design and records its findings
+              · gate: design_gate — contract-purity → scaffold → typecheck →
+                design-review → freeze, one call, one verdict
+  2. WORK     test-writer and builder commissioned together and running in
+              PARALLEL over disjoint write zones (tests/, src/); no ordering
+              between them, each gated as it returns (ADR 2026-021)
+              · gate: red_gate, run in a shadow project rebuilt from the
+                contracts and the tests — so a valid red is establishable at
+                any moment, whatever src/ currently holds
+              · gate: green_gate, from the architect's own run, and only over
+                a red that covers these contracts AND these tests
+  3. VERDICTS builder returns GREEN | BLOCKED | DISPUTE; disputes route
+              test-writer → architect → user; then sign_off, then deliver
+```
+
+DESIGN is the only phase; TEST and BUILD are two workers, so the critical path
+is max(TEST, BUILD) rather than their sum. What makes that safe is where the
+red gate runs: it copies contracts, tests and config into `.pi/shadow-red`,
+regenerates the skeletons there and runs that, copying no implementation file
+at all. Green is bound to the red in both directions — the contract manifest
+and a hash of the `tests/` tree — so a contract revision and a test edit each
+void the red, and re-establishing one never touches `src/`.
+
 - Only orchestrators hold the `subagent` tool; workers never orchestrate.
 - Loop granularity is per component, not per feature.
 - The plan proposes structure; the architect re-derives and decides it — plan
@@ -71,9 +100,16 @@ rules and path globs, never by trust.
 
 Enforcement layers:
 
-1. **Tool allowlists** (agent frontmatter) — the only layer that *prevents*
-   rather than detects. Builder: `read, write, edit, run_tests, typecheck` —
-   no `bash` (shell access defeats all path rules).
+1. **Tool removal** — the only layer that *prevents* rather than detects: a
+   tool a role may not use is absent from its toolset, not refused when
+   called. Builder: `read, write, edit, run_tests, typecheck` — no `bash`
+   (shell access defeats all path rules). Subagents get this from their
+   frontmatter allowlist. A session bound to a role directly gets it two ways:
+   `pi-ticket` launches with `--exclude-tools`, dropping them from the
+   registry, and the path-gate extension strips the role's forbidden tools
+   from the visible toolset at `session_start`, logging one `tool-strip` guard
+   event so a tool's absence stays distinguishable from a model not reaching
+   for it. A refusal layer remains behind both as a backstop.
 2. **Path-gate extension** — a `tool_call` hook blocking `read`/`edit`/
    `write`/`grep`/`find` outside the role's zones (modelled on pi's
    `protected-paths.ts` example). Exact glob matching; block reason feeds back
@@ -89,8 +125,13 @@ Enforcement layers:
    written by an agent. The contract→implementation path mapping is a fixed
    naming rule: `foo.contract.ts` is implemented by sibling `foo.ts`.
 6. **Test-runner gates** — red requires failure *because* NotImplemented
-   (wrong-reason red, e.g. import errors, is rejected); green is asserted from
-   the orchestrator's own run, not the builder's say-so. Both gates also
+   (wrong-reason red, e.g. import errors, is rejected), and runs in a shadow
+   project rebuilt from the contracts and the tests rather than against the
+   live tree, which is what allows the two workers to run in parallel; green
+   is asserted from the architect's own run, not the builder's say-so, and
+   only over a red that covers both the current contracts and the current
+   tests (the red records a `tests/` tree hash; a test edited afterwards voids
+   it). Both gates also
    require a **type-clean project** — a passing suite that does not compile is
    a false green (issue #7, dogfood Run 3) — and both print one `route → role`
    line naming the furthest-upstream role whose write zone owns the failure,
@@ -139,9 +180,12 @@ lint rule, red/green gates, dispute protocol, hardcoded zone globs,
 interactive mode only, all agents inherit the parent model (ADR 2026-003).
 
 Out (v2+, parked): autonomous team-lead mode, mutation floor (Stryker),
-property-based tests (fast-check) from spec correctness properties, model
-tiering, integration-test role, harness-dictated directory structure, the
-phase-gate ADR.
+property-based tests (fast-check) from spec correctness properties,
+integration-test role, harness-dictated directory structure. Two items have
+since landed and left this list: the phase gate, which checks the spawn itself
+and its form (ADR 2026-021), and per-role model tiering — two tiers,
+`designModel` for the judgment seats and `workerModel` for the production
+seats (ADR 2026-022).
 
 ## Decisions
 

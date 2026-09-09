@@ -9,6 +9,17 @@ most recent contract freeze. A checksum verify (no drift) does not void the
 red; a re-freeze does. Companion decision: red-gate reachability is measured
 by call sites in test sources (AST), with failure names as corroboration only.
 
+**Amended: the binding has two halves.** Since red moved into a shadow project
+so the two workers could run in parallel (`.pi/shadow-red`, rebuilt per run),
+the workers move independently and a test can change after the red that covered
+it. So a red-gate pass also records a sha256 of the whole `tests/` tree, and
+green refuses unless the tree still hashes the same. Contracts: a red since the
+last freeze. Tests: that red, over these tests. Either half missing is the same
+false green in different clothes. The remedy for both is one call — `red_gate`
+builds its own shadow project, so it neither needs nor touches `src/` and the
+builder keeps working while it runs — and the test half routes to the
+test-writer rather than the architect.
+
 ## Why
 
 Run 10: a contract was revised mid-loop, re-frozen, red never re-established;

@@ -6,24 +6,26 @@ that need work become issues, and their numbers are referenced here.
 
 ## What we're testing (and what we're not, yet)
 
-Runs so far exercise the **DESIGN stage only**: an agent, given a purely
-domain prompt + the `ts-contract-authoring` skill, authors `*.contract.ts`
-files, runs the **contract-purity** gate, runs the **scaffolder**, and
-typechecks. That validates: skill discoverability, contract-authoring UX,
-gate/scaffolder error messages, and skeleton quality.
+Runs now exercise the **whole developer stage**: an architect designs, a
+reviewer reads the design before it freezes, a test-writer and a builder work
+in parallel behind enforced blindness, and every phase transition is a
+deterministic gate — contract-purity, the composite `design_gate`, red, green,
+sign-off, delivery. Blindness is enforced rather than hoped for (tools removed
+from the toolset, the path gate, the sanitized `run_tests`), and every run
+leaves a guard log saying which guard ran and what it refused.
 
-Not yet exercised (pending):
-- **Blindness / role enforcement** — the path-gate extension (Phase 2). Until
-  it lands, nothing *stops* an agent doing anything; clean runs mean the model
-  behaved, not that the harness enforced.
-- **Test-writer / builder roles, red/green gates** — Phases 2–3.
-- **Design-quality guard** — landed (issue #3): contract-purity now also runs
-  `no-naked-primitives`, so `isbn: string` / `authors: string[]` /
-  `pagesRead: number` are blocks, not silent passes, and
-  `scripts/new-value-object.ts` writes the fix. Verified against the run-2/3
-  contracts (8 blocks) and the run-1 contract (clean). **Not yet exercised in
-  a live run** — the next dogfood run is the real test of whether the messages
-  bounce a weak model into value objects rather than into confusion.
+What that still does **not** cover, said plainly:
+- **More than one component.** Everything measured is a single component in a
+  single worktree. Integration — several components, several architects,
+  merges — is untested.
+- **More than one language.** `packs/ts` is the only pack, so layers 3 and 4
+  of the cake in [VISION.md](VISION.md) do not exist yet.
+- **Guidance at scale.** The mechanism-versus-guidance result (Runs 10–12,
+  [TN-26-002](tn/TN-26-002-mechanism-vs-guidance.md)) was measured against a
+  rulebook of dozens of rules, not the hundreds the vision assumes. Read it
+  with that scope attached.
+- **A test-quality floor.** Mutation score is measured per run; nothing gates
+  on it.
 
 Read the guard log (`<project>/.pi/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
@@ -32,7 +34,13 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ```bash
 dogfood-reset          # rebuilds both arms from the default prompt
+dogfood-reset --design-model <pattern> --worker-model <pattern>
 ```
+
+The two model flags set the harnessed arm's tiers — the judgment seats
+(architect, reviewer) and the production seats (test-writer, builder) — by
+writing `.pi/dev-stage-models.json` (ADR 2026-022). Both are printed on every
+reset, set or not, so a run's models are never a guess afterwards.
 
 Then walk into each and paste `PROMPT.md`:
 
@@ -248,6 +256,11 @@ only 1–2 minutes per run." This run's numbers say otherwise.
 included `bash` (3 calls, all refused by the path gate) and `run_tests`. The
 frontmatter allowlist binds subagents only, so a session started from
 `.pi/dev-stage-role` gets everything pi offers minus what the path gate blocks.
+*(Closed since, after r14 paid for it again: a bound session now has its
+forbidden tools removed from the visible toolset at `session_start` — logged as
+a `tool-strip` guard event — and `pi-ticket` additionally launches with
+`--exclude-tools`, which drops them from the registry outright. A refusal layer
+stays as a backstop.)*
 
 **Harness bugs found and fixed during the run** (each one voided an attempt or
 a gate result): a `: ` inside the skill's unquoted YAML description silently
@@ -594,6 +607,12 @@ enforced, all on Haiku (orchestrator + all three workers). One component
 
 ## Open threads
 
+> **Snapshot from the Run 6 era.** Every gap listed here has since been closed
+> — typecheck inside both gates, the value-objects rule, the `ls .` friction,
+> model tiering (ADR 2026-022), the folded architect. Kept as the record of
+> what was open then; the live list is
+> [issue #13](https://github.com/bounded-dev/pi-harness/issues/13).
+
 - **#12 the strip-down** — the folded shape is built and pushed; Run 6 is its
   first live test. Still open within it: the review role, the test-checksum
   freeze, and scripting the inner loop.
@@ -675,3 +694,111 @@ boundaries + reachability obligations, sign-off (kimi honestly confessing an
 invalid red), deliver (every arm hand-off ready). Guidance-only arms were
 run via `PI_CODING_AGENT_DIR=~/.pi-vanilla/agent` — a config dir holding only
 auth/model symlinks, no extensions, no skills.
+
+---
+
+## Runs 13–14: the composite gate, then the first reviewer
+
+Run between the composite design gate landing (2026-09-07) and the mechanism
+wave it and its successor motivated (2026-09-09). Two pairs, harness arm only —
+these runs were testing new mechanism rather than re-measuring the
+harness-versus-guidance contrast. Same task and the same two
+models throughout (sonnet 5, kimi). **r13** is the first pair to run the
+composite `design_gate` (ADR 2026-019). **r14** is the first pair with a
+`reviewer` reading the design before the freeze (ADR 2026-020). Archive
+branches `r13-sonnet-harness`, `r13-kimi-harness`,
+`r14-sonnet-harness-aborted`, `r14-kimi-harness`.
+
+Every number below is read from the run's own guard log, through the timing
+block `deliver` prints.
+
+### Where the minutes went
+
+| | r13 (composite gate) | r14 (+ reviewer) |
+|---|---|---|
+| **sonnet** | 64 min end to end — design 45, tests 8, build 10, wrap 1; 3 sign-off findings | **aborted** ~52 min in, before any red: a design reviewed in 14 min, then a suite that would not run |
+| **kimi** | 98 min — design 52, build 44; red established out of order; sign-off empty | **GREEN 106/106 in 67 min** — design 41:47 including NINE review cycles; build 44 → 9; 38 unrouted blocks; 1 sign-off finding |
+
+### What the reviewer bought
+
+**1. Defect discovery moved to where it is cheap.** r13 priced late discovery:
+a contract defect surfacing as type errors once the test-writer was already
+building on the frozen contract cost 30–38 minutes each, and every one of them
+was legible in the contract before a single test existed. In r14 the same class
+of defect surfaced pre-freeze, at minutes per review cycle. kimi is the clean
+demonstration: **its build phase fell from 44 minutes to 9**, and the reason is
+legible in the log — the reviewed contract survived contact with the builder
+instead of being re-litigated mid-loop. The design phase absorbed the time
+instead (41:47 of a 67-minute run), which is the trade the reviewer exists to
+make.
+
+**2. The freshness lock fired live and forced an honest re-review.** The gate
+refuses to freeze a design whose bytes have moved since the review that covered
+it. It blocked in-run, named the files that had moved, and the architect
+commissioned the reviewer again rather than freezing. This is the ADR 2026-014
+pattern holding once more: the *existence and freshness* of a review is
+mechanism, its content is judgment, and only the first half survives being
+merely written down.
+
+**3. Nine review cycles is the failure mode of an advisory role.** kimi spent
+nine on a gate that had never asked for more than freshness — advisory findings
+polished until they ran out. An advisory role with no stopping condition will
+absorb whatever time is available, so the condition is now written into the
+architect's brief and ADR 2026-020: **zero blockers means freeze now**; concerns
+and notes are settled by the architect's decision, in writing at `sign_off` if
+they survive; a re-review is owed only when bytes changed.
+
+**4. An 18-second re-review is a question, not a result.** One re-review in r14
+returned in 18 seconds. Nothing checks that a review was *read* — the gate
+checks that one exists and covers the current bytes — so whether that was a
+fast read or a stamp is **unverified**, and it is the obvious next thing to
+measure. A review whose cost approaches zero is a review whose signal is
+unmeasured.
+
+### What these runs forced into the harness
+
+Each of these landed after the runs, motivated by them:
+
+- **Red moved into a shadow project.** Both kimi arms died the same way: the
+  builder had already implemented the contract when red was called, so no
+  failure could be a `NotImplementedError` any more, and the only route back to
+  red was **re-freezing the contracts to wipe `src/`**. The red gate now
+  rebuilds `.pi/shadow-red` from the contracts, the tests and the config and
+  proves red there, so a valid red is establishable at any moment — which is
+  also what makes the two workers parallel rather than sequential. Green is
+  bound to that red in both directions: the contract manifest, and a hash of
+  the `tests/` tree, so a test edited after the red voids it (ADR 2026-017).
+- **Spawn control by shape.** Twice across the two pairs the architect wrapped
+  both workers in a `workflowScript`, and the gate — seeing one `subagent` call
+  carrying a string — let it through with no precondition checked. Twice more
+  it spawned `delegate`, the general write-capable worker, which carries no role
+  binding and therefore no zone. Both forms are now refused by shape
+  (ADR 2026-021): a gate cannot follow a script it never watches run, nor bind
+  a role to a child it never sees named.
+- **Forbidden tools removed rather than refused.** Both r14 arms spent whole
+  turns on tools their role does not hold — refused, but still visible, so the
+  model kept planning around them. Bound sessions now lose them from the
+  toolset at `session_start`.
+- **The scaffolder became a sync.** r14's architect deleted a scratch contract
+  and its generated skeleton and law suite stayed behind, in write zones the
+  architect does not hold: ~10 minutes and two failed `delegate` spawns for two
+  files nobody wrote. Deleting the contract is now the whole gesture — the next
+  `design_gate` prunes what the vanished contract generated, marker-gated, and
+  a blocked run prunes nothing.
+- **The re-freeze checks the review first.** r14 paid a full purity + scaffold
+  + typecheck pass, repeatedly, only to be told at step four to go and
+  commission the reviewer.
+- **Friction became a printed number.** kimi's r14 arm ended with **38 unrouted
+  blocks** — refused calls no route owns — and no single line in the run said
+  so. Every delivery timing block now ends with a `friction:` line, counted by
+  guard and printed even at zero. Bounces have a budget; friction has a target,
+  and the target is 0.
+
+### Caveats
+
+Two arms per pair, one task, one domain: these are mechanism tests, not a
+quality comparison, and nothing here re-measures the harness against guidance.
+The sonnet r14 arm never reached a red, so it contributes evidence about the
+design phase and nothing about the rest. And the r13/r14 timing splits were
+produced by the phase-duration telemetry landed the same week — read them as
+this instrument's first live readings.

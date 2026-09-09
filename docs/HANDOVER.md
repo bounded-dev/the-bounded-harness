@@ -1,4 +1,44 @@
-# Handover — pi-harness developer stage, after dogfood Run 12
+# Handover — pi-harness developer stage
+
+2026-09-09 addendum: state of `main` after the r13/r14 mechanism wave. Six
+changes landed, all with tests, all motivated by a numbered finding in
+[dogfooding.md](dogfooding.md) (Runs 13–14 section):
+
+1. **Red runs in a shadow project.** `red_gate` rebuilds `.pi/shadow-red` from
+   the contracts, tests and config, regenerates the skeletons there and proves
+   red in it — never reading live `src/`. A valid red is therefore
+   establishable at any moment.
+2. **Green is bound to the red in both directions.** The standing red must be
+   after the last freeze AND carry a `tests/` tree hash equal to the current
+   one; a test edited after a red voids it, and that route is `→ test-writer`.
+3. **The workers are parallel** (ADR 2026-021). No ordering between
+   test-writer and builder; the phase gate refuses multi-spawn forms
+   (`workflowScript`, `chain`, `parallel`) naming a pipeline role, and refuses
+   `delegate` inside a pipeline session, so every spawn stays one readable
+   child.
+4. **Forbidden tools are stripped, not refused.** A bound session loses them
+   from the visible toolset at `session_start` (`tool-strip` guard event);
+   `pi-ticket` also excludes them at launch.
+5. **Two model tiers.** `.pi/dev-stage-models.json` names `designModel`
+   (architect, reviewer) and `workerModel` (test-writer, builder), injected at
+   spawn time, logged as `model-tier`, never fatal (ADR 2026-022).
+6. **Scaffolder syncs, re-freezes fail fast, friction is printed.** Deleting a
+   contract deletes what it generated (marker-gated; a blocked run prunes
+   nothing); a re-freeze checks review freshness before spending a pass; every
+   delivery timing block ends with a `friction:` line, target 0.
+
+Standing state: `main` green at ~1,290 tests; every gate has fired live at least
+once. Items 1–3 of "What is built but not finished" below are closed by this
+wave — `redGateProjectPlan` is wired, the role-file route no longer shows
+`bash`, and the skill now says the architect may override a route it can see is
+wrong.
+
+**What the next runs measure:** parallel workers (does max(TEST, BUILD) show up
+as wall clock?) and the model tiers — opus-5/sonnet-5 in the judgment seats
+against kimi-k3/k2.7 in the production seats, set per arm with
+`dogfood-reset --design-model … --worker-model …`.
+
+# Earlier handover — after dogfood Run 12
 
 2026-09-04 addendum: Runs 7-12 are written up in docs/dogfooding.md (the
 six-cell experiment section is the state of the evidence). Standing state:
@@ -52,7 +92,7 @@ you catch yourself writing "the skill should tell it to…", ask what would
 refuse it instead.
 
 **3. Guidance, when unavoidable, is a checklist anchored to a gate call.** Per
-ADR 2026-014: give it a trigger ("before you run `freeze_contracts`…"), a stop
+ADR 2026-014: give it a trigger ("before you run `design_gate`…"), a stop
 condition, and greppable phrases so its fingerprint can be looked for in the
 output later.
 

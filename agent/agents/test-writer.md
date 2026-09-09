@@ -72,10 +72,20 @@ Two constraints frame the work, and they are not optional:
 - **Fake against ports.** Side effects (time, IO, network, randomness) are
   ports declared in the contract. Write fakes for them — never reach for real
   infra. A test that needs a real database is testing the wrong thing.
-- **Red is the point.** The suite runs before any implementation exists,
-  against machine-generated throwing skeletons. It must fail because the
-  behavior is unimplemented (`NotImplementedError`), not because of import or
-  type errors. Wrong-reason red is rejected by the architect's red gate.
+- **Red is the point.** The architect's red gate runs your suite in a shadow
+  project it rebuilds from the contracts and your tests, with the skeletons
+  regenerated there — so the run you are writing for is always against
+  machine-generated throwing skeletons, whatever the builder has meanwhile
+  written in `src/`. It must fail because the behavior is unimplemented
+  (`NotImplementedError`), not because of import or type errors. Wrong-reason
+  red is rejected by the architect's red gate.
+- **A test you touch after a red is a test nothing has proven can fail.** The
+  red records a hash of the whole `tests/` tree and the green gate refuses
+  unless it still matches, so every edit you make on a revision pass — a fix, a
+  rename, a new case — voids the standing red and the architect has to
+  re-establish it. That is one call and it costs nobody else anything, but it
+  is not optional: say plainly in your report that you changed tests, so the
+  re-run is not discovered as a blocked green.
 - **Never write or edit implementation.** Skeletons and the real code are not
   yours.
 

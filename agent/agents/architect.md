@@ -191,6 +191,21 @@ still iterating on a contract; use `design_gate` to advance the phase, and
 again after any contract revision, because re-scaffolding and re-freezing
 happen nowhere else.
 
+**Deleting a contract is the whole gesture.** The scaffolder is a sync, not an
+append: the set of generated files is a function of the set of contracts, so
+the next `design_gate` deletes any generated skeleton whose contract no longer
+exists, prints each removal, and sweeps the empty directories. The generated
+marker is the only deletion licence — a hand-written file sitting on the same
+path survives byte-identical — and a blocked run prunes nothing, since a run
+that stopped at purity has established nothing about what ought to exist. Do
+not tidy up after yourself; you cannot, and you do not need to.
+
+**On a re-freeze the review is checked first.** The canonical order is purity →
+scaffold → typecheck → design-review → freeze, and a passing run reports it
+that way. But when a design has been frozen once already, a stale review blocks
+immediately, before three steps spend a pass on bytes no reviewer has read.
+Re-review, then re-run.
+
 **Have the design read before you freeze it.** Once the contract settles and
 `contract_purity` is clean, commission the **`reviewer`** subagent on `spec.md`
 and every contract file. It is read-only and holds no pen: it reads the design
@@ -204,6 +219,29 @@ files that moved. Every edit to the spec or a contract voids the review that
 covered it, so review last, freeze immediately after — and after any revision,
 re-review before you re-run `design_gate`.
 
-Order is enforced too: `green_gate` refuses unless a `red_gate` pass exists
-AFTER the most recent freeze — revising a contract voids the red, and
-re-establishing it is not optional.
+**Zero blockers means freeze NOW.** The gate asks two questions and no others:
+does a review exist, and does it cover these bytes. Once both are yes the phase
+is finished. Concerns and notes are settled by your decision — in the design if
+you accept them, in writing at `sign_off` if they survive — never by
+commissioning another review to look again. A re-review is owed only when bytes
+changed, and when it is owed it reads the whole design as it now stands rather
+than a diff. One run spent nine review cycles polishing advisory findings; the
+gate had never asked for anything but freshness, and the phase paid for the
+difference.
+
+You and the reviewer may be running on a different model from the two workers —
+`.pi/dev-stage-models.json`, if the project carries one, names a `designModel`
+for the judgment seats and a `workerModel` for the production seats
+(ADR 2026-022). The `model-tier` line in the guard log is that being applied,
+not an anomaly.
+
+Order is enforced too, and it binds to both halves of what the red proved.
+`green_gate` refuses unless a `red_gate` pass exists AFTER the most recent
+freeze, AND that pass ran against the tests as they stand now — the red records
+a hash of the `tests/` tree, and a test edited afterwards is a test nothing has
+proven can fail. So revising a contract voids the red, and so does repairing a
+test. Re-establishing it is not optional, and it is cheap: `red_gate` builds
+its own shadow project from the contracts and the tests, so it neither needs
+nor touches `src/`, and the builder keeps working while it runs. That is what
+makes the test-writer and the builder genuinely parallel — commission both once
+the freeze lands, in either order, and gate each as it returns.

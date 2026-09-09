@@ -342,7 +342,14 @@ export declare function findOrder(id: OrderId): Order | undefined;
 
 ## After writing: gate, then scaffold
 
-The tools ship next to this skill, under `packs/ts/scripts/` — resolve them
+**If you are the architect in the developer-stage pipeline, you have no `bash`
+and you do not need it.** Call `contract_purity` while you are still iterating
+on a contract, and `design_gate` to advance the phase — it runs purity →
+scaffold → typecheck → design-review → freeze in one call, so the scaffolder is
+never something you invoke yourself. Everything below is the shell form of the
+same scripts, for a session that is not bound to a pipeline role.
+
+The scripts ship next to this skill, under `packs/ts/scripts/` — resolve them
 from **this skill file's own directory** (shown in your session context):
 `<skill-dir>/../../scripts/`. Run the deterministic checks yourself before
 handing off; both fail with greppable one-line reasons, and iteration is

@@ -58,7 +58,7 @@ _Avoid_: .git/ stash, tmp dirs, hidden tool folders
 ### Developer stage
 
 **Developer stage**:
-The pipeline stage that turns a ticket into tested code: an architect that designs and drives, two blind write-capable subagents with disjoint authority — test-writer and builder (TN-26-001) — and a read-only reviewer that reads the design before it is frozen.
+The pipeline stage that turns a ticket into tested code: an architect that designs and drives, two blind write-capable subagents with disjoint authority — test-writer and builder (TN-26-001), commissioned together after the freeze and running in parallel — and a read-only reviewer that reads the design before it is frozen.
 _Avoid_: dev phase, coding step
 
 **Architect**:
@@ -66,11 +66,11 @@ The developer-stage role that owns one ticket end to end — designs it, writes 
 _Avoid_: designer, planner, orchestrator (retired — the architect drives)
 
 **Test-writer**:
-The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes.
+The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes. Runs in parallel with the builder — neither consumes the other's output — and every test it touches after a red voids that red.
 _Avoid_: tester, QA agent
 
 **Builder**:
-The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files.
+The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files. Runs in parallel with the test-writer: the red gate proves its verdict in a shadow project, so a half-written `src/` can neither spoil a red nor be spoiled by one.
 _Avoid_: developer (that's the stage), worker, coder
 
 **Reviewer**:
@@ -90,7 +90,7 @@ One of the named tools the architect runs a gate through (`contract_purity`, `de
 _Avoid_: gate script (that's the CLI), command
 
 **pi-ticket**:
-The launcher (`agent/scripts/pi-ticket`, symlinked onto PATH as `pi-ticket`) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it.
+The launcher (`agent/scripts/pi-ticket`, symlinked onto PATH as `pi-ticket`) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it, and the architect's forbidden tools are excluded from the session's registry rather than merely refused when called.
 _Avoid_: wrapper, alias
 
 **Dispute**:
@@ -102,12 +102,20 @@ A glob-defined region of the repo one role may write to, with a zone lint rule d
 _Avoid_: folder, boundary
 
 **Scaffolder**:
-The machine step that generates the throwing skeleton from a contract (`packs/ts/scripts/scaffold-contract.ts`), run as the second step of `design_gate`. Never an agent; drift becomes a compile error, not an assertion.
+The machine step that generates the throwing skeleton from a contract (`packs/ts/scripts/scaffold-contract.ts`), run as the second step of `design_gate`. A sync, not an append: the generated set is a function of the contract set, so a skeleton whose contract was deleted is deleted too — the generated marker is the only deletion licence, and a blocked run prunes nothing. Never an agent; drift becomes a compile error, not an assertion.
 _Avoid_: generator (unqualified), codegen
 
 **Skeleton**:
-The generated sibling implementation (`foo.ts`) whose every export throws `NotImplementedError` (from the shared errors module) until the builder replaces it. The red phase runs against it.
+The generated sibling implementation (`foo.ts`) whose every export throws `NotImplementedError` (from the shared errors module) until the builder replaces it. The red gate runs against a freshly regenerated copy in the shadow project, never against the one in the live tree.
 _Avoid_: stub (use for a single throwing member), contract
+
+**Shadow project**:
+The throwaway project at `<project>/.pi/shadow-red` the red gate builds and runs in — contracts, tests and config copied from the live tree, skeletons regenerated there, `node_modules` symlinked, no implementation file copied at all. Wiped and rebuilt on every red and left behind afterwards as postmortem evidence, until `deliver` removes it at the end of the run. It is what makes a valid red establishable at any moment, and therefore what makes the two workers parallel.
+_Avoid_: sandbox, temp project, pristine project (retired)
+
+**Tests-tree hash**:
+The sha256 fingerprint of every file under `tests/` that a red-gate pass records and a green refuses to run without matching. It is the second half of green-requires-red: the first says a red exists for these contracts, this one says the red was measured over these tests.
+_Avoid_: test checksum (that's the contract manifest's word), fingerprint (unqualified)
 
 **Value object**:
 A domain type that replaces a primitive at a contract's public boundary — in
@@ -138,6 +146,14 @@ _Avoid_: assignee, owner (unqualified)
 **Guard log**:
 The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `PI_GUARD_LOG=off` opts out.
 _Avoid_: audit log, telemetry (unqualified)
+
+**Model tier**:
+One of the two per-project model settings in `<project>/.pi/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event; never fatal, since a missing or malformed config only means "no override" (ADR 2026-022).
+_Avoid_: model override, per-agent model
+
+**Friction**:
+Tool calls the harness refused outright — blocks no route owns, counted by the guard that refused them and printed on every delivery timing line. Unlike bounces, the target is zero: a non-zero count usually means a zone or an affordance is wrong, not that a role misbehaved.
+_Avoid_: blocks (unqualified), overhead
 
 ### Issue tracking
 
