@@ -8,6 +8,12 @@
  * target project's guard log. With no pipeline role — every normal or
  * orchestrator session — the gate is INACTIVE and every call passes through.
  *
+ * It also installs a `session_start` hook that REMOVES the role's forbidden
+ * tools from the model's visible toolset (pi.setActiveTools), so a directly
+ * launched session gets the same "the tool was never there" property a
+ * subagent gets free from its frontmatter allowlist. The tool_call refusals
+ * become the backstop they were always described as.
+ *
  * ── Role source (the key design decision) ────────────────────────────────
  * Subagents run as SEPARATE `pi` child processes (pi-subagents spawns them),
  * so they do not share a process with the orchestrator — but every child
@@ -47,7 +53,10 @@ import {
   asRole,
   evaluateAmbientPathGate,
   evaluatePathGate,
+  isAmbientSuppressed,
   markBoundRoleInstalled,
+  planToolStrip,
+  recordToolStrip,
 } from "../src/path-gate.ts";
 import type { Role } from "../src/path-policy.ts";
 
@@ -92,6 +101,36 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   if (boundRole) markBoundRoleInstalled();
 
   const fallback = boundRole ? undefined : makeFallbackResolver();
+
+  // Take the forbidden tools AWAY, rather than refusing them one turn at a
+  // time. See the tool-strip block in ../src/path-gate.ts for why: a refused
+  // tool the model can still see costs a turn per attempt, and a directly
+  // launched session has no frontmatter allowlist to strip it first.
+  //
+  // `session_start` is the earliest point the tool actions are live — they
+  // throw during extension LOAD ("Action methods cannot be called during
+  // extension loading") — and it still fires before the first provider
+  // request, so the model never sees the tool at all.
+  pi.on("session_start", (_event, ctx) => {
+    const role = boundRole ?? fallback!(ctx.cwd);
+    if (!role) return; // inactive: normal session with no role
+    // The ambient hook stands down wherever a bound role claimed the process,
+    // for exactly the reason it stands down on tool calls: otherwise a
+    // subagent's toolset loses its PARENT's forbidden tools too, and a
+    // test-writer would be stripped of nothing while a builder lost run_tests.
+    if (!boundRole && isAmbientSuppressed()) return;
+
+    // Defence in depth over a gate that already refuses these calls: if the
+    // host cannot strip, the session must still start and still be gated.
+    try {
+      const strip = planToolStrip(role, pi.getActiveTools());
+      if (!strip) return; // already stripped (frontmatter allowlist did it)
+      pi.setActiveTools([...strip.active]);
+      recordToolStrip(ctx.cwd, role, strip);
+    } catch {
+      // The tool_call gate below is unaffected and still refuses every one.
+    }
+  });
 
   pi.on("tool_call", async (event, ctx) => {
     const role = boundRole ?? fallback!(ctx.cwd);

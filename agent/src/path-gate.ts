@@ -14,7 +14,7 @@
 import { logGuardEvent } from "./guard-log.ts";
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { decide, type Role } from "./path-policy.ts";
+import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { checkSpawnPrecondition, type PhaseEvidence } from "./phase-gate.ts";
 
@@ -78,6 +78,67 @@ export function isAmbientSuppressed(): boolean {
 /** Test-only: restore the pristine process state. */
 export function resetPathGateRegistry(): void {
   delete (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY];
+}
+
+// --- Tool strip (the visible-toolset half of the gate) ----------------------
+//
+// Refusing a forbidden tool is not the same as not having it. A model that can
+// SEE `bash` in its toolset plans around it and reaches for it when stuck, and
+// every attempt costs a full turn: a live architect session spent six turns on
+// `bash` alone, plus one each on `run_tests` and the rest, all refused.
+//
+// Subagent-spawned roles never had this problem — their frontmatter `tools:`
+// allowlist strips the toolset before the model is ever shown it, which is why
+// the refusal text calls the allowlist the primary layer. A DIRECTLY launched
+// session (`.pi/dev-stage-role` + plain `pi`, or `pi-ticket`) has no
+// frontmatter, so the allowlist is documentation there and the gate was doing
+// all the work by refusing calls the model had every reason to make.
+//
+// pi's ExtensionAPI closes this: `getActiveTools()` / `setActiveTools(names)`
+// are live once extensions are bound, and `session_start` fires after that
+// binding and before the first provider request. Setting the active tools
+// rebuilds the system prompt too, so the tool vanishes from the prompt's
+// tool list as well as from the provider's schema — the model is never told
+// the tool exists.
+//
+// This is deliberately the SAME data the refusals use (FORBIDDEN_TOOLS), so
+// the two layers cannot disagree about what a role may hold.
+
+/** What a session-start strip did: what was hidden, and what is left active. */
+export interface ToolStrip {
+  readonly hidden: readonly string[];
+  readonly active: readonly string[];
+}
+
+/**
+ * Which of `active` this role may not hold, and what remains.
+ *
+ * Returns `undefined` when the role already holds nothing forbidden — the
+ * caller then makes no call at all, so a normally-launched subagent (already
+ * stripped by its frontmatter) is untouched.
+ */
+export function planToolStrip(role: Role, active: readonly string[]): ToolStrip | undefined {
+  const forbidden = FORBIDDEN_TOOLS[role];
+  const hidden = active.filter((name) => forbidden.has(name));
+  if (hidden.length === 0) return undefined;
+  return { hidden, active: active.filter((name) => !forbidden.has(name)) };
+}
+
+/**
+ * Record a strip in the target project's guard log.
+ *
+ * The strip is the reason a forbidden tool never appears in the transcript, so
+ * without this line the absence is indistinguishable from the model simply not
+ * trying — and "a deterministic system that is opaque when it jams is just a
+ * deterministic jam" applies to a system that silently DOESN'T jam too.
+ */
+export function recordToolStrip(cwd: string, role: Role, strip: ToolStrip): void {
+  logGuardEvent(cwd, {
+    guard: "path-gate",
+    verdict: "pass",
+    summary: `hid ${strip.hidden.join(", ")} from ${role}`,
+    detail: { kind: "tool-strip", role, hidden: [...strip.hidden] },
+  });
 }
 
 /** Blocking result returned to pi's tool_call hook. */

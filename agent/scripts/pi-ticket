@@ -22,7 +22,8 @@
 #   pi-ticket --model …       # any further pi flags pass straight through
 #
 # Being gated means: read anything in the project, write only spec.md and
-# *.contract.ts, no bash, and the gates + git as named tools.
+# *.contract.ts, no bash, and the gates + git as named tools. The forbidden
+# tools are not merely refused — they are absent from the toolset.
 
 set -euo pipefail
 
@@ -45,12 +46,20 @@ if [ ! -f "$GATE" ]; then
   exit 2
 fi
 
-# Drop `bash` from the toolset rather than relying on the gate to refuse it.
+# Drop the architect's forbidden tools from the toolset rather than relying on
+# the gate to refuse them.
 #
-# The path gate DOES block bash for every role, but a blocked call is a wasted
-# turn — and worse, a model that can SEE bash in its toolset plans around it
-# and reaches for it when stuck. A subagent never has this problem: its
-# frontmatter `tools:` list removes bash before the model ever sees it. This
-# flag gives a directly-launched session the same property, so the gate's bash
-# rule stays a backstop instead of doing the work.
-exec pi --extension "$GATE" --exclude-tools bash "$@"
+# The path gate DOES block these for the architect, but a blocked call is a
+# wasted turn — and worse, a model that can SEE a tool in its toolset plans
+# around it and reaches for it when stuck. A live session spent six consecutive
+# turns on `bash` alone, plus one each on `run_tests` and the rest. A subagent
+# never has this problem: its frontmatter `tools:` list removes the tool before
+# the model ever sees it.
+#
+# The path-gate extension now strips these at `session_start` too, so this flag
+# is no longer the only layer — but it is the STRONGER one: `--exclude-tools`
+# drops the tool from the session's registry entirely, where the extension's
+# `setActiveTools` only deactivates it. Keep both; keep this list equal to
+# FORBIDDEN_TOOLS.architect in src/path-policy.ts (pinned by
+# src/path-gate-tool-strip.test.ts).
+exec pi --extension "$GATE" --exclude-tools bash,run_tests,record_design_review "$@"

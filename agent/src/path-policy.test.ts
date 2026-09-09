@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   decide,
+  FORBIDDEN_TOOLS,
   ownerOfPath,
+  ROLE_TOOLS,
   ROLES_UPSTREAM_FIRST,
   ZONES,
   type Decision,
@@ -230,6 +232,26 @@ describe("forbidden tools", () => {
       if (!r.allow) expect(r.reason).toMatch(/reviewer/);
     });
   }
+
+  // A refusal that only says "no" costs a full model turn and teaches nothing:
+  // the model retries a variant of the same call. The live architect session
+  // that motivated the tool strip burned six consecutive turns on `bash` for
+  // exactly this reason. So every forbidden-tool refusal must end by naming a
+  // tool THIS role actually holds — checked against ROLE_TOOLS, so the advice
+  // cannot drift into recommending something the gate would also refuse.
+  for (const role of roles) {
+    for (const tool of FORBIDDEN_TOOLS[role]) {
+      test(`${role}'s '${tool}' refusal names a tool ${role} really has`, () => {
+        const r = decide(role, tool, { path: "x" }, CTX);
+        expect(r.allow).toBe(false);
+        if (r.allow) return;
+        const clause = r.reason.split("—").slice(1).join("—");
+        expect(clause, `no alternative clause in: ${r.reason}`).not.toBe("");
+        const named = ROLE_TOOLS[role].filter((t) => clause.includes(t));
+        expect(named, `refusal points nowhere legal: ${r.reason}`).not.toHaveLength(0);
+      });
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -386,19 +408,31 @@ describe("block reasons", () => {
       "path-gate: builder may not read 'tests/orders.test.ts': denied zone 'tests/**'",
     );
     expect(reason("builder", "write", "src/x.contract.ts")).toBe(
-      "path-gate: builder may not write 'src/x.contract.ts': denied for builder (matches 'src/**/*.contract.ts')",
+      "path-gate: builder may not write 'src/x.contract.ts': denied for builder (matches 'src/**/*.contract.ts') — that path is another role's; report what needs changing",
     );
     expect(reason("reviewer", "write", "spec.md")).toBe(
       "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
-      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones (spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts)",
+      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts",
     );
     expect(reason("test-writer", "grep")).toBe(
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
     );
     expect(reason("builder", "bash", "ignored")).toBe(
-      "path-gate: builder may not use 'bash': forbidden for builder (frontmatter allowlist is the primary layer)",
+      "path-gate: builder may not use 'bash': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck",
+    );
+    expect(reason("architect", "bash", "ignored")).toBe(
+      "path-gate: architect may not use 'bash': no role holds a shell — use the git tool, the gate tools, or typecheck",
+    );
+    expect(reason("architect", "run_tests")).toBe(
+      "path-gate: architect may not use 'run_tests': run_tests is the builder's blind-safe channel — run red_gate/green_gate instead, which run the suite and typecheck together",
+    );
+    expect(reason("architect", "record_design_review")).toBe(
+      "path-gate: architect may not use 'record_design_review': record_design_review is the reviewer's pen — commission the reviewer with subagent instead; a review you record of your own design is not a second reading of it",
+    );
+    expect(reason("builder", "git")).toBe(
+      "path-gate: builder may not use 'git': 'git' is the architect's — use read/grep/find/ls, run_tests, or typecheck",
     );
     expect(reason("builder", "write", "../escape.ts")).toBe(
       "path-gate: builder may not write '../escape.ts': path escapes project root",

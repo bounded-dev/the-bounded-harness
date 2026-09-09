@@ -122,7 +122,13 @@ const ARCHITECT_ONLY_TOOLS = ["subagent", "git"] as const;
 const BUILDER_ONLY_TOOLS = ["run_tests"] as const;
 const REVIEWER_ONLY_TOOLS = ["record_design_review"] as const;
 
-const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
+/**
+ * Tools each role may not call — the backup layer, and now also the input to
+ * the STRIP: a bound session removes exactly this set from the model's visible
+ * toolset at session start (src/path-gate.ts, extensions/path-gate.ts), so the
+ * refusals below are a backstop rather than the working mechanism.
+ */
+export const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
   architect: new Set([...FORBIDDEN_ALL_ROLES, ...BUILDER_ONLY_TOOLS, ...REVIEWER_ONLY_TOOLS]),
   "test-writer": new Set([
     ...FORBIDDEN_ALL_ROLES,
@@ -500,6 +506,48 @@ function verb(tool: string): string {
   return "read";
 }
 
+// --- Refusal ergonomics -------------------------------------------------------
+//
+// A refusal that only says "no" costs a full model turn and teaches nothing:
+// the model retries a variant of the same call. Live runs measured the price —
+// a directly-launched architect burned six consecutive turns on `bash`, one per
+// attempt, plus one each on `run_tests` and friends, because nothing in the
+// refusal pointed anywhere. Every message below therefore ends by naming the
+// legal route FOR THIS ROLE, in one clause.
+//
+// The strip (src/path-gate.ts) is what stops these turns being spent at all;
+// this is what a refusal says on the paths the strip cannot reach.
+
+/** The role's own named, non-path tools — what it reaches for instead of a
+ *  shell. Kept in step with ROLE_TOOLS by path-policy.test.ts. */
+const NAMED_TOOLS: Record<Role, string> = {
+  architect: "the git tool, the gate tools, or typecheck",
+  "test-writer": "read/grep/find/ls and typecheck",
+  builder: "read/grep/find/ls, run_tests, or typecheck",
+  reviewer: "read/grep/find/ls, typecheck, or record_design_review",
+};
+
+/** One line: why the tool is refused, and what to use instead. */
+function forbiddenWhy(role: Role, tool: string): string {
+  // The architect is the one role with a real substitute for each of these,
+  // so it gets told the substitute rather than its general toolkit.
+  if (role === "architect" && tool === "run_tests") {
+    return "run_tests is the builder's blind-safe channel — run red_gate/green_gate instead, which run the suite and typecheck together";
+  }
+  if (role === "architect" && tool === "record_design_review") {
+    return "record_design_review is the reviewer's pen — commission the reviewer with subagent instead; a review you record of your own design is not a second reading of it";
+  }
+  const because =
+    tool === "bash"
+      ? "no role holds a shell"
+      : tool === "run_tests"
+        ? "run_tests is the builder's blind-safe channel"
+        : tool === "record_design_review"
+          ? "record_design_review is the reviewer's pen"
+          : `'${tool}' is the architect's`;
+  return `${because} — use ${NAMED_TOOLS[role]}`;
+}
+
 export function decide(
   role: Role,
   tool: string,
@@ -507,13 +555,7 @@ export function decide(
   ctx: Ctx,
 ): Decision {
   if (FORBIDDEN_TOOLS[role].has(tool)) {
-    const why =
-      tool === "run_tests"
-        ? ": run_tests is the builder's blind-safe channel — use red_gate or green_gate, which run the suite and typecheck together"
-        : tool === "record_design_review"
-          ? ": record_design_review is the reviewer's pen — commission the reviewer on the spec and contracts; a review you record of your own design is not a second reading of it"
-          : " (frontmatter allowlist is the primary layer)";
-    return block(`path-gate: ${role} may not use '${tool}': forbidden for ${role}${why}`);
+    return block(`path-gate: ${role} may not use '${tool}': ${forbiddenWhy(role, tool)}`);
   }
   if (!GATED_TOOLS.has(tool)) return ALLOW;
 
@@ -558,7 +600,7 @@ export function decide(
     const denied = zone.writeDeny.find((g) => matchGlob(g, t));
     if (denied) {
       return block(
-        `path-gate: ${role} may not write '${t}': denied for ${role} (matches '${denied}')`,
+        `path-gate: ${role} may not write '${t}': denied for ${role} (matches '${denied}') — that path is another role's; report what needs changing`,
       );
     }
     // A role with NO write zone is read-only by construction, and "outside
@@ -571,7 +613,7 @@ export function decide(
     }
     if (!matchesAny(zone.writeAllow, t)) {
       return block(
-        `path-gate: ${role} may not write '${t}': outside ${role} write zones (${zone.writeAllow.join(", ")})`,
+        `path-gate: ${role} may not write '${t}': outside ${role} write zones — the ${role}'s writable surface is ${zone.writeAllow.join(", ")}`,
       );
     }
     return gitBlocked() ?? ALLOW;
