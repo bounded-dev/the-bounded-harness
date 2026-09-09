@@ -138,14 +138,19 @@ describe("the tier a spawn gets", () => {
     });
   });
 
-  // The caller was more specific than the project default. Overwriting it
-  // would make the tool's own parameter a lie.
-  test("a caller who passed a model keeps it", () => {
-    expect(planModelTier({ agent: "builder", model: "x/y:low" }, MODELS, REGISTRY)).toEqual({
-      kind: "skip",
-      why: "caller-chose",
-      note: "x/y:low",
-    });
+  // The tier is policy, not a default: a configured seat model replaces a
+  // caller-passed one, loudly, or the tier would be a suggestion any spawn
+  // could decline — the prose-vs-mechanism failure this harness exists to
+  // close. The discarded value is carried so the attempt is visible in the log.
+  test("a configured tier replaces a caller-passed model, and records it", () => {
+    const plan = planModelTier({ agent: "builder", model: "x/y:low" }, MODELS, REGISTRY);
+    expect(plan).toMatchObject({ kind: "inject", overrode: "x/y:low" });
+  });
+
+  test("a caller model equal to the tier is not an override", () => {
+    const plan = planModelTier({ agent: "builder", model: "fireworks/kimi-k3:medium" }, MODELS, REGISTRY);
+    expect(plan.kind).toBe("inject");
+    expect((plan as { overrode?: string }).overrode).toBeUndefined();
   });
 
   test("a blank caller model is not a choice", () => {

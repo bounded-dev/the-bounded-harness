@@ -34,11 +34,15 @@
 // every project must know the harness's role names. The config file this reads
 // keeps the role→tier mapping harness-owned and only the values per-project.
 //
-// ── Deliberate non-overrides ─────────────────────────────────────────────
+// ── The tier is policy, not a default ────────────────────────────────────
 //
-// A caller that passed `model` itself keeps it. An explicit choice at the call
-// site is more specific than a project default, and silently overwriting it
-// would make the parameter a lie.
+// When a tier IS configured for a seat, it beats a `model` the caller passed:
+// seat models are harness-owned policy, and an architect that could hand its
+// builder a different model per spawn would make the tier a suggestion — the
+// exact prose-vs-mechanism failure this harness exists to close. The
+// replacement is loud, not silent: the guard event records the discarded
+// value, so a spawn that tried to choose is visible in the log. A caller's
+// model stands only where the project set no tier for that seat.
 //
 // A model the live registry does not know is NOT injected. pi-subagents throws
 // `Unknown subagent model '<x>'` on an unresolvable explicit model, which would
@@ -87,6 +91,8 @@ export type TierPlan =
       readonly key: TierKey;
       /** The pi model pattern, thinking suffix included. */
       readonly model: string;
+      /** A caller-passed model the tier replaced, when there was one. */
+      readonly overrode?: string;
     }
   | { readonly kind: "skip"; readonly why: SkipReason; readonly note?: string };
 
@@ -95,10 +101,8 @@ export type SkipReason =
   | "not-a-spawn"
   /** A spawn, but of scout / product-expert / delegate / anything unmapped. */
   | "not-a-pipeline-role"
-  /** No config, or this tier unset in it. */
+  /** No config, or this tier unset in it — only then does a caller's model stand. */
   | "no-pattern"
-  /** The caller passed `model` explicitly; their choice stands. */
-  | "caller-chose"
   /** The pattern names no model the live registry knows. */
   | "unknown-model";
 
@@ -182,19 +186,22 @@ export function planModelTier(
   const model = patternForTier(models, tier);
   if (model === undefined) return SKIP("no-pattern", TIER_KEY[tier]);
 
-  const existing = input["model"];
-  if (typeof existing === "string" && existing.trim() !== "") {
-    return SKIP("caller-chose", existing);
-  }
-
   if (!patternIsKnown(model, known)) return SKIP("unknown-model", model);
+
+  // A configured tier is policy: it replaces a caller-passed model rather than
+  // yielding to it, and the replacement is recorded so the attempt is visible.
+  const existing = input["model"];
+  if (typeof existing === "string" && existing.trim() !== "" && existing !== model) {
+    return { kind: "inject", role, tier, key: TIER_KEY[tier], model, overrode: existing };
+  }
 
   return { kind: "inject", role, tier, key: TIER_KEY[tier], model };
 }
 
 /** The one-line summary a `model-tier` event carries. */
 export function tierSummary(plan: Extract<TierPlan, { kind: "inject" }>): string {
-  return `${plan.role} → ${plan.key} (${plan.model})`;
+  const base = `${plan.role} → ${plan.key} (${plan.model})`;
+  return plan.overrode === undefined ? base : `${base} — replaced caller's '${plan.overrode}'`;
 }
 
 export interface ModelTierInput {
@@ -249,7 +256,10 @@ export function applyModelTier(ev: ModelTierInput): TierPlan {
     guard: MODEL_TIER_GUARD,
     verdict: "pass",
     summary: tierSummary(plan),
-    detail: { role: plan.role, tier: plan.tier, key: plan.key, model: plan.model },
+    detail:
+      plan.overrode === undefined
+        ? { role: plan.role, tier: plan.tier, key: plan.key, model: plan.model }
+        : { role: plan.role, tier: plan.tier, key: plan.key, model: plan.model, overrode: plan.overrode },
   });
   return plan;
 }
