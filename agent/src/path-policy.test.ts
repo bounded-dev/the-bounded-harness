@@ -414,7 +414,7 @@ describe("block reasons", () => {
       "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
-      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts",
+      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts, scratch/**",
     );
     expect(reason("test-writer", "grep")).toBe(
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
@@ -467,6 +467,10 @@ describe("ownerOfPath", () => {
     ["vitest.config.ts", "architect"],
     ["package.json", "architect"],
     ["tsconfig.json", "architect"],
+    // The architect's scratch zone is the architect's alone — so a typecheck
+    // diagnostic in a probe routes to the architect, never to a blind role.
+    ["scratch/probe.ts", "architect"],
+    ["scratch/deep/nested/probe.ts", "architect"],
     // Genuinely outside every zone: nobody in the pipeline may fix it.
     ["docs/notes.md", null],
   ];
@@ -774,5 +778,34 @@ describe("architect may write config files (the orchestrator route)", () => {
   test("the workers still may not", () => {
     expect(decide("builder", "write", { path: "tsconfig.json" }, ctx).allow).toBe(false);
     expect(decide("test-writer", "write", { path: "package.json" }, ctx).allow).toBe(false);
+  });
+});
+
+// The architect's sanctioned scratch zone (Fix 4). Three runs, three models each
+// tried to write a throwaway type-probe and were refused, then one smuggled it
+// in as a real contract. The zone is top-level so it overlaps no artifact zone,
+// architect-only so the three blind roles cannot write it.
+describe("the architect scratch zone", () => {
+  const ctx = { cwd: "/proj" };
+
+  test("the architect may write, edit and remove inside scratch/", () => {
+    for (const tool of ["write", "edit", "remove"] as const) {
+      expect(decide("architect", tool, { path: "scratch/probe.ts" }, ctx).allow, tool).toBe(true);
+    }
+    expect(decide("architect", "write", { path: "scratch/deep/nested/probe.ts" }, ctx).allow).toBe(true);
+  });
+
+  test("the three blind roles may NOT write scratch/ — it is the architect's alone", () => {
+    for (const role of ["test-writer", "builder", "reviewer"] as const) {
+      const r = decide(role, "write", { path: "scratch/probe.ts" }, ctx);
+      expect(r.allow, role).toBe(false);
+    }
+  });
+
+  test("no role's write zone but the architect's includes scratch/", () => {
+    expect(ZONES.architect.writeAllow).toContain("scratch/**");
+    for (const role of ["test-writer", "builder", "reviewer"] as const) {
+      expect(ZONES[role].writeAllow).not.toContain("scratch/**");
+    }
   });
 });

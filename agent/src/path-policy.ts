@@ -364,6 +364,21 @@ export const ZONES: Record<Role, Zone> = {
       "vitest.config.ts",
       "vitest.config.js",
       "vitest.config.mts",
+      // The architect's sanctioned scratch zone. THREE runs, three models each
+      // tried to write a throwaway type-probe (scratch-nominal-check.ts,
+      // src/__probe/probe.ts, src/scratch-probe/…) to test a type idea, and each
+      // was refused because it fell outside every write zone — then one smuggled
+      // it in as a real contract, polluting the deliverable and costing ~10min of
+      // cleanup. So the architect gets a legitimate sandbox. It is TOP-LEVEL, not
+      // under src/ or tests/, precisely so it overlaps no artifact zone: every
+      // gate that globs the project is rooted at src/ (contract-purity,
+      // surface-check) or skips it by name (the checksum/freeze walk and the
+      // scaffolder share IGNORE_DIRS in checksum-gate.ts), the scaffolded
+      // tsconfig includes only src/ and tests/ so a broken probe cannot block a
+      // gate typecheck, deliver walks src/ and tests/ only so it never ships it,
+      // and dogfood-reset gitignores it. Only the architect writes it — the three
+      // blind roles' zones do not include it — so it is the architect's alone.
+      "scratch/**",
     ],
     writeDeny: [],
     readDeny: [],

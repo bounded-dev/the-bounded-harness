@@ -1,0 +1,81 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import { errorsImportsOf, findSkeletonImportsInSrc } from "./skeleton-imports.ts";
+
+// The shared predicate behind two callers (r16): green-gate blocks on it and
+// deliver keeps its own call to it. A src/** non-contract file still importing
+// from the red-phase errors module means an unimplemented export survived.
+
+const dirs: string[] = [];
+afterEach(() => {
+  while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+});
+
+function proj(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "skeleton-imports-"));
+  dirs.push(dir);
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(dir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return dir;
+}
+
+describe("findSkeletonImportsInSrc", () => {
+  test("names a src file that imports NotImplementedError, with the names", () => {
+    const dir = proj({
+      "src/billing/billing.ts": [
+        'import { NotImplementedError } from "../shared/errors.js";',
+        "export function charge(): never { throw new NotImplementedError('charge'); }",
+      ].join("\n"),
+    });
+    expect(findSkeletonImportsInSrc(dir)).toEqual([
+      { file: "src/billing/billing.ts", names: ["NotImplementedError"] },
+    ]);
+  });
+
+  test("an implemented tree (no errors-module import) is clean", () => {
+    const dir = proj({ "src/billing/billing.ts": "export const rate = 5;\n" });
+    expect(findSkeletonImportsInSrc(dir)).toEqual([]);
+  });
+
+  test("the errors module itself is not counted — it is the definition, not a consumer", () => {
+    const dir = proj({ "src/shared/errors.ts": "export class NotImplementedError extends Error {}\n" });
+    expect(findSkeletonImportsInSrc(dir)).toEqual([]);
+  });
+
+  test("a contract file is not counted — it is declaration-only and cannot import a value", () => {
+    const dir = proj({
+      // Nonsensical in practice (purity would refuse it), but the predicate must
+      // never key on a *.contract.ts regardless.
+      "src/billing/billing.contract.ts": 'import { NotImplementedError } from "../shared/errors.js";\n',
+    });
+    expect(findSkeletonImportsInSrc(dir)).toEqual([]);
+  });
+
+  test("a tests/** importer is not scanned — the predicate is about src/ only", () => {
+    const dir = proj({
+      "tests/billing.test.ts": 'import { NotImplementedError } from "../src/shared/errors.js";\nvoid NotImplementedError;\n',
+    });
+    expect(findSkeletonImportsInSrc(dir)).toEqual([]);
+  });
+});
+
+describe("errorsImportsOf (AST, not grep)", () => {
+  test("a mention in a comment or string does not count", () => {
+    const src = [
+      "// NotImplementedError is thrown by skeletons",
+      'const s = "NotImplementedError";',
+      "export const x = 1;",
+    ].join("\n");
+    expect(errorsImportsOf(src, "src/x.ts")).toEqual([]);
+  });
+
+  test("a real import from the shared errors module counts", () => {
+    const src = 'import { NotImplementedError, notImplemented } from "./shared/errors.js";\n';
+    expect(errorsImportsOf(src, "src/x.ts")).toEqual(["NotImplementedError", "notImplemented"]);
+  });
+});

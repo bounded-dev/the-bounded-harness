@@ -53,6 +53,7 @@ import {
   evaluateAmbientPathGate,
   evaluatePathGate,
   isAmbientSuppressed,
+  isDrivingRole,
   makeRunStartRecorder,
   markBoundRoleInstalled,
   planToolStrip,
@@ -140,7 +141,13 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     // ambient hook stands down where a bound role claimed the process (see
     // evaluateAmbientPathGate), and a second marker from a stood-down hook
     // would be a second run-start for one session.
-    if (boundRole !== undefined || !isAmbientSuppressed()) {
+    //
+    // And only from the DRIVING session (the architect). The reviewer,
+    // test-writer and builder each run in their own pi child and evaluate a
+    // first gated call too; before r16 every one stamped a marker and the clock
+    // picked a late one, starting DESIGN inside the design phase. A worker the
+    // architect spawns did not start the run, so it marks nothing.
+    if ((boundRole !== undefined || !isAmbientSuppressed()) && isDrivingRole(role)) {
       noteRunStart(ctx.cwd, role, event.toolName);
     }
 

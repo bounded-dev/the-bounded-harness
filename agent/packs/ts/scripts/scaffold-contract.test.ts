@@ -557,6 +557,27 @@ export declare function get(id: Id): string;
     expect(result.code).toBe(2);
     expect(result.lines.join("\n")).toContain("nothing to scaffold");
   });
+
+  // The architect's scratch zone (Fix 4): a probe that happens to be named like
+  // a contract is not a contract. The scaffolder shares checksum-gate's walk,
+  // which skips scratch/, so it generates no skeleton for it — a project whose
+  // ONLY contract-shaped file is in scratch/ has nothing to scaffold.
+  test("a scratch/*.contract.ts is not scaffolded", () => {
+    const dir = project({
+      "src/orders/orders.contract.ts": GOOD,
+      "scratch/probe.contract.ts": GOOD,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+    // No skeleton was written beside the scratch probe.
+    expect(existsSync(join(dir, "scratch/probe.ts"))).toBe(false);
+  });
+
+  test("a project whose only contract-shaped file lives in scratch/ has nothing to scaffold", () => {
+    const result = runScaffold(project({ "scratch/probe.contract.ts": GOOD }));
+    expect(result.code).toBe(2);
+    expect(result.lines.join("\n")).toContain("nothing to scaffold");
+  });
 });
 
 // ---------------------------------------------------------------------------

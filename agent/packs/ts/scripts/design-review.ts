@@ -48,6 +48,17 @@ import { parseFindings, type Finding } from "./sign-off.ts";
 const GUARD = "design-review";
 const SPEC_RELATIVE = "spec.md";
 
+/**
+ * The polish-loop nudge (r15/r16). The k3 architect ran 4-5 review cycles AFTER
+ * already getting zero blockers, polishing advisory findings the freeze does
+ * not wait on. Reviews are advisory and this changes no verdict — it only makes
+ * the freezable-now fact loud where the architect reads it, so an optional
+ * round of polish is not mistaken for a required one. One spelling, exported so
+ * design-review's own result and design-gate's fresh-review line cannot drift.
+ */
+export const FREEZABLE_NOW =
+  "design-review: 0 blockers: this design is freezable now; further review cycles are optional polish, not required.";
+
 /** How much of a sha256 is worth printing to a human. Full hashes go in the log. */
 const SHORT_HASH = 12;
 
@@ -152,7 +163,7 @@ export function classifyDesignReview(
         ? [
             "design-review: you recorded a blocker — it is a claim for the architect to settle, not a verdict; the design is not ready to freeze until it has been answered",
           ]
-        : []),
+        : [FREEZABLE_NOW]),
       "design-review: bound to the bytes below — any later edit to one of them makes this review stale",
       ...files.map((f) => `  ${reviewed[f]!.slice(0, SHORT_HASH)}  ${f}`),
     ],

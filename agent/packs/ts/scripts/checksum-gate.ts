@@ -27,7 +27,13 @@ import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 const GUARD = "checksum-gate";
 const MANIFEST_RELATIVE = ".pi/contract-checksums.json";
 const CONTRACT_SUFFIX = ".contract.ts";
-const IGNORE_DIRS = new Set(["node_modules", ".git", ".pi"]);
+// `scratch` is the architect's sanctioned throwaway zone (src/path-policy.ts):
+// a top-level directory nothing but the architect may write, and nothing may
+// scaffold, freeze, or ship. This is the one place the project-wide walk skips
+// it — so `findContractFiles`, the checksum/freeze manifest, the scaffolder's
+// contract discovery and its orphan sync all ignore a scratch/*.contract.ts by
+// construction, and a stray probe cannot be scaffolded, frozen, or ship.
+const IGNORE_DIRS = new Set(["node_modules", ".git", ".pi", "scratch"]);
 
 export interface Manifest {
   readonly files: Readonly<Record<string, string>>;

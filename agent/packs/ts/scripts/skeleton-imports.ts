@@ -1,0 +1,108 @@
+// Shared skeleton-import predicate (r16): a src/** non-contract file that still
+// imports from the red-phase shared errors module — the NotImplementedError a
+// scaffolded skeleton throws — means an unimplemented export survived to this
+// stage of the run.
+//
+// WHY IT MOVED UPSTREAM. r16's billing.ts stayed a throwing skeleton and
+// green-gate passed 179/179 TWICE: its exports were imported by no test, so
+// nothing ever executed the throw, and a suite that never runs a line cannot
+// go red on it. Only `deliver` caught it — minutes later and at the very end —
+// via exactly this scan. The predicate is not delivery's to own: an
+// unimplemented export is not GREEN, whatever the suite says, so the same scan
+// belongs in green-gate the moment the suite and typecheck come back clean.
+//
+// ONE PREDICATE, TWO CALLERS. green-gate blocks on it (route → builder) and
+// deliver keeps its own call to the same function — defence in depth, and the
+// two can never drift into two definitions of "an unimplemented export
+// reached this stage".
+//
+// AST, NOT GREP. A mention of NotImplementedError in a comment or a string must
+// not count; only a real import declaration does. Reuses the same ts-morph
+// reading deliver already trusted.
+
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, join, posix, relative, sep } from "node:path";
+import { Node, Project } from "ts-morph";
+
+/** The red-phase shared errors module, project-relative. Scaffolded skeletons
+ *  import NotImplementedError (and the `notImplemented` helper) from here. */
+export const ERRORS_REL = "src/shared/errors.ts";
+
+/** A src file that still imports from the red-phase errors module, and the
+ *  names it imports (`NotImplementedError`, `notImplemented`, …). */
+export interface SkeletonImporter {
+  /** Project-relative posix path. */
+  readonly file: string;
+  /** The names imported from the shared errors module. */
+  readonly names: readonly string[];
+}
+
+function toPosix(p: string): string {
+  return p.split(sep).join("/");
+}
+
+/** All .ts files under dir, project-relative posix paths, sorted. */
+export function tsFilesUnder(root: string, dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string): void => {
+    if (!existsSync(d)) return;
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!["node_modules", ".git", ".pi"].includes(entry.name)) walk(join(d, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+        out.push(toPosix(relative(root, join(d, entry.name))));
+      }
+    }
+  };
+  walk(dir);
+  return out.sort();
+}
+
+/** Does this module specifier, written in `fromRel`, resolve to the shared
+ *  errors module? (Relative specifiers only — that is how it is ever imported.) */
+export function refersToErrors(fromRel: string, specifier: string): boolean {
+  if (!specifier.startsWith(".")) return false;
+  const resolved = posix.normalize(posix.join(posix.dirname(fromRel), specifier));
+  const noExt = resolved.replace(/\.(js|ts)$/, "");
+  return noExt === ERRORS_REL.replace(/\.ts$/, "");
+}
+
+/** Names a file imports from the shared errors module ([] if none). AST, not
+ *  grep: a mention in a comment or string must not count. */
+export function errorsImportsOf(source: string, fileRel: string): string[] {
+  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
+  const sf = project.createSourceFile(basename(fileRel), source, { overwrite: true });
+  const names: string[] = [];
+  for (const stmt of sf.getStatements()) {
+    if (Node.isImportDeclaration(stmt) && refersToErrors(fileRel, stmt.getModuleSpecifierValue())) {
+      const clause = stmt.getImportClause();
+      const bindings = clause?.getNamedBindings();
+      if (bindings && Node.isNamedImports(bindings)) names.push(...bindings.getElements().map((e) => e.getName()));
+      else if (bindings) names.push("* as " + bindings.getName());
+      else names.push(clause?.getDefaultImport()?.getText() ?? "(side effect)");
+    } else if (Node.isExportDeclaration(stmt)) {
+      const spec = stmt.getModuleSpecifierValue();
+      if (spec !== undefined && refersToErrors(fileRel, spec)) names.push("(re-export)");
+    }
+  }
+  return names;
+}
+
+/**
+ * Every src/** non-contract file that still imports from the red-phase shared
+ * errors module — one entry per offending file, with the names it imports.
+ *
+ * Contracts are excluded because they are declaration-only (contract-purity
+ * enforces it) and cannot import a value in the first place; the errors module
+ * itself is excluded because it is the definition, not a consumer. Empty means
+ * clean: no unimplemented skeleton reached this stage.
+ */
+export function findSkeletonImportsInSrc(cwd: string): SkeletonImporter[] {
+  const out: SkeletonImporter[] = [];
+  for (const rel of tsFilesUnder(cwd, join(cwd, "src"))) {
+    if (rel === ERRORS_REL || rel.endsWith(".contract.ts")) continue;
+    const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel);
+    if (names.length > 0) out.push({ file: rel, names });
+  }
+  return out;
+}

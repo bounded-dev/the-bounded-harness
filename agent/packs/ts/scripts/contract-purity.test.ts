@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -154,5 +154,18 @@ describe("contract-purity CLI", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/contract-purity: no files matched/);
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
+  });
+
+  // The architect's scratch zone (Fix 4): the default gate scope is
+  // src/**/*.contract.ts, so a probe in the top-level scratch/ is never linted —
+  // even an impure one. The zone overlaps no gate that globs the project.
+  test("the default src scope never scans the scratch zone, impure or not", () => {
+    const dir = mkdtempSync(join(tmpdir(), "purity-scratch-"));
+    tmpDirs.push(dir);
+    mkdirSync(join(dir, "scratch"), { recursive: true });
+    writeFileSync(join(dir, "scratch", "probe.contract.ts"), "import { Pool } from 'pg';\n");
+    const r = runCli(dir, ["src/**/*.contract.ts"]);
+    expect(r.status).toBe(2); // no files matched — scratch is outside src/**
+    expect(r.stderr).toMatch(/contract-purity: no files matched/);
   });
 });

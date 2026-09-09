@@ -149,12 +149,22 @@
 //
 // Two decisions worth naming:
 //
-// * MULTIPLE RUN-STARTS (a session restarted, a provider outage re-opened the
-//   session) take the LAST one BEFORE the first phase marker. Everything
-//   before that marker is still setup; the final restart is the attempt that
-//   actually produced the run. A run-start appearing AFTER the first marker
-//   belongs to a second run in a shared log and is ignored — moving the clock
-//   there would put the start of the report after its own DESIGN phase.
+// * MULTIPLE RUN-STARTS resolve to the DRIVING session's — the architect's.
+//   Only the architect stamps one now (src/path-gate.ts), but two cases still
+//   put several before the first phase marker. A RESTART (a provider outage
+//   re-opened the session) appends a second architect marker: the last one is
+//   taken, because everything before it is still setup and the final restart is
+//   the attempt that produced the run. An OLD LOG (r16, written before only the
+//   architect stamped one) carries a marker per subagent session, and one can
+//   fall between the architect's and the freeze — r16's reviewer marker at
+//   12:57:35 did, and "the last run-start before the marker" picked it, cutting
+//   DESIGN from ~21m to 2m45s. Filtering to the architect's role fixes both: the
+//   subagent markers are ignored and the last architect one wins. A run-start
+//   AFTER the first marker belongs to a second run in a shared log and is
+//   ignored — moving the clock there would put the report's start after its own
+//   DESIGN phase. With no architect-tagged marker at all (a synthetic log), the
+//   earliest run-start before the marker stands in: the architect's first call
+//   precedes any subagent spawn, so the earliest is the driver's.
 //
 // * THE CLOCK MOVES, NOT THE ATTRIBUTION. Blocks are still placed in phases by
 //   index from the top of the log, so a refusal logged before the first gated
@@ -347,6 +357,24 @@ const isWrapEvent = (e: LoggedGuardEvent): boolean => e.guard === "sign-off" || 
 /** The path gate's first-gated-tool-call marker (see "The clock" in the header). */
 const isRunStart = (e: LoggedGuardEvent): boolean => e.guard === RUN_START_GUARD;
 
+/** The role a run-start names, or undefined when it carries none. */
+function runStartRole(e: LoggedGuardEvent): string | undefined {
+  const role = (e.detail as { role?: unknown } | undefined)?.role;
+  return typeof role === "string" ? role : undefined;
+}
+
+/**
+ * The DRIVING session's run-start (the architect's). Only the architect stamps
+ * one now (src/path-gate.ts), but r16's archived arms were written before that
+ * fix and carry 14-19, one per subagent session — and one reviewer's fell LATER
+ * than the architect's yet still before the freeze, so "the last run-start
+ * before the first marker" picked it and started DESIGN's clock at 2m45s. The
+ * role separates the driver from its workers, so the consumer resolves to it
+ * and reads an old log correctly too.
+ */
+const isDrivingRunStart = (e: LoggedGuardEvent): boolean =>
+  isRunStart(e) && runStartRole(e) === "architect";
+
 /** The two roles whose phases have a worker-derived opening. */
 export type Worker = "test-writer" | "builder";
 
@@ -464,12 +492,22 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
 
   // The clock. A run-start after the first phase marker belongs to a second
   // run sharing the log; the last one BEFORE that marker is this run's start.
+  //
+  // Among the run-starts before that marker, the driving session's is the
+  // architect's — so it is the architect's that is taken, and a restart takes
+  // the LAST architect one (the abandoned first attempt is not design time).
+  // Only the architect stamps one now, but an old log (r16) carries a marker
+  // per subagent session and one can fall between the architect's and the
+  // freeze; filtering to the architect's is what stops that late marker winning.
   const firstMarkerIdx = events.findIndex(isPhaseMarker);
-  const runStartIdx = lastIndexBefore(
-    events,
-    isRunStart,
-    firstMarkerIdx === -1 ? events.length : firstMarkerIdx,
-  );
+  const clockLimit = firstMarkerIdx === -1 ? events.length : firstMarkerIdx;
+  let runStartIdx = lastIndexBefore(events, isDrivingRunStart, clockLimit);
+  if (runStartIdx === -1) {
+    // No architect-tagged run-start: a synthetic or pre-role-detail log. The
+    // architect's first gated call necessarily precedes any subagent spawn, so
+    // the EARLIEST run-start before the first marker is the driving session's.
+    runStartIdx = events.findIndex((e, i) => i < clockLimit && isRunStart(e));
+  }
   const clockStartIdx = runStartIdx === -1 ? 0 : runStartIdx;
 
   // Where each worker's phase OPENS: its own first event, when the log carries

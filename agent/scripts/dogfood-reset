@@ -282,7 +282,10 @@ EOF
   # `.pi/` from birth: a run leaves a guard log and red_gate's shadow project
   # under it, and an archive that committed either would be carrying a copy of
   # the tests plus the harness's own bookkeeping into the record.
-  printf 'node_modules/\n.pi/\n' > "$dir/.gitignore"
+  # `scratch/` from birth too: the architect's sanctioned throwaway zone
+  # (src/path-policy.ts) — a type-probe it may write but nothing scaffolds,
+  # freezes, or ships. Gitignored so a stray probe is absent from the record.
+  printf 'node_modules/\n.pi/\nscratch/\n' > "$dir/.gitignore"
   touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
 
   ( cd "$dir" && npm install --silent >/dev/null 2>&1 )

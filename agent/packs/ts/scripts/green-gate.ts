@@ -46,6 +46,7 @@ import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./t
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
 import { lintSrc } from "./lint-src.ts";
 import { checkProjectSurfaces } from "./surface-check.ts";
+import { findSkeletonImportsInSrc, type SkeletonImporter } from "./skeleton-imports.ts";
 
 const GUARD = "green-gate";
 
@@ -144,11 +145,23 @@ export function classifyGreen(
    *  a contract. Always the builder's: the remedy is "make it private" or a
    *  CONTRACT-DISPUTE, both of which start with the builder. */
   surface: readonly string[] = [],
+  /** src/** files still importing from the red-phase errors module (see
+   *  skeleton-imports.ts). r16: billing.ts stayed a throwing skeleton and green
+   *  passed 179/179 twice, because no test imported its exports so nothing ran
+   *  the throw. An unimplemented export is not GREEN whatever the suite says.
+   *  Always the builder's: implementing the skeleton is its job. */
+  skeletons: readonly SkeletonImporter[] = [],
 ): GateResult {
   const suite = suiteVerdict(run);
   const types = routeTypecheck(tsc.diagnostics);
 
-  if (suite === null && types.errorCount === 0 && lint.length === 0 && surface.length === 0) {
+  if (
+    suite === null &&
+    types.errorCount === 0 &&
+    lint.length === 0 &&
+    surface.length === 0 &&
+    skeletons.length === 0
+  ) {
     return {
       code: 0,
       verdict: "pass",
@@ -162,6 +175,14 @@ export function classifyGreen(
 
   // A type error is reported even when the suite is fine — that is exactly the
   // Run 3 false green — and the headline says so, so the log is unambiguous.
+  // A surviving skeleton is the r16 case: the suite is green, but green over an
+  // export nothing implemented is a false green in the same family.
+  const skeletonHeadline = [
+    `green-gate: FAIL — ${skeletons.length} src file${skeletons.length === 1 ? "" : "s"} still ` +
+      `import${skeletons.length === 1 ? "s" : ""} from the red-phase errors module; the suite passes ` +
+      `(${run.passed}/${run.total}) but an unimplemented skeleton reached green — no test executes its ` +
+      `NotImplementedError throw`,
+  ];
   const headline =
     suite?.lines ??
     (types.errorCount > 0
@@ -172,20 +193,31 @@ export function classifyGreen(
         ? [
             `green-gate: FAIL — ${lint.length} escape hatch${lint.length === 1 ? "" : "es"} in src/; the suite passes (${run.passed}/${run.total}) but the type checker was switched off to get there`,
           ]
-        : [
-            `green-gate: FAIL — ${surface.length} surface violation${surface.length === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the public surface does not match the contract`,
-          ]);
+        : surface.length > 0
+          ? [
+              `green-gate: FAIL — ${surface.length} surface violation${surface.length === 1 ? "" : "s"}; the suite passes (${run.passed}/${run.total}) but the public surface does not match the contract`,
+            ]
+          : skeletonHeadline);
   const lintLines =
     lint.length > 0
       ? [...lint, "green-gate: a non-null assertion, cast, any or ts-comment is a gate failure, not a style note — fix the cause the type checker was pointing at"]
       : [];
   const surfaceLines = surface.length > 0 ? [...surface] : [];
-  const route = mostUpstream([...(suite ? [suite.owner] : []), ...types.owners, ...(lint.length > 0 || surface.length > 0 ? ["builder" as const] : [])]);
+  const skeletonLines =
+    skeletons.length > 0
+      ? [...skeletons.map((s) => `  skeleton: ${s.file} imports ${s.names.join(", ")}`)]
+      : [];
+  const route = mostUpstream([
+    ...(suite ? [suite.owner] : []),
+    ...types.owners,
+    ...(lint.length > 0 || surface.length > 0 || skeletons.length > 0 ? ["builder" as const] : []),
+  ]);
   const summary = [
     suite?.summary,
     types.errorCount > 0 ? `${types.errorCount} type error${types.errorCount === 1 ? "" : "s"}` : undefined,
     lint.length > 0 ? `${lint.length} escape hatch${lint.length === 1 ? "" : "es"}` : undefined,
     surface.length > 0 ? `${surface.length} surface violation${surface.length === 1 ? "" : "s"}` : undefined,
+    skeletons.length > 0 ? `${skeletons.length} unimplemented skeleton${skeletons.length === 1 ? "" : "s"}` : undefined,
   ]
     .filter((s) => s !== undefined)
     .join(" + ");
@@ -194,16 +226,24 @@ export function classifyGreen(
     code: 1,
     verdict: "block",
     summary: `${summary} (route: ${route})`,
-    lines: [...headline, ...typecheckLines(types), ...lintLines, ...surfaceLines, `green-gate: route → ${route}`],
+    lines: [...headline, ...typecheckLines(types), ...lintLines, ...surfaceLines, ...skeletonLines, `green-gate: route → ${route}`],
     detail: {
       ...(suite?.detail ?? {
-        reason: types.errorCount > 0 ? "type-errors" : lint.length > 0 ? "escape-hatches" : "surface",
+        reason:
+          types.errorCount > 0
+            ? "type-errors"
+            : lint.length > 0
+              ? "escape-hatches"
+              : surface.length > 0
+                ? "surface"
+                : "skeleton",
         passed: run.passed,
         total: run.total,
       }),
       typeErrors: types.errorCount,
       escapeHatches: lint.length,
       surfaceViolations: surface.length,
+      skeletonImports: skeletons.map((s) => s.file),
       route,
       typeErrorOwners: types.owners,
     },
@@ -367,6 +407,11 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
   // missing implementation file) is not a finding here — the suite and
   // typecheck verdicts already own those failure modes.
   const surfaces = checkProjectSurfaces(cwd);
+  // A surviving red-phase skeleton (r16): the shared predicate deliver used as a
+  // last-ditch backstop, moved upstream so a green that is green only because
+  // no test executes an unimplemented throw is caught the moment it passes,
+  // named, and bounced to the builder — not minutes later at delivery.
+  const skeletons = findSkeletonImportsInSrc(cwd);
   // A lint ERROR (no files matched) is not a finding: an empty src/ is the
   // builder's problem to have, and the suite verdict already says so.
   const base = classifyGreen(
@@ -374,6 +419,7 @@ export async function runGreenGate(cwd: string): Promise<GateResult> {
     tsc,
     lint.code === 1 ? lint.lines.slice(0, -1) : [],
     surfaces.code === 1 ? surfaces.lines.slice(0, -1) : [],
+    skeletons,
   );
 
   // Reroute a repeat. classifyGreen stays pure — the history lives in the guard

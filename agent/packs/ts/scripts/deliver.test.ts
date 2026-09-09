@@ -275,6 +275,26 @@ export function placeOrder(id: string): never {
     expect(events.some((e) => e.verdict === "block")).toBe(true);
   });
 
+  // The architect's scratch zone (Fix 4): a top-level scratch/ is the
+  // architect's throwaway sandbox. deliver walks src/ and tests/ only, so a
+  // scratch probe is neither scanned (its NotImplementedError import does not
+  // block delivery), nor scaffolded, nor added to the barrel, nor touched.
+  test("a top-level scratch/ is invisible to delivery — not scanned, not shipped, not touched", () => {
+    const dir = proj({
+      "scratch/probe.ts": 'import { NotImplementedError } from "../src/shared/errors.js";\nexport const probe: never = (() => { throw new NotImplementedError("probe"); })();\n',
+      "scratch/probe.contract.ts": "export interface Probe {}\n",
+    });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    // The probe survived untouched — deliver never entered scratch/.
+    expect(existsSync(join(dir, "scratch/probe.ts"))).toBe(true);
+    expect(existsSync(join(dir, "scratch/probe.contract.ts"))).toBe(true);
+    // And it is absent from the barrel: only the real src module is exported.
+    const barrel = readFileSync(join(dir, "src/index.ts"), "utf8");
+    expect(barrel).not.toMatch(/scratch|probe/);
+    expect(barrel).toContain("orders/orders.js");
+  });
+
   test("errors module is KEPT (not a block) when only tests/ import it", () => {
     const dir = proj({
       "tests/orders.test.ts": `import { NotImplementedError } from "../src/shared/errors.js";

@@ -384,4 +384,19 @@ describe("checkProjectSurfaces", () => {
     const root = projectWith({ "src/index.ts": "export {};" });
     expect(checkProjectSurfaces(root).code).toBe(2);
   });
+
+  // The architect's scratch zone (Fix 4): surface-check is rooted at src/, so a
+  // top-level scratch/*.contract.ts is invisible to it — a probe never counts
+  // as a contract pair, and a project whose only contract lives in scratch/ has
+  // no surface to check.
+  test("a scratch/*.contract.ts is not a surface pair", () => {
+    const root = projectWith({
+      "src/shared/money.contract.ts": CONTRACT,
+      "src/shared/money.ts": IMPL,
+      "scratch/probe.contract.ts": CONTRACT,
+    });
+    const run = checkProjectSurfaces(root);
+    expect(run.code).toBe(0);
+    expect(run.lines).toEqual(["surface-check: OK (1 contract pair)"]);
+  });
 });

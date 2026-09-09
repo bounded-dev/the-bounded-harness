@@ -96,12 +96,27 @@ describe("the run-start marker", () => {
 
   test("a REFUSED first call still starts the run — the session was working", async () => {
     // The marker is about when the run began, not about whether it went well.
+    // The architect may not write src/money.ts (not a contract), so this call
+    // is refused — and still stamps the run-start.
+    const cwd = project();
+    const fake = fakePi();
+    installArchitectPathGate(fake.pi as never);
+    const blocked = await fake.call(cwd, "write", { path: "src/money.ts" });
+    expect((blocked as { block?: boolean } | undefined)?.block).toBe(true);
+    expect(runStarts(cwd)).toHaveLength(1);
+  });
+
+  test("a worker session stamps NOTHING — only the driving architect starts the run (r16)", async () => {
+    // The reviewer, test-writer and builder are each commissioned in their own
+    // pi child, and each evaluates a first gated call too. Before r16 every one
+    // stamped a marker, and phase-durations picked a late one — kimi's clock
+    // started at a reviewer's, cutting DESIGN to a nonsense 2m45s. A worker did
+    // not start the run, so its first gated call marks nothing.
     const cwd = project();
     const fake = fakePi();
     installBuilderPathGate(fake.pi as never);
-    const blocked = await fake.call(cwd, "write", { path: "tests/x.test.ts" });
-    expect((blocked as { block?: boolean } | undefined)?.block).toBe(true);
-    expect(runStarts(cwd)).toHaveLength(1);
+    await fake.call(cwd, "write", { path: "src/money.ts" });
+    expect(runStarts(cwd)).toHaveLength(0);
   });
 
   test("a session with no role marks nothing — the gate is inactive, not silent", async () => {
@@ -120,19 +135,34 @@ describe("the run-start marker", () => {
     expect(runStarts(cwd)).toHaveLength(1);
   });
 
-  test("two hooks in one subagent process still produce ONE marker", async () => {
-    // A subagent loads its bound loader AND the ambient extension, which
-    // stands down (dogfood Run 6). A marker from the stood-down hook would be
-    // a second run-start for one session — and the analysis would take the
-    // later of the two as the start of the run.
+  test("a worker subagent stamps nothing even though the ambient hook sees the parent's architect role", async () => {
+    // A subagent loads its bound loader AND the ambient extension. The child
+    // shares the PARENT's `.pi/dev-stage-role` (architect), so without the
+    // ambient hook standing down it would stamp an architect run-start from
+    // INSIDE a worker's process — exactly the spurious driving-session marker
+    // r16 must not produce. The bound builder is not driving (marks nothing)
+    // and the ambient hook is suppressed (marks nothing): zero markers.
     const cwd = project("architect"); // the PARENT's role file, shared with the child
     const fake = fakePi();
     installBuilderPathGate(fake.pi as never);
     installAmbientPathGate(fake.pi as never);
     await fake.call(cwd, "write", { path: "src/money.ts" });
+    expect(runStarts(cwd)).toHaveLength(0);
+  });
+
+  test("the architect's two hooks still produce ONE marker", async () => {
+    // The architect is itself spawned as a subagent, so it loads its bound
+    // loader AND the ambient extension, which stands down (dogfood Run 6). A
+    // marker from the stood-down hook would be a second run-start for one
+    // session, and the analysis would take the later of the two.
+    const cwd = project("architect");
+    const fake = fakePi();
+    installArchitectPathGate(fake.pi as never);
+    installAmbientPathGate(fake.pi as never);
+    await fake.call(cwd, "read", { path: "spec.md" });
     const events = runStarts(cwd);
     expect(events).toHaveLength(1);
-    expect(events[0]!.detail).toMatchObject({ role: "builder" }); // the bound role, not the parent's
+    expect(events[0]!.detail).toMatchObject({ role: "architect" });
   });
 
   test("the latch is per session, so a second session in the same project marks again", async () => {

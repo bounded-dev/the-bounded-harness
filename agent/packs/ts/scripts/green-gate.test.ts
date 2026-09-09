@@ -165,6 +165,46 @@ describe("classifyGreen + typecheck (#7)", () => {
   });
 });
 
+// --- r16: a surviving red-phase skeleton is not green -------------------------
+// billing.ts stayed a throwing skeleton and green passed 179/179 TWICE, because
+// no test imported its exports so nothing ever executed the throw. Only deliver
+// caught it, at the very end. The scan is deliver's predicate, moved upstream.
+
+describe("classifyGreen: a surviving skeleton import (r16)", () => {
+  const SKELETON = [{ file: "src/billing/billing.ts", names: ["NotImplementedError"] }];
+
+  test("a fully passing, type-clean suite still BLOCKS when a skeleton import survives", () => {
+    const r = classifyGreen(run(passing(179)), TYPE_CLEAN, [], [], SKELETON);
+    expect(r.code).toBe(1);
+    expect(r.verdict).toBe("block");
+    expect(r.lines[0]).toMatch(/unimplemented skeleton reached green/);
+    expect(r.lines[0]).toMatch(/179\/179/);
+    expect(r.lines.join("\n")).toContain("skeleton: src/billing/billing.ts imports NotImplementedError");
+    expect(r.lines.at(-1)).toBe("green-gate: route → builder");
+    expect(r.detail).toMatchObject({ route: "builder", skeletonImports: ["src/billing/billing.ts"] });
+  });
+
+  test("no skeleton import → still green (the scan does not fire on an implemented tree)", () => {
+    const r = classifyGreen(run(passing(179)), TYPE_CLEAN, [], [], []);
+    expect(r.code).toBe(0);
+    expect(r.verdict).toBe("pass");
+  });
+
+  test("a failing suite dominates the headline, but the skeleton is still named and still bounces", () => {
+    const r = classifyGreen(
+      run({ total: 2, passed: 1, failed: 1, results: [{ name: "a", status: "passed" }, { name: "b", status: "failed", message: "AssertionError" }] }),
+      TYPE_CLEAN,
+      [],
+      [],
+      SKELETON,
+    );
+    expect(r.lines[0]).toMatch(/1 failing test of 2/);
+    expect(r.summary).toContain("unimplemented skeleton");
+    expect(r.lines.join("\n")).toContain("skeleton: src/billing/billing.ts imports NotImplementedError");
+    expect(r.detail).toMatchObject({ route: "builder", skeletonImports: ["src/billing/billing.ts"] });
+  });
+});
+
 // --- CLI (fixture-repo) -------------------------------------------------------
 
 const SCRIPT = join(import.meta.dirname, "green-gate.ts");
@@ -425,6 +465,65 @@ describe("green-gate CLI: surface violations", () => {
         "  }",
         "}",
       ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(0);
+    expect(greenEntry(dir)).toMatchObject({ guard: "green-gate", verdict: "pass" });
+  });
+});
+
+// r16: billing.ts stayed a throwing skeleton, green passed 179/179 TWICE (no
+// test imported its exports, so nothing ran the throw), and only deliver caught
+// it — minutes later, at the end. The scan is deliver's own, moved upstream so
+// a green that is green only because an unimplemented throw never ran is caught
+// the moment the suite passes, named, and bounced to the builder.
+
+describe("green-gate CLI: a surviving red-phase skeleton (r16)", () => {
+  const allPassing = vitestJson([
+    { name: "charges a card", status: "passed" },
+    { name: "refunds a card", status: "passed" },
+  ]);
+  const ERRORS_TS = [
+    "export class NotImplementedError extends Error {",
+    "  constructor(what: string) {",
+    "    super(`not implemented: ${what}`);",
+    '    this.name = "NotImplementedError";',
+    "  }",
+    "}",
+  ].join("\n") + "\n";
+
+  test("a fully passing suite still blocks when a src skeleton import survives, naming the file", () => {
+    const dir = fixtureRepo("green-skeleton-", allPassing);
+    mkdirSync(join(dir, "src", "shared"), { recursive: true });
+    mkdirSync(join(dir, "src", "billing"), { recursive: true });
+    writeFileSync(join(dir, "src", "shared", "errors.ts"), ERRORS_TS);
+    writeFileSync(
+      join(dir, "src", "billing", "billing.ts"),
+      [
+        'import { NotImplementedError } from "../shared/errors.js";',
+        "export function chargeCard(id: string): never {",
+        '  throw new NotImplementedError("chargeCard");',
+        "}",
+      ].join("\n") + "\n",
+    );
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/unimplemented skeleton reached green/);
+    expect(r.stdout).toContain("skeleton: src/billing/billing.ts imports NotImplementedError");
+    expect(r.stdout).toContain("green-gate: route → builder");
+    expect(greenEntry(dir)).toMatchObject({
+      guard: "green-gate",
+      verdict: "block",
+      detail: { route: "builder", skeletonImports: ["src/billing/billing.ts"] },
+    });
+  });
+
+  test("an implemented src/ (no errors-module import) still passes", () => {
+    const dir = fixtureRepo("green-skeleton-ok-", allPassing);
+    mkdirSync(join(dir, "src", "billing"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "billing", "billing.ts"),
+      "export function chargeCard(id: string): string { return id; }\n",
     );
     const r = runGate(dir);
     expect(r.status).toBe(0);

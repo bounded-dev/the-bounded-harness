@@ -79,9 +79,14 @@ import {
 import { findContractFiles } from "./checksum-gate.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
 import { skeletonPathFor } from "./scaffold-contract.ts";
+import {
+  ERRORS_REL,
+  errorsImportsOf,
+  findSkeletonImportsInSrc,
+  tsFilesUnder,
+} from "./skeleton-imports.ts";
 
 const GUARD = "deliver";
-const ERRORS_REL = "src/shared/errors.ts";
 const SURFACE_SCRIPT = "node --experimental-strip-types scripts/surface-check.ts";
 /** No shell is used anywhere in this file, so name the Windows shim explicitly. */
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -146,53 +151,6 @@ export interface DeliverResult {
 
 function toPosix(p: string): string {
   return p.split(sep).join("/");
-}
-
-/** All .ts files under dir, project-relative posix paths, sorted. */
-function tsFilesUnder(root: string, dir: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string): void => {
-    if (!existsSync(d)) return;
-    for (const entry of readdirSync(d, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (!["node_modules", ".git", ".pi"].includes(entry.name)) walk(join(d, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
-        out.push(toPosix(relative(root, join(d, entry.name))));
-      }
-    }
-  };
-  walk(dir);
-  return out.sort();
-}
-
-/** Does this module specifier, written in `fromRel`, resolve to the shared
- *  errors module? (Relative specifiers only — that is how it is ever imported.) */
-function refersToErrors(fromRel: string, specifier: string): boolean {
-  if (!specifier.startsWith(".")) return false;
-  const resolved = posix.normalize(posix.join(posix.dirname(fromRel), specifier));
-  const noExt = resolved.replace(/\.(js|ts)$/, "");
-  return noExt === ERRORS_REL.replace(/\.ts$/, "");
-}
-
-/** Names a file imports from the shared errors module ([] if none). AST, not
- *  grep: a mention in a comment or string must not count. */
-function errorsImportsOf(source: string, fileRel: string): string[] {
-  const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
-  const sf = project.createSourceFile(basename(fileRel), source, { overwrite: true });
-  const names: string[] = [];
-  for (const stmt of sf.getStatements()) {
-    if (Node.isImportDeclaration(stmt) && refersToErrors(fileRel, stmt.getModuleSpecifierValue())) {
-      const clause = stmt.getImportClause();
-      const bindings = clause?.getNamedBindings();
-      if (bindings && Node.isNamedImports(bindings)) names.push(...bindings.getElements().map((e) => e.getName()));
-      else if (bindings) names.push("* as " + bindings.getName());
-      else names.push(clause?.getDefaultImport()?.getText() ?? "(side effect)");
-    } else if (Node.isExportDeclaration(stmt)) {
-      const spec = stmt.getModuleSpecifierValue();
-      if (spec !== undefined && refersToErrors(fileRel, spec)) names.push("(re-export)");
-    }
-  }
-  return names;
 }
 
 /**
@@ -317,28 +275,27 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   if (!existsSync(errorsAbs)) {
     pass("scaffolding", false, `${ERRORS_REL} already gone`);
   } else {
-    const importers = { src: [] as { file: string; names: string[] }[], tests: [] as string[] };
-    for (const dir of ["src", "tests"] as const) {
-      for (const rel of tsFilesUnder(cwd, join(cwd, dir))) {
-        if (rel === ERRORS_REL) continue;
-        const names = errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel);
-        if (names.length === 0) continue;
-        if (dir === "src") importers.src.push({ file: rel, names });
-        else importers.tests.push(rel);
-      }
+    // The src scan is the SHARED predicate green-gate now runs too — deliver is
+    // the backstop, not the only line of defence (see skeleton-imports.ts). The
+    // tests scan is deliver's own: a tests-only importer keeps errors.ts, it
+    // does not block, so it is not part of the "unimplemented export" predicate.
+    const srcImporters = findSkeletonImportsInSrc(cwd);
+    const testImporters: string[] = [];
+    for (const rel of tsFilesUnder(cwd, join(cwd, "tests"))) {
+      if (errorsImportsOf(readFileSync(join(cwd, rel), "utf8"), rel).length > 0) testImporters.push(rel);
     }
-    if (importers.src.length > 0) {
-      const [first] = importers.src;
+    if (srcImporters.length > 0) {
+      const [first] = srcImporters;
       return block(
         "scaffolding",
         `${first!.file} still imports ${first!.names.join(", ")} from the shared errors module — ` +
           `an unimplemented export survived to delivery`,
-        { importers: importers.src },
+        { importers: srcImporters },
       );
     }
-    if (importers.tests.length > 0) {
-      pass("scaffolding", false, `kept ${ERRORS_REL} (${importers.tests.join(", ")} still imports it)`, {
-        keptFor: importers.tests,
+    if (testImporters.length > 0) {
+      pass("scaffolding", false, `kept ${ERRORS_REL} (${testImporters.join(", ")} still imports it)`, {
+        keptFor: testImporters,
       });
     } else {
       rmSync(errorsAbs);

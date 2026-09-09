@@ -613,20 +613,46 @@ describe("the run-start marker", () => {
     expect(phaseDurations(FULL_RUN).phases[0]!.ms).toBe(minutes(4)); // from the first event
   });
 
-  test("a restart takes the LAST marker before the first phase marker", () => {
+  const ARCHITECT_START = { kind: "run-start", role: "architect", tool: "read" };
+
+  test("a restart takes the LAST architect marker before the first phase marker", () => {
     // The outage re-opened the session; the second attempt is the one that
     // produced the run, and the abandoned first attempt is not design time.
     const events = [
       at(0, "path-gate", "pass", "hid bash from architect", STRIP),
-      at(2, "run-start", "pass", "first gated tool call (architect: read)"),
+      at(2, "run-start", "pass", "first gated tool call (architect: read)", ARCHITECT_START),
       at(20, "path-gate", "pass", "hid bash from architect", STRIP),
-      at(22, "run-start", "pass", "first gated tool call (architect: read)"),
+      at(22, "run-start", "pass", "first gated tool call (architect: read)", ARCHITECT_START),
       at(40, "checksum-gate", "pass", FREEZE),
       at(50, "red-gate", "pass", "RED OK"),
     ];
     const d = phaseDurations(events);
     expect(d.runStartedAt).toBe(new Date(T0 + minutes(22)).toISOString());
     expect(d.phases[0]!.ms).toBe(minutes(18)); // 22 → 40
+  });
+
+  test("subagent run-starts resolve to the architect's — the r16 skew (a late marker must not win)", () => {
+    // r16 was written before only the architect stamped a run-start, so the log
+    // carries one per subagent session. The architect's real start is ~21m
+    // before the freeze; a reviewer commissioned during design stamped its own
+    // 2m45s before it. "The last run-start before the first marker" picked the
+    // reviewer's and DESIGN collapsed to 2m45s. Filtering to the architect's
+    // role picks the true start, whatever order the markers appear in.
+    const events = [
+      at(0, "path-gate", "pass", "hid bash from architect", STRIP),
+      at(1, "run-start", "pass", "first gated tool call (architect: read)", ARCHITECT_START),
+      // …the architect commissions a reviewer, whose own session stamps one:
+      at(19, "run-start", "pass", "first gated tool call (reviewer: read)", {
+        kind: "run-start",
+        role: "reviewer",
+        tool: "read",
+      }),
+      at(22, "checksum-gate", "pass", FREEZE),
+      at(35, "red-gate", "pass", "RED OK"),
+    ];
+    const d = phaseDurations(events);
+    expect(d.runStartedAt).toBe(new Date(T0 + minutes(1)).toISOString());
+    expect(d.phases[0]!.ms).toBe(minutes(21)); // 1 → 22, not 19 → 22
   });
 
   test("a marker after the first phase marker is a second run, and is ignored", () => {

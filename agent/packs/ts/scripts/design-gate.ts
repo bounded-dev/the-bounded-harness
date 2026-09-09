@@ -50,7 +50,7 @@ import { realpathSync } from "node:fs";
 import { runContractPurity } from "./contract-purity.ts";
 import { runScaffold } from "./scaffold-contract.ts";
 import { diffManifests, hasDrift, hasManifest, runChecksumGate } from "./checksum-gate.ts";
-import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
+import { findingLines, FREEZABLE_NOW, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
 import type { Finding } from "./sign-off.ts";
 import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
@@ -343,7 +343,9 @@ export function reviewStepOutcome(freshness: ReviewFreshness): {
                 `design-review: ${count(freshness.blockers, "blocker")} recorded — advisory: the freeze does not wait on it`,
                 "  and nothing downstream raises it again, so settling it is yours.",
               ]
-            : []),
+            : // The polish-loop nudge (r15/r16): zero blockers means freezable
+              // now. Advisory, no verdict changes — see FREEZABLE_NOW.
+              [FREEZABLE_NOW]),
         ],
       };
     case "missing":

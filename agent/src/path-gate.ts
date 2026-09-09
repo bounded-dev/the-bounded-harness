@@ -188,7 +188,7 @@ export function recordToolStrip(cwd: string, role: Role, strip: ToolStrip): void
   });
 }
 
-// --- Run start (r15) --------------------------------------------------------
+// --- Run start (r15/r16) ----------------------------------------------------
 //
 // The timing block reported an 80-minute DESIGN phase for a run whose design
 // really took about 58: a provider outage sat between the session opening and
@@ -200,16 +200,45 @@ export function recordToolStrip(cwd: string, role: Role, strip: ToolStrip): void
 // work: the first tool call it evaluates. So it stamps a `run-start` event
 // there, and phase-durations starts its clock at that marker when it exists.
 //
+// ONLY THE DRIVING SESSION STAMPS ONE (r16). The reviewer, test-writer and
+// builder are each commissioned in their OWN pi child process (pi-subagents),
+// and each such child evaluates a first gated tool call too — so before this
+// fix every one of them stamped a run-start. r16 logged 14-19 markers per arm,
+// and phase-durations picked a late one: kimi's clock started at a reviewer's
+// 12:57:35, skewing DESIGN from ~21m to a nonsense 2m45s. The run-start means
+// "when did the RUN begin", and the run is the architect's — a worker it later
+// spawns did not start the run. So the marker is stamped only from the
+// architect's session (`isDrivingRole`).
+//
+// WHY THE ROLE, NOT "AM I A CHILD". pi-subagents exposes PI_SUBAGENT_CHILD=1 to
+// every spawned child, but the architect is itself spawned that way (its parent
+// is the orchestrator, the workers' parent is the architect), so that env var
+// is 1 for all four pipeline roles and cannot tell the driver from its workers.
+// The bound ROLE can, and it is exactly the question the marker means to ask.
+//
 // ONCE PER SESSION, which is why the latch is a closure handed out by
 // `makeRunStartRecorder` and held by the installed hook, exactly as the
 // fallback role resolver is: a session is one installPathGate call, so a
 // closure is per-session by construction — and unlike module or global state
 // it cannot leak between the pi processes a subagent fan-out creates, each of
-// which is its own session and deserves its own marker.
+// which is its own session.
 //
 // A restart therefore appends a second marker to the same project log; the
-// analysis takes the last one before the first phase marker (see the "The
-// clock" section of phase-durations.ts).
+// analysis takes the last architect one before the first phase marker (see the
+// "The clock" section of phase-durations.ts). Defence in depth lives there
+// too: the consumer resolves multiple run-starts to the architect's, so a log
+// written before this fix (r16's archived arms) is still read correctly.
+
+/**
+ * The DRIVING session of a dev-stage run — the one whose first gated call marks
+ * where the run began. That is the architect: it holds the ticket end to end
+ * and commissions the other three roles, so its first call necessarily precedes
+ * any worker it spawns. The reviewer, test-writer and builder are commissioned
+ * BY it and do not start the run, so they stamp no run-start.
+ */
+export function isDrivingRole(role: Role): boolean {
+  return role === "architect";
+}
 
 /** Log the run-start marker: this session's first gated tool call. */
 export function recordRunStart(cwd: string, role: Role, toolName: string): void {

@@ -10,7 +10,7 @@ import {
   reviewStepOutcome,
   type StepOutcome,
 } from "./design-gate.ts";
-import { runRecordDesignReview } from "./design-review.ts";
+import { FREEZABLE_NOW, runRecordDesignReview } from "./design-review.ts";
 import { readGuardLog, type LoggedGuardEvent } from "../../../src/guard-log.ts";
 import { checkSpawnPrecondition } from "../../../src/phase-gate.ts";
 
@@ -502,7 +502,10 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
       recorded: [],
     });
     expect(r.code).toBe(0);
-    expect(r.lines).toEqual(["design-review: fresh (0 findings, 0 blockers, recorded 14:32:11Z)"]);
+    expect(r.lines).toEqual([
+      "design-review: fresh (0 findings, 0 blockers, recorded 14:32:11Z)",
+      FREEZABLE_NOW,
+    ]);
   });
 
   // The architect holds no `record_design_review`, so this step is the only
@@ -526,6 +529,8 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
       "design-review: fresh (2 findings, 0 blockers, recorded 14:32:11Z)",
       "  concern: Money has no currency — src/money.contract.ts:12",
       "  note: prorate() rounding is unstated",
+      // Zero blockers, so freezable now — even with advisory findings present.
+      FREEZABLE_NOW,
     ]);
   });
 
@@ -543,6 +548,26 @@ describe("reviewStepOutcome: the step says which of the two it is", () => {
     expect(r.code).toBe(0);
     expect(r.lines[0]).toContain("3 findings, 1 blocker");
     expect(r.lines.join("\n")).toMatch(/advisory/);
+    // A blocker stands, so the freezable-now nudge must NOT appear.
+    expect(r.lines).not.toContain(FREEZABLE_NOW);
+  });
+
+  // The polish-loop nudge (r15/r16), on the fresh line the architect actually
+  // reads: zero blockers means freezable now, so an optional round of polish is
+  // not mistaken for a required one. Advisory — the step still passes (code 0).
+  test("the freezable-now nudge appears on a fresh review with zero blockers", () => {
+    const withFindings = reviewStepOutcome({
+      state: "fresh",
+      at: "2026-09-08T14:32:11.000Z",
+      findings: 2,
+      blockers: 0,
+      recorded: [
+        { severity: "concern", summary: "Money has no currency" },
+        { severity: "note", summary: "prorate() rounding is unstated" },
+      ],
+    });
+    expect(withFindings.code).toBe(0);
+    expect(withFindings.lines).toContain(FREEZABLE_NOW);
   });
 
   test("never reviewed and reviewed-then-edited do not read alike", () => {

@@ -5,6 +5,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import {
   classifyDesignReview,
   findingLines,
+  FREEZABLE_NOW,
   readReviewed,
   recordedFindings,
   runRecordDesignReview,
@@ -144,6 +145,35 @@ describe("classifyDesignReview", () => {
     expect(r.code).toBe(0);
     expect(r.verdict).toBe("pass");
     expect(r.lines.join("\n")).toMatch(/claim for the architect to settle, not a verdict/);
+  });
+
+  // The polish-loop nudge (r15/r16): zero blockers is loud, because the k3
+  // architect ran 4-5 review cycles after already getting zero, polishing
+  // advisory findings. It changes no verdict — code and verdict stay a pass.
+  describe("the 0-blocker freezable-now nudge", () => {
+    test("appears when there are no findings at all", () => {
+      const r = classifyDesignReview([], reviewed);
+      expect(r.code).toBe(0);
+      expect(r.verdict).toBe("pass");
+      expect(r.lines).toContain(FREEZABLE_NOW);
+    });
+
+    test("appears when there are advisory findings but zero blockers — the exact polish case", () => {
+      const r = classifyDesignReview(
+        [
+          { severity: "concern", summary: "prorate() tie-break unstated" },
+          { severity: "note", summary: "two names for one concept" },
+        ],
+        reviewed,
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(FREEZABLE_NOW);
+    });
+
+    test("is ABSENT when a blocker was recorded — that design is not freezable yet", () => {
+      const r = classifyDesignReview([{ severity: "blocker", summary: "uncallable operation" }], reviewed);
+      expect(r.lines).not.toContain(FREEZABLE_NOW);
+    });
   });
 
   test("the files reviewed are shown, with the hash that binds the record", () => {

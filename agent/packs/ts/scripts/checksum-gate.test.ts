@@ -56,16 +56,28 @@ function project(files: Record<string, string>): string {
 }
 
 describe("findContractFiles", () => {
-  test("finds *.contract.ts, sorted, ignoring node_modules/.git/.pi", () => {
+  test("finds *.contract.ts, sorted, ignoring node_modules/.git/.pi/scratch", () => {
     const dir = project({
       "src/orders/orders.contract.ts": "export interface O {}",
       "src/pay/pay.contract.ts": "export interface P {}",
       "src/orders/orders.ts": "// impl, not a contract",
       "node_modules/pkg/x.contract.ts": "export interface Ignored {}",
       ".pi/y.contract.ts": "export interface Ignored {}",
+      // The architect's scratch zone (Fix 4): a probe that happens to be named
+      // like a contract must never be frozen. The walk skips scratch/ by name.
+      "scratch/probe.contract.ts": "export interface Probe {}",
     });
     const found = findContractFiles(dir).map((p) => p.slice(dir.length + 1).split("\\").join("/"));
     expect(found).toEqual(["src/orders/orders.contract.ts", "src/pay/pay.contract.ts"]);
+  });
+
+  test("a scratch/*.contract.ts is absent from the frozen manifest", () => {
+    const dir = project({
+      "src/a.contract.ts": "export interface A { x: number }\n",
+      "scratch/probe.contract.ts": "export interface Probe {}\n",
+    });
+    const manifest = computeManifest(dir);
+    expect(Object.keys(manifest.files)).toEqual(["src/a.contract.ts"]);
   });
 });
 
