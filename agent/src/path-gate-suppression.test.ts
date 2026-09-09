@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  ambientRole,
+  boundRole,
   evaluateAmbientPathGate,
   evaluatePathGate,
   isAmbientSuppressed,
   markBoundRoleInstalled,
   resetPathGateRegistry,
+  sessionRole,
 } from "./path-gate.ts";
 
 // THE BUG THIS EXISTS FOR (dogfood Run 6, 2026-09-02)
@@ -122,5 +128,61 @@ describe("ambient path gate suppression", () => {
     expect(evaluateAmbientPathGate(ev)?.block).toBe(true); // ambient loaded first, still live
     markBoundRoleInstalled(); // bound loader arrives afterwards
     expect(evaluateAmbientPathGate(ev)).toBeUndefined();
+  });
+});
+
+// --- Who is calling? (the answer every role-sensitive tool shares) ----------
+//
+// The path gate is no longer the only thing that must know the caller's role:
+// `typecheck` scopes its diagnostics by it (packs/ts/scripts/typecheck-scope.ts)
+// after dogfood Run 15 caught the tool handing a builder a test file's path,
+// line and symbol name. A second, private notion of "who am I" is exactly how
+// two enforcement layers drift apart, so both ask sessionRole().
+
+describe("sessionRole", () => {
+  const dirs: string[] = [];
+  const project = (role?: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "session-role-"));
+    dirs.push(dir);
+    if (role !== undefined) {
+      mkdirSync(join(dir, ".pi"), { recursive: true });
+      writeFileSync(join(dir, ".pi", "dev-stage-role"), `${role}\n`);
+    }
+    return dir;
+  };
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  test("no binding, no env, no role file ⇒ no role (a normal session)", () => {
+    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    expect(sessionRole(project())).toBeUndefined();
+  });
+
+  test("falls back to the role file, exactly as the ambient gate does", () => {
+    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    const dir = project("builder");
+    expect(ambientRole(dir)).toBe("builder");
+    expect(sessionRole(dir)).toBe("builder");
+  });
+
+  test("a garbage role file names no role", () => {
+    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    expect(sessionRole(project("plumber"))).toBeUndefined();
+  });
+
+  test("the bound role wins over the parent's role file — restrictions never leak downward", () => {
+    const dir = project("architect"); // the PARENT's file, shared with the child
+    markBoundRoleInstalled("builder");
+    expect(boundRole()).toBe("builder");
+    expect(sessionRole(dir)).toBe("builder");
+  });
+
+  test("a binding with no role leaves the ambient guess stood down", () => {
+    const dir = project("architect");
+    markBoundRoleInstalled();
+    expect(isAmbientSuppressed()).toBe(true);
+    expect(sessionRole(dir)).toBeUndefined();
   });
 });

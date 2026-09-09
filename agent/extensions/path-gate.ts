@@ -46,42 +46,35 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  asRole,
+  ambientRole,
   evaluateAmbientPathGate,
   evaluatePathGate,
   isAmbientSuppressed,
+  makeRunStartRecorder,
   markBoundRoleInstalled,
   planToolStrip,
   recordToolStrip,
 } from "../src/path-gate.ts";
 import type { Role } from "../src/path-policy.ts";
 
-const ROLE_FILE = join(".pi", "dev-stage-role");
-
 // This file lives at <harness>/extensions/path-gate.ts, so the harness root is
 // its parent's parent. Derived rather than configured: it must stay correct
 // through the ~/.pi/agent symlink and in any checkout.
 const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-/** Resolve an ambient fallback role once per session (env, then role file). */
+/** Resolve an ambient fallback role once per session (env, then role file).
+ *  The resolution itself is `ambientRole` in ../src/path-gate.ts — shared with
+ *  the other role-sensitive tools so they cannot disagree about who is acting. */
 function makeFallbackResolver(): (cwd: string) => Role | undefined {
   let resolved = false;
   let role: Role | undefined;
   return (cwd: string): Role | undefined => {
     if (resolved) return role;
     resolved = true;
-    role = asRole(process.env["PI_DEV_STAGE_ROLE"]);
-    if (!role) {
-      try {
-        role = asRole(readFileSync(join(cwd, ROLE_FILE), "utf8").trim());
-      } catch {
-        role = undefined; // no role file ⇒ inactive
-      }
-    }
+    role = ambientRole(cwd);
     return role;
   };
 }
@@ -98,9 +91,13 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   // its own and is confined to the intersection of the two zones. That
   // deadlocked dogfood Run 6 at its first worker: the test-writer was refused
   // permission to write its own tests as "architect".
-  if (boundRole) markBoundRoleInstalled();
+  if (boundRole) markBoundRoleInstalled(boundRole);
 
   const fallback = boundRole ? undefined : makeFallbackResolver();
+
+  // Per-SESSION state, in the same shape as the fallback resolver above: one
+  // installPathGate call is one session, so a closure is the scope this needs.
+  const noteRunStart = makeRunStartRecorder();
 
   // Take the forbidden tools AWAY, rather than refusing them one turn at a
   // time. See the tool-strip block in ../src/path-gate.ts for why: a refused
@@ -135,6 +132,16 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   pi.on("tool_call", async (event, ctx) => {
     const role = boundRole ?? fallback!(ctx.cwd);
     if (!role) return undefined; // inactive: normal session with no role
+
+    // The first gated call is where the run demonstrably starts, so it is
+    // marked before it is judged — a refused first call still started the run.
+    // Recorded only by the hook that will actually evaluate the call: the
+    // ambient hook stands down where a bound role claimed the process (see
+    // evaluateAmbientPathGate), and a second marker from a stood-down hook
+    // would be a second run-start for one session.
+    if (boundRole !== undefined || !isAmbientSuppressed()) {
+      noteRunStart(ctx.cwd, role, event.toolName);
+    }
 
     const input = event.input as Readonly<Record<string, unknown>>;
     const ev = {

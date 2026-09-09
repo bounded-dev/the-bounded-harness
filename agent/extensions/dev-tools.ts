@@ -14,7 +14,12 @@
  *                             is the already-built sanitizeTestRun; this tool
  *                             only spawns + shapes.
  *   typecheck(cwd?)         — runs `tsc --noEmit` and returns pass/fail +
- *                             diagnostics with absolute machine paths redacted.
+ *                             diagnostics with absolute machine paths redacted
+ *                             AND scoped to the calling role: a worker sees its
+ *                             own zone and the shared interface in full, and
+ *                             another role's errors as a count plus an owner.
+ *                             Same blindness run_tests already enforces; the
+ *                             role comes from the path gate's own binding.
  *   record_design_review    — REVIEWER ONLY. Records the pre-freeze review of
  *     (findings, cwd?)        spec + contracts in the guard log, checksum-bound
  *                             to the bytes reviewed. The reviewer has no write
@@ -35,9 +40,15 @@ import { formatRunTests, runTests,
   failureNames,
   repeatedFailureNudge,
 } from "../packs/ts/scripts/run-tests.ts";
-import { formatTypecheck, typecheck } from "../packs/ts/scripts/typecheck.ts";
+import { typecheck } from "../packs/ts/scripts/typecheck.ts";
+import {
+  formatScopedTypecheck,
+  scopeGuardDetail,
+  scopeTypecheck,
+} from "../packs/ts/scripts/typecheck-scope.ts";
 import { runRecordDesignReview } from "../packs/ts/scripts/design-review.ts";
 import { logGuardEvent, readGuardLog } from "../src/guard-log.ts";
+import { sessionRole } from "../src/path-gate.ts";
 
 const PARAMS = Type.Object({
   cwd: Type.Optional(
@@ -193,24 +204,40 @@ export default function (pi: ExtensionAPI): void {
     name: "typecheck",
     label: "Typecheck",
     description:
-      "Run `tsc --noEmit` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted; in-project source locations are kept.",
-    promptSnippet: "Type-check the project with tsc --noEmit (paths redacted).",
+      "Run `tsc --noEmit` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted. Diagnostics are SCOPED TO YOUR ROLE: errors in your own zone and in the shared interface (contracts, spec, config) are shown in full; errors in another role's zone are reported as a count and an owner only — no paths, no messages, no symbol names.",
+    promptSnippet: "Type-check the project with tsc --noEmit (scoped to your zone).",
     promptGuidelines: [
       "Use typecheck to confirm your implementation compiles before relying on run_tests.",
+      "Errors reported as another role's are not yours to fix and do not block you — never redesign your code around them, and never ask for their content; report them to the architect if they seem to block the ticket.",
+      "'clean in your zone' is not 'the project compiles': it means nothing is left for YOU to fix.",
     ],
     parameters: PARAMS,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const cwd = targetCwd(ctx.cwd, params.cwd);
       const result = await typecheck(cwd);
       if (signal?.aborted) return { content: [{ type: "text", text: "typecheck: cancelled" }], details: {} };
+      // Raw tsc output is project-wide, so this tool was a hole in the same
+      // wall run_tests and the path gate build (dogfood Run 15): a builder read
+      // a test file's diagnostic — file, line, and the symbol name — out of its
+      // own typecheck and reshaped the implementation around test source it may
+      // never read. The role comes from the SAME binding the path gate acts on,
+      // so the two layers cannot disagree about who is calling.
+      const scoped = scopeTypecheck(result, sessionRole(ctx.cwd));
       logGuardEvent(cwd, {
         guard: "typecheck",
         verdict: result.ok ? "pass" : "block",
+        // The summary stays the WHOLE project's verdict — the guard log is the
+        // orchestrator's evidence, and it is never scoped.
         summary: result.ok ? "no type errors" : `${result.errorCount} error${result.errorCount === 1 ? "" : "s"}`,
+        detail: scopeGuardDetail(scoped),
       });
       return {
-        content: [{ type: "text", text: formatTypecheck(result) }],
-        details: { ok: result.ok, errorCount: result.errorCount },
+        content: [{ type: "text", text: formatScopedTypecheck(scoped) }],
+        details: {
+          ok: result.ok,
+          errorCount: scoped.scoped ? scoped.shown : result.errorCount,
+          ...(scoped.scoped ? { scoped: true, hidden: scoped.hidden } : {}),
+        },
       };
     },
   });

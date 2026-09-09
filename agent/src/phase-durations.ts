@@ -70,16 +70,49 @@
 //   `ts` is missing or not a date is corrupt in the same way, and an event
 //   that cannot be placed on the clock cannot bound a span.
 //
-// * MORE THAN ONE RUN IN A LOG: taken as one run, because nothing in the log
-//   marks where a run begins. The guard log is per-project and append-only,
-//   and no guard emits a run-start event — the first event of a run is
-//   whichever gate the architect happened to call first, which is not
-//   distinguishable from any other event. So a project that puts two tickets
-//   through the pipeline without clearing `.pi/` gets one merged report, and
-//   the honest fix is a run-start event in the log, not a heuristic here. In
-//   practice the DESIGN rule above absorbs the common case (revision inside
-//   one ticket); a genuine second ticket would show as an implausible total,
-//   which is a visible symptom rather than a silent wrong answer.
+// * MORE THAN ONE RUN IN A LOG: still taken as one run — but no longer blind
+//   to where the run began. The path gate logs a `run-start` event at the
+//   first gated tool call of a session (see "The clock" below), so a log that
+//   carries one is measured from there. Without one (an ungated session, a log
+//   written before the marker existed) the first event of a run is whichever
+//   gate the architect happened to call first, indistinguishable from any
+//   other event, and the headline says so. A project that puts two tickets
+//   through the pipeline without clearing `.pi/` still gets one merged report;
+//   the DESIGN rule above absorbs the common case (revision inside one
+//   ticket), and a genuine second ticket shows as an implausible total, which
+//   is a visible symptom rather than a silent wrong answer.
+//
+// ---------------------------------------------------------------------------
+// The clock: where the run starts (r15)
+// ---------------------------------------------------------------------------
+//
+// Both r15 arms lost about fourteen minutes to a provider outage between the
+// session opening and the prompt actually landing, and DESIGN silently ate it:
+// 55m and 80m were logged for design phases that really took ~33m and ~58m.
+// The first event in the log was the path gate's session-start tool strip —
+// stamped when the session opened, which is not when the run started.
+//
+// So the path gate logs a `run-start` event at the FIRST gated tool call it
+// evaluates in a session: the first moment the run is demonstrably doing work.
+// When one is present the clock starts there — DESIGN opens at it, `totalMs`
+// measures from it, and the headline names the time so the reader can see
+// which minutes were excluded. When none is present nothing changes, and the
+// old "taken as one run" caveat stands.
+//
+// Two decisions worth naming:
+//
+// * MULTIPLE RUN-STARTS (a session restarted, a provider outage re-opened the
+//   session) take the LAST one BEFORE the first phase marker. Everything
+//   before that marker is still setup; the final restart is the attempt that
+//   actually produced the run. A run-start appearing AFTER the first marker
+//   belongs to a second run in a shared log and is ignored — moving the clock
+//   there would put the start of the report after its own DESIGN phase.
+//
+// * THE CLOCK MOVES, NOT THE ATTRIBUTION. Blocks are still placed in phases by
+//   index from the top of the log, so a refusal logged before the first gated
+//   call still lands on DESIGN's line. It happened during the design phase; it
+//   simply happened during minutes nobody was working, and hiding it would
+//   lose a refusal to make an arithmetic identity tidier.
 //
 // ---------------------------------------------------------------------------
 // Bounces
@@ -105,26 +138,60 @@
 // line.
 //
 // ---------------------------------------------------------------------------
-// Friction
+// Friction vs iteration: two very different things that both log a block
 // ---------------------------------------------------------------------------
 //
 // A bounce is work handed back on purpose: a gate found a defect and named
-// whose it is. An UNROUTED block is the other thing — a tool call refused
-// before it did anything, a composite's inner step failing alongside the
-// composite. Those are the run's friction: minutes spent arguing with the
-// harness rather than with the problem, and unlike bounces the target for
-// them is zero.
+// whose it is. An UNROUTED block — one carrying no `detail.route` — is not one
+// thing but two, and r15 proved that conflating them makes the headline lie.
+// That run printed `friction: 31 unrouted blocks (typecheck 13, run_tests 8,
+// git 4, …)`, which reads as a harness fighting its own workers. The
+// transcripts said otherwise: all 21 typecheck/run_tests blocks were workers
+// compiling and running their own suites and seeing red, which is the job, and
+// the git blocks were archaeology that found nothing. Exactly ONE call was
+// refused in the whole run.
 //
-// The per-phase lines already carry their counts, but the number that says
-// whether the harness is in anyone's way is the RUN total, broken down by the
-// guard that did the refusing — "14 of the 17 were path-gate" points at a
-// write-zone that is wrong, which no per-phase line does. So `friction`
-// counts every unrouted block in the log, INCLUDING the ones no pair of
-// markers could place: a path-gate denial in an unmeasurable stretch cost the
-// same as one inside DESIGN, and dropping it would make the headline disagree
-// with the log for no reason a reader could reconstruct.
+//   REFUSAL   a guard said "you may not": the call did not happen. `path-gate`
+//             (out-of-zone read or write), `phase-gate` (a spawn too early),
+//             and any other gate block that names no route — including a
+//             composite's inner step, such as the `contract-purity` block that
+//             accompanies a routed `design-gate` block. Target: zero.
+//
+//   ITERATION a worker's own dev tool reported a red state: the call happened
+//             and told the truth. `typecheck`, `run_tests`, `lint-*`. A
+//             builder whose typecheck never errors is not iterating, it is
+//             guessing. Target: whatever the work needs.
+//
+// The split is decided by GUARD NAME alone. The alternative — inferring the
+// caller from the event — would need a provenance field no guard writes, and
+// the guard name is already the thing that determines who logged it.
+//
+// Judgment calls, all three of them:
+//
+// * `git` is ITERATION. A non-zero git exit is `git log` on a path that never
+//   existed — a search that missed, not a refusal. Counting it as friction
+//   would put "the harness got in the way" on the architect's own archaeology,
+//   which is what r15 did (4 of its 31).
+//
+// * `lint-src` / `lint-tests` are ITERATION wherever they are logged, worker
+//   tool call or inner step of a gate. A lint block is always a report about
+//   the code; when it is an inner step, the composite's OWN block carries the
+//   route and is already counted as the bounce. Any future `lint-*` guard
+//   inherits this by prefix rather than by being added to a list.
+//
+// * A composite's non-lint inner steps (`contract-purity`, and anything else
+//   that blocks with no route) stay REFUSALS. They are a gate declining to
+//   proceed, which is the same act path-gate performs; the vocabulary should
+//   not change with the guard's position in a composite.
+//
+// Both tallies are kept, per phase and per run, and both are reported: the
+// `friction:` line counts refusals only and keeps its target of zero, while
+// `iteration:` prints the red-loops as the normal work they are. As before,
+// the RUN totals include blocks no pair of markers could place — a denial in
+// an unmeasurable stretch cost exactly what one inside DESIGN cost, and
+// dropping it would make the headline disagree with the log.
 
-import type { LoggedGuardEvent } from "./guard-log.ts";
+import { RUN_START_GUARD, type LoggedGuardEvent } from "./guard-log.ts";
 
 export type PhaseName = "design" | "tests" | "build" | "wrap";
 
@@ -143,12 +210,21 @@ export interface GuardCount {
   readonly count: number;
 }
 
-/** Every unrouted block in the run, and which guard refused. Target: zero. */
+/**
+ * The two kinds of unrouted block, kept apart. See the header: refusals are
+ * calls that did not happen, iteration is work that did.
+ */
 export interface Friction {
-  /** Unrouted blocks across the whole log, placed in a phase or not. */
+  /** Guard refusals across the whole log, placed in a phase or not. Target: zero. */
+  readonly refusals: number;
+  /** Refusing guards, most-frequent first, then alphabetical. */
+  readonly refusalsByGuard: readonly GuardCount[];
+  /** Worker red-loops across the whole log. Normal work, not a problem. */
+  readonly iteration: number;
+  /** Iterating guards, most-frequent first, then alphabetical. */
+  readonly iterationByGuard: readonly GuardCount[];
+  /** Both together — every unrouted block in the log, as before the split. */
   readonly unroutedBlocks: number;
-  /** Most-frequent guard first, then alphabetical. */
-  readonly byGuard: readonly GuardCount[];
 }
 
 export interface PhaseSpan {
@@ -165,7 +241,11 @@ export interface PhaseSpan {
   readonly bounces: number;
   /** Bounce targets, most-bounced first, then alphabetical. */
   readonly byRoute: readonly RouteCount[];
-  /** Blocks in this phase that named no target (composite inner steps, path-gate denials). */
+  /** Unrouted blocks in this phase a guard refused (path-gate, composite inner steps). */
+  readonly refusals: number;
+  /** Unrouted blocks in this phase that are a worker's own red loop. */
+  readonly iteration: number;
+  /** `refusals + iteration` — every block in this phase that named no target. */
   readonly unroutedBlocks: number;
 }
 
@@ -184,8 +264,10 @@ export interface PhaseDurations {
   readonly bounces: number;
   /** Blocks in a stretch no pair of markers delimits. */
   readonly unattributedBlocks: number;
-  /** Run-total unrouted blocks, by guard — the harness getting in the way. */
+  /** Run-total unrouted blocks, split and broken down by guard. */
   readonly friction: Friction;
+  /** The `run-start` marker the clock was started from, when the log carried one. */
+  readonly runStartedAt?: string;
   /** Set when nothing could be measured at all; the report degrades to this line. */
   readonly unavailable?: string;
 }
@@ -213,6 +295,28 @@ const isRedPass = (e: LoggedGuardEvent): boolean => e.guard === "red-gate" && e.
 const isGreenPass = (e: LoggedGuardEvent): boolean => e.guard === "green-gate" && e.verdict === "pass";
 /** WRAP's closing activity: the terminal verdict and the delivery pass. */
 const isWrapEvent = (e: LoggedGuardEvent): boolean => e.guard === "sign-off" || e.guard === "deliver";
+
+/** The path gate's first-gated-tool-call marker (see "The clock" in the header). */
+const isRunStart = (e: LoggedGuardEvent): boolean => e.guard === RUN_START_GUARD;
+
+/** Any event that closes or opens a phase — the boundary a run-start must precede. */
+const isPhaseMarker = (e: LoggedGuardEvent): boolean =>
+  isFreeze(e) || isRedPass(e) || isGreenPass(e) || isWrapEvent(e);
+
+/**
+ * Guards whose unrouted blocks are ITERATION, not refusal (see the header).
+ * `lint-*` is matched by prefix so a new lint guard inherits the classification
+ * instead of silently becoming friction.
+ */
+const ITERATION_GUARDS: ReadonlySet<string> = new Set(["typecheck", "run_tests", "git"]);
+
+/** Which kind of unrouted block a guard's name makes this. */
+export type BlockKind = "refusal" | "iteration";
+
+/** Classify an unrouted block by the guard that logged it. Pure, total. */
+export function classifyUnroutedBlock(guard: string): BlockKind {
+  return ITERATION_GUARDS.has(guard) || guard.startsWith("lint-") ? "iteration" : "refusal";
+}
 
 /** The bounce target a gate recorded, or undefined when it named none. */
 export function routeOf(e: LoggedGuardEvent): string | undefined {
@@ -266,13 +370,15 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
         incomplete: "no events",
         bounces: 0,
         byRoute: [],
+        refusals: 0,
+        iteration: 0,
         unroutedBlocks: 0,
       })),
       events: 0,
       skipped,
       bounces: 0,
       unattributedBlocks: 0,
-      friction: { unroutedBlocks: 0, byGuard: [] },
+      friction: EMPTY_FRICTION,
       unavailable:
         skipped > 0
           ? `no usable guard events (${skipped} unreadable) — the log is corrupt`
@@ -287,8 +393,22 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
   const greenIdx = firstIndexAfter(events, isGreenPass, redIdx);
   const wrapEndIdx = lastIndexAfter(events, isWrapEvent, greenIdx);
 
+  // The clock. A run-start after the first phase marker belongs to a second
+  // run sharing the log; the last one BEFORE that marker is this run's start.
+  const firstMarkerIdx = events.findIndex(isPhaseMarker);
+  const runStartIdx = lastIndexBefore(
+    events,
+    isRunStart,
+    firstMarkerIdx === -1 ? events.length : firstMarkerIdx,
+  );
+  const clockStartIdx = runStartIdx === -1 ? 0 : runStartIdx;
+
   const bounds: Record<PhaseName, Bounds> = {
-    design: { startIdx: 0, endIdx: freezeIdx, missing: "no contract freeze (design_gate never passed)" },
+    design: {
+      startIdx: clockStartIdx,
+      endIdx: freezeIdx,
+      missing: "no contract freeze (design_gate never passed)",
+    },
     tests: {
       startIdx: freezeIdx,
       endIdx: redIdx,
@@ -322,19 +442,26 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
     build: new Map(),
     wrap: new Map(),
   };
-  const unrouted: Record<PhaseName, number> = { design: 0, tests: 0, build: 0, wrap: 0 };
-  // Friction is counted per GUARD across the whole run, so it is tallied here
-  // rather than derived from the per-phase numbers: the phase totals cannot
-  // see the unattributed blocks, and neither carries the guard name.
-  const byGuard = new Map<string, number>();
+  const unrouted: Record<BlockKind, Record<PhaseName, number>> = {
+    refusal: { design: 0, tests: 0, build: 0, wrap: 0 },
+    iteration: { design: 0, tests: 0, build: 0, wrap: 0 },
+  };
+  // Both tallies are counted per GUARD across the whole run, so they are kept
+  // here rather than derived from the per-phase numbers: the phase totals
+  // cannot see the unattributed blocks, and neither carries the guard name.
+  const byGuard: Record<BlockKind, Map<string, number>> = {
+    refusal: new Map(),
+    iteration: new Map(),
+  };
   let unattributedBlocks = 0;
   let bounces = 0;
 
   for (const [i, e] of events.entries()) {
     if (e.verdict !== "block") continue;
     const route = routeOf(e);
+    const kind = classifyUnroutedBlock(e.guard);
     if (route !== undefined) bounces += 1;
-    else byGuard.set(e.guard, (byGuard.get(e.guard) ?? 0) + 1);
+    else byGuard[kind].set(e.guard, (byGuard[kind].get(e.guard) ?? 0) + 1);
     const phase = PHASES.find((p) => {
       const region = regions[p];
       return region !== undefined && i >= region[0] && i < region[1];
@@ -343,15 +470,18 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
       unattributedBlocks += 1;
       continue;
     }
-    if (route === undefined) unrouted[phase] += 1;
+    if (route === undefined) unrouted[kind][phase] += 1;
     else routed[phase].set(route, (routed[phase].get(route) ?? 0) + 1);
   }
 
+  const refusals = tally(byGuard.refusal);
+  const iteration = tally(byGuard.iteration);
   const friction: Friction = {
-    unroutedBlocks: [...byGuard.values()].reduce((n, c) => n + c, 0),
-    byGuard: [...byGuard]
-      .map(([guard, count]) => ({ guard, count }))
-      .sort((a, b) => b.count - a.count || (a.guard < b.guard ? -1 : 1)),
+    refusals: refusals.total,
+    refusalsByGuard: refusals.byGuard,
+    iteration: iteration.total,
+    iterationByGuard: iteration.byGuard,
+    unroutedBlocks: refusals.total + iteration.total,
   };
 
   const phases: PhaseSpan[] = PHASES.map((phase) => {
@@ -363,7 +493,9 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
       phase,
       bounces: byRoute.reduce((n, r) => n + r.count, 0),
       byRoute,
-      unroutedBlocks: unrouted[phase],
+      refusals: unrouted.refusal[phase],
+      iteration: unrouted.iteration[phase],
+      unroutedBlocks: unrouted.refusal[phase] + unrouted.iteration[phase],
     };
     if (startIdx === -1 || endIdx === -1) return { ...base, incomplete: missing };
     const from = events[startIdx]!;
@@ -373,12 +505,35 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
 
   return {
     phases,
-    totalMs: spanMs(events[0]!, events[events.length - 1]!),
+    // From the run-start marker when there is one, so a session that sat idle
+    // between opening and its first real tool call does not bill those minutes
+    // to the run — r15 lost ~14 minutes of provider outage into DESIGN.
+    totalMs: spanMs(events[clockStartIdx]!, events[events.length - 1]!),
     events: events.length,
     skipped,
     bounces,
     unattributedBlocks,
     friction,
+    ...(runStartIdx === -1 ? {} : { runStartedAt: events[runStartIdx]!.ts }),
+  };
+}
+
+/** The zero value, so an unavailable report claims nothing about either kind. */
+const EMPTY_FRICTION: Friction = {
+  refusals: 0,
+  refusalsByGuard: [],
+  iteration: 0,
+  iterationByGuard: [],
+  unroutedBlocks: 0,
+};
+
+/** Total and ordered breakdown of one guard tally: most frequent, then alphabetical. */
+function tally(counts: ReadonlyMap<string, number>): { total: number; byGuard: GuardCount[] } {
+  return {
+    total: [...counts.values()].reduce((n, c) => n + c, 0),
+    byGuard: [...counts]
+      .map(([guard, count]) => ({ guard, count }))
+      .sort((a, b) => b.count - a.count || (a.guard < b.guard ? -1 : 1)),
   };
 }
 
@@ -430,6 +585,16 @@ export function formatDuration(ms: number): string {
 const NAME_WIDTH = 6; // "design" is the longest phase name
 const TIME_WIDTH = 8; // "1h04m12s"
 
+/**
+ * One row of the block. A name longer than NAME_WIDTH — only the combined
+ * `workers` row is — borrows from the time column's padding, so the durations
+ * stay in one column no matter which rows a run prints.
+ */
+function row(name: string, time: string, note?: string): string {
+  const width = Math.max(1, TIME_WIDTH - Math.max(0, name.length - NAME_WIDTH));
+  return `  timing: ${name.padEnd(NAME_WIDTH)} ${time.padStart(width)}${note !== undefined ? `  (${note})` : ""}`;
+}
+
 function bounceText(span: PhaseSpan): string | undefined {
   if (span.bounces === 0) return undefined;
   const targets = span.byRoute.map((r) => `${r.count} → ${r.route}`).join(", ");
@@ -437,17 +602,119 @@ function bounceText(span: PhaseSpan): string | undefined {
 }
 
 /**
- * The friction summary: how many tool calls the harness refused outright, and
- * which guard did it. Pure.
+ * What a phase's row says in brackets. Refusals and red-loops are named
+ * separately and with the run lines' vocabulary: a row reading "13 unrouted
+ * blocks" beside a `friction:` line reading "1 refusal" would leave a reader
+ * unable to reconcile the two numbers in the same block.
+ */
+function phaseNotes(span: PhaseSpan): string[] {
+  return [
+    span.incomplete !== undefined ? `incomplete: ${span.incomplete}` : undefined,
+    bounceText(span),
+    span.refusals > 0 ? `${span.refusals} refusal${span.refusals === 1 ? "" : "s"}` : undefined,
+    span.iteration > 0 ? `${span.iteration} red-loop${span.iteration === 1 ? "" : "s"}` : undefined,
+  ].filter((n): n is string => n !== undefined);
+}
+
+/**
+ * The friction summary: how many calls a guard refused outright, and which
+ * guard did it. Refusals only — a worker's red loops are reported by
+ * `iterationText` as the work they are. Pure.
  */
 function frictionText(friction: Friction): string {
-  const n = friction.unroutedBlocks;
-  const noun = `${n} unrouted block${n === 1 ? "" : "s"}`;
+  const n = friction.refusals;
+  const noun = `${n} refusal${n === 1 ? "" : "s"}`;
   const breakdown =
-    friction.byGuard.length > 0
-      ? ` (${friction.byGuard.map((g) => `${g.guard} ${g.count}`).join(", ")})`
+    friction.refusalsByGuard.length > 0
+      ? ` (${friction.refusalsByGuard.map((g) => `${g.guard} ${g.count}`).join(", ")})`
       : "";
   return `${noun}${breakdown} — target 0`;
+}
+
+/** The iteration summary: red loops, stated as normal work with no target. */
+function iterationText(friction: Friction): string {
+  const n = friction.iteration;
+  const noun = `${n} worker red-loop${n === 1 ? "" : "s"}`;
+  const breakdown = ` (${friction.iterationByGuard.map((g) => `${g.guard} ${g.count}`).join(", ")})`;
+  return `${noun}${breakdown}`;
+}
+
+// ---------------------------------------------------------------------------
+// Parallel workers (r15)
+// ---------------------------------------------------------------------------
+//
+// Printed one under the other, "tests 8m37s" then "build 5m42s" reads as
+// 14m19s of sequence. With the test-writer and the builder running in
+// parallel it can be 12m19s of wall clock, and the difference is the whole
+// point of running them that way.
+//
+// So when the two spans genuinely overlap, they print as ONE row measured
+// from the union of the two windows, with the individual figures kept in the
+// brackets and the full per-phase rows kept in the structured summary the
+// caller logs. A run whose spans do not overlap prints exactly what it always
+// did — the row is a description of what the timestamps say, never a claim
+// about how the run was configured.
+//
+// Two constraints this obeys:
+//
+// * IT READS ONLY THE SPAN TIMESTAMPS the analysis already produces. No new
+//   event kind, no inference about which worker owned which tool call.
+//
+// * A BACKWARDS CLOCK IS NOT AN OVERLAP. A span whose end precedes its start
+//   (the clamped case the header describes) is not a window at all, and two
+//   of them can "overlap" in arithmetic that means nothing. Such a pair falls
+//   back to the ordinary rows.
+//
+// Note what this does NOT do: with today's markers TESTS ends and BUILD begins
+// at the same event — the first `red-gate` pass — so the two windows touch
+// and never overlap, and the combined row cannot fire on a log the current
+// analysis produced. It fires on any PhaseDurations whose spans do overlap,
+// which is what per-worker boundaries will produce when the analysis learns
+// them. The formatter takes the spans as given rather than assuming adjacency,
+// which is why the presentation is ready ahead of the boundaries.
+
+interface Window {
+  readonly start: number;
+  readonly end: number;
+  readonly ms: number;
+}
+
+/** A phase's wall-clock window, or undefined when it is not a usable one. */
+function windowOf(span: PhaseSpan | undefined): Window | undefined {
+  if (span?.ms === undefined || span.startedAt === undefined || span.endedAt === undefined) {
+    return undefined;
+  }
+  const start = Date.parse(span.startedAt);
+  const end = Date.parse(span.endedAt);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return undefined;
+  return { start, end, ms: span.ms };
+}
+
+/** The single `workers` row, when TESTS and BUILD overlap in wall time. */
+function combinedWorkersRow(phases: readonly PhaseSpan[]): string | undefined {
+  const tests = phases.find((p) => p.phase === "tests");
+  const build = phases.find((p) => p.phase === "build");
+  const a = windowOf(tests);
+  const b = windowOf(build);
+  if (a === undefined || b === undefined || tests === undefined || build === undefined) return undefined;
+  if (a.end <= b.start || b.end <= a.start) return undefined; // sequential, or merely touching
+
+  const union = Math.max(a.end, b.end) - Math.min(a.start, b.start);
+  const notes = [
+    `tests ${formatDuration(a.ms)} ∥ build ${formatDuration(b.ms)} — overlapped`,
+    // Nothing a separate row would have said is dropped: a bounce that
+    // disappeared from the block because the phases were merged would be a
+    // measurement lost to a presentation change.
+    ...phaseNotes(tests).map((n) => `tests: ${n}`),
+    ...phaseNotes(build).map((n) => `build: ${n}`),
+  ];
+  return row("workers", formatDuration(union), notes.join("; "));
+}
+
+/** `09:14:07` in UTC — the timestamps are ISO, and a report should not move with the reader. */
+function clockText(ts: string): string {
+  const d = new Date(Date.parse(ts));
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 /**
@@ -460,23 +727,24 @@ function frictionText(friction: Friction): string {
 export function formatPhaseDurations(durations: PhaseDurations): string[] {
   if (durations.unavailable !== undefined) return [`unavailable — ${durations.unavailable}`];
 
-  const row = (name: string, time: string, note?: string): string =>
-    `  timing: ${name.padEnd(NAME_WIDTH)} ${time.padStart(TIME_WIDTH)}${note !== undefined ? `  (${note})` : ""}`;
-
-  const lines = durations.phases.map((span) => {
-    const notes = [
-      span.incomplete !== undefined ? `incomplete: ${span.incomplete}` : undefined,
-      bounceText(span),
-      span.unroutedBlocks > 0
-        ? `${span.unroutedBlocks} unrouted block${span.unroutedBlocks === 1 ? "" : "s"}`
-        : undefined,
-    ].filter((n): n is string => n !== undefined);
-    return row(
-      span.phase,
-      span.ms === undefined ? "—" : formatDuration(span.ms),
-      notes.length > 0 ? notes.join("; ") : undefined,
+  // When the workers overlapped, their two rows are replaced by one in the
+  // position TESTS held; the per-phase detail survives in `durations`.
+  const workers = combinedWorkersRow(durations.phases);
+  const lines: string[] = [];
+  for (const span of durations.phases) {
+    if (workers !== undefined && (span.phase === "tests" || span.phase === "build")) {
+      if (span.phase === "tests") lines.push(workers);
+      continue;
+    }
+    const notes = phaseNotes(span);
+    lines.push(
+      row(
+        span.phase,
+        span.ms === undefined ? "—" : formatDuration(span.ms),
+        notes.length > 0 ? notes.join("; ") : undefined,
+      ),
     );
-  });
+  }
 
   const incomplete = durations.phases.some((p) => p.ms === undefined);
   lines.push(
@@ -498,8 +766,22 @@ export function formatPhaseDurations(durations: PhaseDurations): string[] {
   // is worth seeing hit. The `friction:` tag is its own, not `timing:`: this is
   // a run total, not one phase's row, and it should grep out separately.
   lines.push(`  friction: ${frictionText(durations.friction)}`);
+  // Iteration is printed only when it happened. It has no target, so a
+  // "0 worker red-loops" line would be an achievement claim for a run that
+  // simply had no workers in it — and unlike friction, nobody needs proof that
+  // the number was measured.
+  if (durations.friction.iteration > 0) {
+    lines.push(`  iteration: ${iterationText(durations.friction)}`);
+  }
 
   const counted = `${durations.events} guard event${durations.events === 1 ? "" : "s"}`;
   const unreadable = durations.skipped > 0 ? `, ${durations.skipped} unreadable` : "";
-  return [`where the minutes went (${counted}${unreadable}, taken as one run)`, ...lines];
+  // With a run-start marker the clock has a stated origin, which is a stronger
+  // statement than the old caveat and replaces it; without one the caveat is
+  // still the honest thing to say.
+  const clock =
+    durations.runStartedAt !== undefined
+      ? `; clock from run-start ${clockText(durations.runStartedAt)}`
+      : ", taken as one run";
+  return [`where the minutes went (${counted}${unreadable}${clock})`, ...lines];
 }

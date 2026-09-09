@@ -15,7 +15,10 @@ import { ROLE_TOOLS } from "./path-policy.ts";
 // run_tests, typecheck and record_design_review are deliberately NOT executed
 // here: the first two take no injectable command runner from this layer, so
 // calling execute() would spawn vitest/tsc for real, and the third is covered
-// directly in packs/ts/scripts/design-review.test.ts.
+// directly in packs/ts/scripts/design-review.test.ts. What typecheck SHOWS a
+// worker is covered the same way — packs/ts/scripts/typecheck-scope.test.ts —
+// so what is pinned here is the half that only exists in the registration: the
+// description and guidelines that tell the worker its view is scoped.
 
 interface ToolResult {
   readonly content: readonly { readonly type: string; readonly text: string }[];
@@ -125,6 +128,19 @@ describe("dev-tools registration surface", () => {
     const description = tool("record_design_review").description;
     expect(description).toMatch(/empty list is a valid review/);
     expect(description).toMatch(/bound to the exact bytes|stale/);
+  });
+
+  // A worker that is not TOLD its typecheck is scoped reads a shrunken error
+  // list as the whole truth. Dogfood Run 15's builder did the opposite of that
+  // and reshaped its implementation around a test file's diagnostic; the tool
+  // now hides those, so it must also say what it hides and whose they are.
+  test("typecheck tells the caller its view is scoped and foreign errors are not theirs", () => {
+    const spec = tool("typecheck");
+    expect(spec.description).toMatch(/SCOPED TO YOUR ROLE/);
+    expect(spec.description).toMatch(/count and an owner only|no symbol names/);
+    const guidelines = (spec as unknown as { promptGuidelines?: string[] }).promptGuidelines ?? [];
+    expect(guidelines.join("\n")).toMatch(/not yours to fix|do not block you/);
+    expect(guidelines.join("\n")).toMatch(/clean in your zone/);
   });
 
   test("remove requires a path", () => {

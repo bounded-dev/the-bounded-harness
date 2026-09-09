@@ -44,6 +44,27 @@ export interface TypecheckRouting {
 const LOCATED_ERROR = /^([^\s(][^(]*)\(\d+,\d+\):\s+error TS\d+/;
 const GLOBAL_ERROR = /^error TS\d+/;
 
+// The same location prefix WITHOUT the `error TS` requirement: tsc's related
+// information ("…is declared here", "the expected type comes from…") is
+// emitted as its own located line and names its own file. Routing ignores
+// those lines; typecheck-scope.ts needs their file to decide who may see them.
+const LOCATED_LINE = /^([^\s(][^(]*)\(\d+,\d+\):\s/;
+
+/** Does this line START a diagnostic (located or global)? */
+export function isDiagnosticStart(line: string): boolean {
+  return LOCATED_ERROR.test(line) || GLOBAL_ERROR.test(line);
+}
+
+/** The file a located diagnostic names; undefined for a global or non-error line. */
+export function diagnosticPath(line: string): string | undefined {
+  return LOCATED_ERROR.exec(line)?.[1];
+}
+
+/** The file ANY located line names — diagnostics and related information alike. */
+export function locatedPath(line: string): string | undefined {
+  return LOCATED_LINE.exec(line)?.[1];
+}
+
 /** The furthest-upstream owner of the given set, or undefined if empty. */
 export function mostUpstream(owners: readonly FixOwner[]): FixOwner | undefined {
   return OWNERS_UPSTREAM_FIRST.find((o) => owners.includes(o));
@@ -56,9 +77,9 @@ export function routeTypecheck(diagnostics: readonly string[]): TypecheckRouting
   let current: FixOwner | undefined;
 
   for (const line of diagnostics) {
-    const located = LOCATED_ERROR.exec(line);
-    if (located) {
-      current = ownerOfPath(located[1]) ?? "orchestrator";
+    const located = diagnosticPath(line);
+    if (located !== undefined) {
+      current = ownerOfPath(located) ?? "orchestrator";
       errorCount += 1;
     } else if (GLOBAL_ERROR.test(line)) {
       current = "orchestrator";
@@ -90,7 +111,7 @@ export function typecheckLines(routing: TypecheckRouting): string[] {
   ];
   for (const owner of routing.owners) {
     const group = routing.byOwner[owner] ?? [];
-    const count = group.filter((l) => LOCATED_ERROR.test(l) || GLOBAL_ERROR.test(l)).length;
+    const count = group.filter(isDiagnosticStart).length;
     lines.push(`  ${owner} (${count}):`);
     for (const line of group) lines.push(`    ${line}`);
   }

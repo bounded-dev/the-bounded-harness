@@ -11,8 +11,8 @@
 // calls evaluatePathGate(); everything decision-shaped lives here so it can
 // be unit-tested without spawning pi.
 
-import { logGuardEvent } from "./guard-log.ts";
-import { readdirSync, statSync } from "node:fs";
+import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
@@ -62,12 +62,22 @@ export function asRole(value: unknown): Role | undefined {
 // process that has a bound role. Subagents are separate processes, so the flag
 // never crosses between them.
 const BOUND_ROLE_KEY = Symbol.for("pi-harness.path-gate.boundRoleInstalled");
+// The role ITSELF, not just the fact of a binding. Other worker tools need the
+// same answer the gate acts on: `typecheck` scopes its diagnostics by the
+// calling role (packs/ts/scripts/typecheck-scope.ts), and a second, private
+// notion of "who am I" is exactly how two enforcement layers drift apart.
+const BOUND_ROLE_VALUE_KEY = Symbol.for("pi-harness.path-gate.boundRole");
 
-type GlobalWithRegistry = typeof globalThis & { [BOUND_ROLE_KEY]?: boolean };
+type GlobalWithRegistry = typeof globalThis & {
+  [BOUND_ROLE_KEY]?: boolean;
+  [BOUND_ROLE_VALUE_KEY]?: Role;
+};
 
-/** Called by a per-role loader; makes the ambient gate inert in this process. */
-export function markBoundRoleInstalled(): void {
+/** Called by a per-role loader; makes the ambient gate inert in this process,
+ *  and publishes the bound role for any other tool that must respect it. */
+export function markBoundRoleInstalled(role?: Role): void {
   (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY] = true;
+  if (role !== undefined) (globalThis as GlobalWithRegistry)[BOUND_ROLE_VALUE_KEY] = role;
 }
 
 /** Whether a bound role has claimed this process. */
@@ -75,9 +85,44 @@ export function isAmbientSuppressed(): boolean {
   return (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY] === true;
 }
 
+/** The role a per-role loader bound to this process, if any. */
+export function boundRole(): Role | undefined {
+  return (globalThis as GlobalWithRegistry)[BOUND_ROLE_VALUE_KEY];
+}
+
 /** Test-only: restore the pristine process state. */
 export function resetPathGateRegistry(): void {
   delete (globalThis as GlobalWithRegistry)[BOUND_ROLE_KEY];
+  delete (globalThis as GlobalWithRegistry)[BOUND_ROLE_VALUE_KEY];
+}
+
+/** The ambient fallback role: env var first, then `.pi/dev-stage-role` in the
+ *  project. Both are process/cwd-global — see extensions/path-gate.ts for why
+ *  they are a fallback and not the mechanism. */
+export function ambientRole(cwd: string): Role | undefined {
+  const fromEnv = asRole(process.env["PI_DEV_STAGE_ROLE"]);
+  if (fromEnv) return fromEnv;
+  try {
+    return asRole(readFileSync(join(cwd, ".pi", "dev-stage-role"), "utf8").trim());
+  } catch {
+    return undefined; // no role file ⇒ no role
+  }
+}
+
+/**
+ * The role this session is acting as, by exactly the rules the path gate
+ * applies: the bound role if a per-role loader claimed the process, otherwise
+ * the ambient fallback — and nothing at all once a binding exists, because
+ * restrictions must never leak downward from a parent to its children.
+ *
+ * This is the single answer every role-sensitive tool must ask for. Used by
+ * the `typecheck` worker tool to scope its diagnostics (extensions/dev-tools.ts).
+ */
+export function sessionRole(cwd: string): Role | undefined {
+  const bound = boundRole();
+  if (bound !== undefined) return bound;
+  if (isAmbientSuppressed()) return undefined;
+  return ambientRole(cwd);
 }
 
 // --- Tool strip (the visible-toolset half of the gate) ----------------------
@@ -139,6 +184,52 @@ export function recordToolStrip(cwd: string, role: Role, strip: ToolStrip): void
     summary: `hid ${strip.hidden.join(", ")} from ${role}`,
     detail: { kind: "tool-strip", role, hidden: [...strip.hidden] },
   });
+}
+
+// --- Run start (r15) --------------------------------------------------------
+//
+// The timing block reported an 80-minute DESIGN phase for a run whose design
+// really took about 58: a provider outage sat between the session opening and
+// the prompt landing, and the phase measured from the first event in the log,
+// which is the session-start tool strip. Wall clock during which nothing was
+// asked of the model is not design time.
+//
+// The gate is the one component that sees the first moment a session does
+// work: the first tool call it evaluates. So it stamps a `run-start` event
+// there, and phase-durations starts its clock at that marker when it exists.
+//
+// ONCE PER SESSION, which is why the latch is a closure handed out by
+// `makeRunStartRecorder` and held by the installed hook, exactly as the
+// fallback role resolver is: a session is one installPathGate call, so a
+// closure is per-session by construction — and unlike module or global state
+// it cannot leak between the pi processes a subagent fan-out creates, each of
+// which is its own session and deserves its own marker.
+//
+// A restart therefore appends a second marker to the same project log; the
+// analysis takes the last one before the first phase marker (see the "The
+// clock" section of phase-durations.ts).
+
+/** Log the run-start marker: this session's first gated tool call. */
+export function recordRunStart(cwd: string, role: Role, toolName: string): void {
+  logGuardEvent(cwd, {
+    guard: RUN_START_GUARD,
+    verdict: "pass",
+    summary: `first gated tool call (${role}: ${toolName})`,
+    detail: { kind: "run-start", role, tool: toolName },
+  });
+}
+
+/**
+ * A once-per-session latch around `recordRunStart`. Call it on every gated
+ * tool call; only the first one writes.
+ */
+export function makeRunStartRecorder(): (cwd: string, role: Role, toolName: string) => void {
+  let recorded = false;
+  return (cwd, role, toolName) => {
+    if (recorded) return;
+    recorded = true;
+    recordRunStart(cwd, role, toolName);
+  };
 }
 
 /** Blocking result returned to pi's tool_call hook. */

@@ -36,6 +36,14 @@ export type LoggedGuardEvent = GuardEvent & { readonly ts: string };
 
 export const GUARD_LOG_RELATIVE = ".pi/guard-log.jsonl";
 
+/**
+ * The guard name of the run-start marker: the first gated tool call of a
+ * session (r15). It lives here because a producer (the path gate, which logs
+ * it) and a consumer (phase-durations, which starts the clock at it) must
+ * agree on the spelling, and neither should own the other's vocabulary.
+ */
+export const RUN_START_GUARD = "run-start";
+
 export function guardLogPath(cwd: string): string {
   return join(cwd, GUARD_LOG_RELATIVE);
 }
