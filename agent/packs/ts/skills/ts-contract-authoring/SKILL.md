@@ -17,6 +17,43 @@ the builder.
 - The scaffolder derives the implementation path: `foo.contract.ts` → sibling `foo.ts`. Never create the sibling by hand.
 - Spec lives in `spec.md`; one component per loop iteration.
 
+## One identity per value object — a contract never imports from a contract
+
+**Cross-component types are imported from the implementation module, never from
+another `*.contract.ts`.**
+
+```ts
+import type { Money } from "../values/values.js";           // the only legal form
+import type { Money } from "../values/values.contract.js";  // REFUSED at scaffold
+```
+
+The reason is the nominal class itself. A contract's `declare class Money` and
+the runtime `class Money` the scaffolder writes into that contract's sibling
+implementation module are two declarations of the same private `__brand`, and
+TypeScript treats those as unrelated types. Reach for `Money` through the
+contract and you get the ambient one; the only legal way to *build* a `Money` is
+`Money.parse`, which returns the other one. Every operation declared that way is
+an operation nothing can call. The implementation module is the fix, and it is a
+total fix: the scaffolder makes it re-export every type its own contract
+declares, so the implementation module is a superset of the contract's surface,
+and it shadows the ambient class with the real one.
+
+This is enforced, not advised. The scaffolder rejects both the import and the
+`export type … from` re-export of another contract, at scaffold time, with a
+`ScaffoldError` carrying the exact replacement line — the architect fixes the
+contract, never the skeleton (ADR 2026-023). Do not try to route around it by
+redirecting only the generated skeleton's imports: a contract's own interfaces
+(`Receipt { total: Money }`) carry the wrong identity too, so the second
+declaration has to be unreachable, and only the contract can arrange that.
+
+Read plainly: **a component's public surface is its implementation module, and
+its contract is private to its own skeleton.** Write contracts accordingly.
+
+**A test that imports a value object from a `*.contract.js` reintroduces the
+second identity in its own file.** Today that is a loud local type error at the
+red gate rather than a rule — no lint blocks it, and it should. Import value
+objects in tests from the implementation module, the same as everywhere else.
+
 ## Operations must exist at runtime
 
 **An `export interface` is a TYPE. It vanishes at compile time.** So a contract
@@ -321,9 +358,21 @@ because there is no file — and an `eslint-disable` comment cannot either, beca
 
 ```ts
 // src/orders/orders.contract.ts
-import type { Money } from "../shared/money.contract.js";
+// Money is declared by src/shared/money.contract.ts and imported from its
+// IMPLEMENTATION module — one identity per value object.
+import type { Money } from "../shared/money.js";
 
-export type OrderId = string & { readonly __brand: "OrderId" };
+/** A UUIDv4: lowercase hex, hyphenated 8-4-4-4-12, version nibble 4.
+ * @accepts "3f2a1b64-9c1e-4a7d-8e55-0b1d2c3f4a5b"
+ * @accepts "7d9e0c11-2b3a-4c5d-9e8f-1a2b3c4d5e6f"
+ */
+export declare class OrderId {
+  private readonly __brand: "OrderId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): OrderId | undefined;
+  equals(other: OrderId): boolean;
+}
 
 export interface Order {
   id: OrderId;
@@ -369,6 +418,28 @@ skeleton and auto-creates `src/shared/errors.ts` if missing.
 
 A contract that lints clean, scaffolds, and typechecks is ready for the
 test-writer.
+
+## What the surface check asks of the implementation
+
+`surface-check` compares each contract against its implementation as two sets,
+and it asks a different question of types than of values:
+
+- **Type-only exports are satisfied type-only.** An `export interface`, an
+  `export type` (string-literal unions included) and the contract's own
+  `export type { X } from` re-exports are satisfied by the scaffolded
+  `export type * from "./x.contract.js"` line, by a type-only re-export of the
+  name, or by a local declaration of it. They are never asked for a runtime
+  export, because they have no value to export — demanding one is an impossible
+  instruction, and r15 spent 4m19 and three worker bounces discovering that.
+- **Value declarations need a reachable runtime export.** Classes, functions
+  and `declare const`s must exist at runtime in the implementation, with the
+  declared signature. A public export or a public member the contract does not
+  declare is a violation in the other direction ("undeclared public surface");
+  private and protected members are free.
+
+So the `export type * from "./x.contract.js"` line the scaffolder writes into
+every skeleton is load-bearing and must survive to delivery — `deliver` strips
+the `__conformance` blob and leaves that re-export exactly where it is.
 
 ## The guard log
 

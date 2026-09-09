@@ -66,15 +66,15 @@ The developer-stage role that owns one ticket end to end — designs it, writes 
 _Avoid_: designer, planner, orchestrator (retired — the architect drives)
 
 **Test-writer**:
-The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes. Runs in parallel with the builder — neither consumes the other's output — and every test it touches after a red voids that red.
+The developer-stage subagent that writes tests from spec + contract. Always blind to `src/`, including on revision passes. Runs in parallel with the builder — neither consumes the other's output — and every test it touches after a red voids that red. Its `typecheck` is scoped: `tests/**` and the shared interface in full, everything else a count and an owner.
 _Avoid_: tester, QA agent
 
 **Builder**:
-The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files. Runs in parallel with the test-writer: the red gate proves its verdict in a shadow project, so a half-written `src/` can neither spoil a red nor be spoiled by one.
+The developer-stage subagent that implements to the contract. Blind to test source (no `bash`, no `git` — `git show HEAD:tests/x.ts` would defeat it in one call; sanitized `run_tests` tool); never edits tests or contract files. Runs in parallel with the test-writer: the red gate proves its verdict in a shadow project, so a half-written `src/` can neither spoil a red nor be spoiled by one. Its `typecheck` is scoped: `src/**` and the shared interface in full, everything else a count and an owner.
 _Avoid_: developer (that's the stage), worker, coder
 
 **Reviewer**:
-The read-only developer-stage subagent commissioned on the spec and contracts before the freeze. Reads the design as the two blind roles will and records findings with `record_design_review`; holds no write zone at all, so its findings are claims for the architect to settle.
+The read-only developer-stage subagent commissioned on the spec and contracts before the freeze. Reads the design as the two blind roles will and records findings with `record_design_review`; holds no write zone at all, so its findings are claims for the architect to settle. Its `typecheck` is scoped like a worker's, which for a role that owns nothing means the design in full and every other zone as a count.
 _Avoid_: critic, approver, gate (it decides nothing)
 
 **Contract**:
@@ -86,7 +86,7 @@ The role above the architects — fans tickets out to one architect each, and ho
 _Avoid_: manager agent, supervisor, orchestrator
 
 **Gate tool**:
-One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → design-review → freeze.
+One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → design-review → freeze. `sleep` and `mutation_score` sit in the same toolset and are **not** gates — one waits out a subagent, one measures the suite before sign-off; neither decides a transition, and firing a real gate to pass the time corrupts the run's own record.
 _Avoid_: gate script (that's the CLI), command
 
 **pi-ticket**:
@@ -148,12 +148,24 @@ The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every determinist
 _Avoid_: audit log, telemetry (unqualified)
 
 **Model tier**:
-One of the two per-project model settings in `<project>/.pi/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event; never fatal, since a missing or malformed config only means "no override" (ADR 2026-022).
+One of the two per-project model settings in `<project>/.pi/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event, and it beats a model the spawn call passed explicitly — the tier is policy, and the discarded value is recorded. An absent or malformed config only means "no override" and never stops anything; a tier the project DID set and the harness cannot resolve makes the phase gate refuse the spawn. A resume cannot be tiered at all — the tool refuses a model override — so a resumed seat keeps the tier of its launch and logs a note (ADR 2026-022).
 _Avoid_: model override, per-agent model
 
 **Friction**:
-Tool calls the harness refused outright — blocks no route owns, counted by the guard that refused them and printed on every delivery timing line. Unlike bounces, the target is zero: a non-zero count usually means a zone or an affordance is wrong, not that a role misbehaved.
-_Avoid_: blocks (unqualified), overhead
+Tool calls the harness **refused** — the call did not happen: an out-of-zone read or write, a spawn the phase gate declined, a composite's inner step blocking with no route. Counted by the guard that refused them and printed on every delivery timing line, even at zero. Unlike bounces, the target is zero: a non-zero count usually means a zone or an affordance is wrong, not that a role misbehaved.
+_Avoid_: blocks (unqualified), overhead, iteration (the other half of the old count)
+
+**Iteration**:
+Blocks a worker's own dev tool logged because the code was red — `typecheck`, `run_tests`, `lint-*`, and `git` exiting non-zero on a search that missed. The call happened and told the truth, so this is normal work with no target, printed only when non-zero. Kept apart from friction because one counter covering both made the headline lie: r15 printed 31 "unrouted blocks" of which exactly one was a refusal.
+_Avoid_: friction (the refusals), churn, bounce (that's a routed hand-back)
+
+**Run-start**:
+The guard event the path gate logs at the **first gated tool call of a session** — the first moment a run is demonstrably doing work. The timing block starts its clock there and names the time, so minutes between a session opening and the prompt landing are excluded instead of being charged to DESIGN. With several, the last one before the first phase marker wins; one appearing after belongs to a second run in a shared log and is ignored.
+_Avoid_: session start (that's when the process opened), first event
+
+**Scoped typecheck**:
+The role-scoped view of the `typecheck` tool the two workers and the reviewer get: diagnostics in the caller's own zone and in the shared interface (`*.contract.ts`, `spec.md`, the project config) in full; every other diagnostic collapsed to a count plus the owning role, with no path, line or symbol name, and shown lines scrubbed of foreign path tokens. The architect's view is unscoped — it arbitrates and needs everything. "Clean in your zone" is a distinct verdict from "the project compiles", and the tool never prints `OK` over a red project.
+_Avoid_: filtered typecheck, partial typecheck, sanitized (that's `run_tests`)
 
 ### Issue tracking
 

@@ -66,6 +66,23 @@ to touch it:
   comparison. Typecheck before you run the suite — a type error makes every
   failure downstream of it uninterpretable. Then read the failure set as
   *evidence about your reading of the spec*, not as a list of patches.
+- **Your `typecheck` is scoped to you, and the part you cannot see is a
+  count.** You get every diagnostic in `src/**` and every diagnostic in the
+  shared interface — the contracts, `spec.md`, the project config — in full.
+  Errors anywhere else come back as a line saying how many there are and whose
+  zone owns them, with no path, no line number and no symbol name. That is the
+  same blindness `run_tests` gives you, applied to the other instrument: a
+  previous run read a test file's error out of its own typecheck, worked out
+  what the tests must be importing, and added a re-export to satisfy them —
+  implementation shaped by test source it was never allowed to read, and it
+  shipped. So a foreign count is not yours. Do not reshape your code around it,
+  do not theorise about what it says, and do not ask anyone for its contents;
+  the architect can see it and will route it to whoever can fix it.
+- **"Clean in your zone" is not "the project compiles".** The tool says exactly
+  which one it means, and it never says `OK` while the project is red. Report
+  what you were told. Claiming a green project from a clean zone is a false
+  green with your name on it — only the gates speak for the project, and the
+  architect runs them.
 - **Three hypotheses before you change a line.** When a test fails and the
   cause is not obvious, write down three to five possible causes, ranked, and
   make each one falsifiable: "if X is the cause, then changing Y makes this

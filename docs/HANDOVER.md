@@ -1,5 +1,58 @@
 # Handover — pi-harness developer stage
 
+2026-09-09 addendum (r15 wave — read this one first): state of `main` after the
+run-15 pair and the fix wave it produced. Run 15 is written up in
+[dogfooding.md](dogfooding.md); the twelve numbered findings there are what
+each of these closes.
+
+1. **One class identity per value object** (ADR 2026-023). A contract imports
+   cross-component types from the implementation module (`../values/values.js`),
+   never from another `*.contract.ts`; the scaffolder refuses the
+   contract-to-contract form at scaffold time and names the replacement import.
+   r15 lost ~44 of one arm's 76 live minutes to the second identity.
+2. **The scaffolder cannot clobber.** A skeleton is written only where the
+   target is absent or is itself generated; a file with real content is skipped
+   loudly. r15's mid-loop re-freeze overwrote two finished implementations, one
+   of them 28 minutes of work. Revising a contract mid-loop is now cheap — it
+   still voids the review and the red, and nothing else.
+3. **`deliver` installs its `ts-morph` pin and then runs the target's own
+   `npm run check`**, blocking on a failed install or a red check. Both r15
+   repos shipped with a check that died on `ERR_MODULE_NOT_FOUND`. The
+   dependency is a sanctioned exception to any target's no-new-deps rule: one
+   checker copied verbatim beats an untested twin.
+4. **`typecheck` is scoped by role.** Workers and the reviewer see their own
+   zone plus the shared interface in full; everything else is a count and an
+   owner. r15's builder shipped a re-export it inferred from a `tests/**`
+   diagnostic. "Clean in your zone" is never rendered as "OK".
+5. **Surface-check accepts type-only satisfaction** of type-only contract
+   exports; only value declarations need a runtime export.
+6. **Timing tells the truth about the clock and about blocks.** A `run-start`
+   guard event at the first gated call starts the clock (both r15 arms charged
+   ~14 minutes of provider outage to DESIGN); `friction:` counts refusals only,
+   target 0; `iteration:` counts worker red-loops as the normal work they are;
+   overlapping workers print as one `workers (tests ∥ build)` row.
+7. **`sleep` and `mutation_score` join the architect's tools.** `sleep` (1–120s)
+   is how you wait out a subagent when pi's attention flag sticks and
+   `subagent_wait` stops blocking — r15 used `design_gate` as a clock five times
+   for want of it. `mutation_score` is advisory and runs before `sign_off`; its
+   survivors are carried into the sign-off findings.
+8. **The reviewer's checklist is eight items, not five.** Compose every
+   operation pair; cross every enum-valued field; run `typecheck` and call a
+   non-compiling tree a blocker. r15 shipped two composition defects green and
+   recorded a "no findings" review over a tree with 14 type errors.
+
+**What r16 measures.** Whether the one-identity rule removes the impasse class
+outright (the honest test is a design that *would* have reached for
+`x.contract.js`); whether `deliver`'s final check ever blocks, and on what;
+whether scoped typecheck changes what the workers ship, or only what they see;
+the friction/iteration numbers under the new split, with friction expected at or
+near 0; mutation scores as a standing measurement rather than two hand-graded
+points; and whether the reviewer's two new crossing items catch the class of
+defect that shipped green in r15. Set the arms with
+`dogfood-reset --design-model … --worker-model …`.
+
+---
+
 2026-09-09 addendum: state of `main` after the r13/r14 mechanism wave. Six
 changes landed, all with tests, all motivated by a numbered finding in
 [dogfooding.md](dogfooding.md) (Runs 13–14 section):

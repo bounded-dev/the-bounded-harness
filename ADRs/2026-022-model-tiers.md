@@ -22,12 +22,31 @@ model is worth its price depends on the codebase and the budget). A `tool_call`
 hook injects the tier's pattern onto a pipeline-role spawn, and logs a
 `model-tier` guard event so the transcript proves which seat ran on what.
 
-**Never fatal.** Missing file, missing key, unreadable, malformed, unknown
-model: all mean "no override", with a warning at most. A gate refuses when
-proceeding would produce a *wrong* result; running a seat on the session
-default produces a right result more slowly, which is not a reason to stop.
-Unknown keys warn rather than pass silently — `design_model` doing nothing at
-all, invisibly, is the realistic failure.
+**A configured tier beats a caller-passed model.** Where the project names a
+tier for the seat, an explicit `model` on the spawn call is replaced, and the
+discarded value is recorded in the guard event's summary and detail so a spawn
+that tried to choose is visible. Seat models are harness-owned policy, and a
+tier any spawn could decline is a suggestion — the prose-versus-mechanism
+failure this harness exists to close. A caller's model still stands where the
+project set no tier for that seat (committed at `ffe2731`).
+
+**Absent means absent; unresolvable means stop.** The two are different
+failures and they get different answers. Missing file, missing key, unreadable,
+malformed: all mean "no override", with a warning at most — running a seat on
+the session default produces a right result more slowly, which is not a reason
+to stop, and unknown keys warn rather than pass silently, because
+`design_model` doing nothing at all, invisibly, is the realistic failure. But a
+tier the project **did** configure and the harness cannot resolve to a model is
+a different thing. r15 is the receipt: a configured `kimi-k3:high` matched
+nothing in the live registry, so injection skipped — correctly, since
+pi-subagents throws on an unresolvable explicit model — and the spawn then went
+ahead anyway, running a judgment seat on a model nobody chose, silently. So the
+**phase gate refuses the spawn** when the role has a configured tier the
+registry cannot resolve. The project stated an intent, the harness cannot
+honour it, and substituting something else without saying so is exactly the
+drift the tier exists to prevent. The refusal lives in the phase gate rather
+than in the injector because the injector mutates arguments and never blocks;
+one place decides whether a spawn may happen.
 
 ## Why
 
@@ -51,6 +70,13 @@ Two gaps are deliberate, not oversights:
 - **`workflowScript` children are moot.** Such a spawn names its children
   inside a JavaScript string, so no role is readable and no tier can be chosen
   — and the phase gate refuses those spawns for pipeline roles anyway.
+- **A resume cannot be tiered, and keeps the tier of its launch.** pi-subagents
+  refuses a `model` on `action: "resume"` outright, so there is nothing to
+  inject: the child's model comes from the persisted run record. That is fine
+  when the launch was tiered and invisible when it was not, so a resume now logs
+  a note rather than nothing at all — r15's kimi architect made twelve resume
+  calls and not one of them left a `model-tier` event, which is twelve seats no
+  reader could account for.
 
 Adding a fifth seat forces a tier decision: a drift test pins `TIER_BY_ROLE`'s
 keys to the path policy's roster. Supersedes the framing of issue #5 ("model

@@ -37,7 +37,7 @@ against the real tree before you assert it.
 
 ## The checklist
 
-Walk all five, in order, over the whole design. Most items yield nothing on a
+Walk all eight, in order, over the whole design. Most items yield nothing on a
 good design; "nothing here" is a legitimate outcome and recording it is the
 job.
 
@@ -72,6 +72,38 @@ job.
    each be nameable on their own. And a module whose interface is nearly as wide
    as what it hides, which has bought nothing and cost a name. Say which
    operations you would move, not just that the shape is wrong.
+6. **Compose every operation pair.** Items 1–5 read operations one at a time,
+   and the defects that survive a careful design are the ones that need two.
+   So take the exported operations pairwise and ask, for each pair, what
+   running one after the other does to the invariants the spec claims — and
+   run the pair both ways round, because order is usually the whole defect. r15
+   shipped a monthly spend cap that a downgrade followed by an upgrade defeats:
+   a subscriber capped at 1065 a month was billable for 3000, and every
+   individual step was correct against its own clause. Nothing that reads one
+   operation at a time can see that. Where a pair is fine, say nothing; where a
+   pair moves a total, reuses an identifier, or re-opens a state an earlier
+   operation closed, that is at least a concern and usually a blocker.
+7. **Cross every enum-valued field.** For each field whose type is an
+   enumerated set — a string-literal union, a status, a plan interval, a
+   currency — walk the operations against the values, one cell at a time, and
+   ask what the operation *means* for that value. The cells nobody wrote down
+   are where the spec turns out to be silent. r15 shipped a plan change from a
+   monthly interval to a yearly one that prorated a year's price across a
+   month, because the proration formula was written once and the interval was
+   two values nobody had crossed it with. A cell whose answer the spec does not
+   give is a finding, and the finding is the silence, not your guess at it.
+8. **Scaffoldability.** Run `typecheck` — and despite its number here, run it
+   FIRST, before you read a line. If the tree you were handed does not
+   typecheck, that is a **blocker** and it is the review: say what tsc reported
+   and stop reviewing around it. A design that cannot compile cannot be reasoned about
+   as though it could, and a "no findings" review over a red tree is worse than
+   no review — r15's cycle-4 reviewer recorded exactly that while its own
+   typecheck showed 14 errors, all of them caused by the design under review.
+   Your view of `typecheck` is scoped like the workers': errors in the
+   contracts, `spec.md` and the project config come back in full, which is the
+   design you were commissioned on, and anything in `src/**` or `tests/**`
+   arrives as a count with an owner. A count you cannot see is not yours to
+   diagnose — report the number and whose it is.
 
 ## Recording
 

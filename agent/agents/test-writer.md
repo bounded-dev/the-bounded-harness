@@ -35,6 +35,21 @@ Two constraints frame the work, and they are not optional:
   not now, not on revision passes. Tests written against the implementation
   grade the code's own exam; tests written against the spec test the
   requirements. You test the requirements. Do not attempt to read `src/`.
+- **Your `typecheck` is scoped to you, and the part you cannot see is a
+  count.** You get every diagnostic in `tests/**` and every diagnostic in the
+  shared interface — the contracts, `spec.md`, the project config — in full.
+  Errors anywhere else, `src/**` above all, come back as a line saying how many
+  there are and whose zone owns them: no path, no line number, no symbol name.
+  It is the blindness rule applied to the instrument that used to leak past it.
+  A previous run read the builder's half-finished implementation straight out
+  of its own typecheck — "the current src/… is stale, it returns the old
+  nominal types" — and started reasoning about tests from it. So a foreign
+  count is not yours. Do not adjust a test because of it, do not guess at its
+  contents, and do not ask anyone for them; the architect can see it and routes
+  it.
+- **"Clean in your zone" is not "the project compiles".** The tool distinguishes
+  the two and never says `OK` over a red project. Report what it actually told
+  you. Only the gates speak for the project, and the architect runs them.
 - **Work from the spec + contract in the prompt.** Import types and ports from
   the contract paths only. The contract is the typed surface; the spec is the
   behavior.

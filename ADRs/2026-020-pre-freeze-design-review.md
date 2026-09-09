@@ -23,6 +23,15 @@ machine can decide; the architect settles content, which it cannot. A blocker
 does not fail the gate — the passing line prints the blocker count so an
 unsettled one stays visible in the transcript.
 
+**The findings travel with the record.** Every rendering of a review prints
+each finding verbatim — severity, summary, evidence — in `record_design_review`'s
+own result and again in the `design_gate` step that replays the record out of
+the guard log. A count is an index into a document nobody can open: r15's
+architect commissioned a review, got a count back, reached for `git` three times
+hunting for the text, and finally revived the reviewer as a subagent purely to
+make it recite findings the tool had already stored. Findings are the
+deliverable of the role, so they are returned, not merely counted.
+
 ## Why
 
 Run r13 measured the bill for discovering a contract defect late: ~30–38
