@@ -16,7 +16,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
-import { checkSpawnPrecondition, type PhaseEvidence } from "./phase-gate.ts";
+import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
 export const PIPELINE_ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
@@ -169,43 +169,66 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   if (!role) return undefined; // no pipeline role ⇒ gate inactive
 
   // Commissioning a worker is a phase TRANSITION, and transitions are checked
-  // the same way artifacts are. Only the architect holds `subagent` at all, so
-  // this is the one place a step could be skipped — three consecutive dogfood
-  // attempts froze the contract and moved on with no spec.
-  if (role === "architect" && ev.toolName === "subagent") {
-    // Consulting the retained-children list is what licenses a later cold
-    // launch, so it has to be recorded — the gate's own evidence is the
-    // architect's tool calls.
-    if (ev.input["action"] === "children.list") {
-      logGuardEvent(ev.cwd, {
-        guard: "phase-gate",
-        verdict: "pass",
-        summary: "children.list",
-        detail: { kind: "children-listed" },
-      });
-      return undefined;
-    }
-
-    const target = spawnTarget(ev.input);
-    if (target !== undefined) {
-      const decision = checkSpawnPrecondition(target, gatherEvidence(ev.cwd));
-      if (!decision.allow) {
+  // the same way artifacts are. The check runs for any BOUND role, not just the
+  // architect: "this session already holds a role" is exactly the condition
+  // that makes an unbound `delegate` wrong, and a role that should not hold
+  // `subagent` at all is refused a few lines below by the tool policy anyway.
+  //
+  // Thin by construction — the whole decision is checkSubagentCall(); this
+  // layer only performs the side effect the pure core may not, which is writing
+  // what happened to the target project's guard log.
+  if (ev.toolName === "subagent") {
+    const verdict = checkSubagentCall(ev.input, gatherEvidence(ev.cwd));
+    switch (verdict.kind) {
+      case "children-listed":
+        // Consulting the retained-children list is what licenses a later cold
+        // launch, so it has to be recorded — the gate's own evidence is the
+        // architect's tool calls.
+        logGuardEvent(ev.cwd, {
+          guard: "phase-gate",
+          verdict: "pass",
+          summary: "children.list",
+          detail: { kind: "children-listed" },
+        });
+        return undefined;
+      case "block":
         logGuardEvent(ev.cwd, {
           guard: "phase-gate",
           verdict: "block",
-          summary: decision.reason,
-          detail: { kind: "spawn-refused", role, target },
+          summary: verdict.reason,
+          detail: {
+            kind: "spawn-refused",
+            role,
+            ...(verdict.target !== undefined ? { target: verdict.target } : {}),
+            ...(verdict.form !== undefined
+              ? { form: verdict.form.field, roles: [...verdict.form.roles] }
+              : {}),
+          },
         });
-        return { block: true, reason: decision.reason };
-      }
-      // Record the ALLOWED spawn: a second cold launch of this role is refused
-      // until the architect has consulted children.list.
-      logGuardEvent(ev.cwd, {
-        guard: "phase-gate",
-        verdict: "pass",
-        summary: `commissioned ${target}`,
-        detail: { kind: "spawn", target },
-      });
+        return { block: true, reason: verdict.reason };
+      case "allow":
+        // Record the ALLOWED spawn: a second cold launch of this role is refused
+        // until the architect has consulted children.list.
+        logGuardEvent(ev.cwd, {
+          guard: "phase-gate",
+          verdict: "pass",
+          summary: `commissioned ${verdict.target}`,
+          detail: { kind: "spawn", target: verdict.target },
+        });
+        break;
+      case "allow-multi":
+        // Legitimate background fan-out. It is allowed and it is RECORDED: an
+        // unexplained cluster of children in a pipeline run should be traceable
+        // to the call that started them.
+        logGuardEvent(ev.cwd, {
+          guard: "phase-gate",
+          verdict: "pass",
+          summary: `${verdict.form.field} fan-out (no pipeline role)`,
+          detail: { kind: "fan-out", role, form: verdict.form.field },
+        });
+        break;
+      case "ignore":
+        break;
     }
   }
 
@@ -237,19 +260,6 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
 export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
   if (isAmbientSuppressed()) return undefined;
   return evaluatePathGate(ev);
-}
-
-/** The agent a `subagent` call is trying to start, if it names one. */
-function spawnTarget(input: Readonly<Record<string, unknown>>): string | undefined {
-  // Only a launch has a precondition; status/wait/stop/steer on a running child
-  // must never be refused, or a blocked architect could not even inspect it.
-  const action = input["action"];
-  if (typeof action === "string" && action !== "launch" && action !== "run") return undefined;
-  for (const key of ["agent", "agentName", "name", "type"]) {
-    const v = input[key];
-    if (typeof v === "string" && v !== "") return v;
-  }
-  return undefined;
 }
 
 /** Read the project's current state: what exists, and what actually ran. */

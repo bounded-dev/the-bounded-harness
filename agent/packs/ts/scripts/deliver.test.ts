@@ -295,6 +295,49 @@ void NotImplementedError;
   });
 });
 
+// The red-phase shadow project (ADR 2026-021). red_gate rebuilds `.pi/shadow-red/`
+// from the contracts, regenerated skeletons and a copy of the tests tree, so the
+// red is proven without ever reading the live `src/`. That copy is the run's
+// scaffolding, not the deliverable: left behind, it is a duplicate of the tests
+// sitting beside the real ones, and a reader has no way to tell which is which.
+describe("runDeliver: the red-phase shadow", () => {
+  test("removes .pi/shadow-red/ and says so", () => {
+    const dir = proj({
+      ".pi/shadow-red/package.json": "{}\n",
+      ".pi/shadow-red/tests/orders.test.ts": "// a copy of the real suite\n",
+    });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(existsSync(join(dir, ".pi/shadow-red"))).toBe(false);
+    expect(r.lines).toContain("deliver: shadow — removed .pi/shadow-red/ (red_gate rebuilds it on demand)");
+  });
+
+  test("the removal is logged as its own guard event", () => {
+    const dir = proj({ ".pi/shadow-red/package.json": "{}\n" });
+    deliver(dir);
+    const event = readGuardLog(dir).find(
+      (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "shadow",
+    );
+    expect(event?.verdict).toBe("pass");
+    expect(event?.summary).toContain("removed .pi/shadow-red/");
+  });
+
+  test("idempotent: a project with no shadow is untouched and applies no step", () => {
+    const dir = proj();
+    const first = deliver(dir);
+    expect(first.lines).toContain("deliver: shadow — no .pi/shadow-red/ to remove");
+    const second = deliver(dir);
+    expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+  });
+
+  test("the rest of .pi/ survives — the guard log is the run's record", () => {
+    const dir = proj({ ".pi/shadow-red/package.json": "{}\n" });
+    deliver(dir);
+    expect(existsSync(join(dir, ".pi"))).toBe(true);
+    expect(readGuardLog(dir).length).toBeGreaterThan(0);
+  });
+});
+
 // Issue #13: every run should report where its minutes went. The measurement
 // was already in the guard log — delivery is where it finally gets read back.
 describe("runDeliver: phase timing", () => {

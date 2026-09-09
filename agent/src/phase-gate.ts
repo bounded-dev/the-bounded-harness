@@ -20,8 +20,31 @@
 // Evidence comes from the guard log, which every gate already writes. That
 // makes the log load-bearing rather than merely diagnostic: it is the record of
 // what actually ran, so it is the right thing to ask.
+//
+// WHAT THE GATE CHECKS, AND WHAT IT NO LONGER DOES (ADR 2026-021)
+//
+// The precondition for a worker is the FREEZE, not the red. red_gate proves red
+// in a shadow project it builds itself — contracts plus regenerated skeletons
+// plus the tests tree, never the live `src/` — and green_gate requires the
+// standing red to match the current tests-tree hash. So a red is bound to the
+// bytes it was proven against rather than to a moment in the run, and
+// sequencing the builder behind it bought nothing the hashes do not already
+// hold. The test-writer and the builder are therefore commissioned in parallel
+// once DESIGN is complete, and nothing here enforces an order between them.
+//
+// Two spawn SHAPES are refused outright, because both were observed live
+// carrying pipeline work past every check in this file:
+//
+//   * a multi-spawn form (`workflowScript`, or a `chain`/`parallel` item array)
+//     that names a pipeline role — the gate sees one tool call and cannot
+//     evaluate a precondition per child inside a script it never watches run,
+//     and the per-role model tier is injected at the plain spawn too;
+//   * `delegate`, the general write-capable worker, in a session that already
+//     holds a bound role — inside the developer stage every writer is a role
+//     with a zone, and an unbound one writes wherever it likes.
 
 import type { LoggedGuardEvent } from "./guard-log.ts";
+import type { Role } from "./path-policy.ts";
 
 export type Decision =
   | { readonly allow: true }
@@ -176,13 +199,179 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
     }
   }
 
-  if (target === "builder" && !passed(events, "red-gate")) {
-    return deny(
-      "phase-gate: cannot commission the builder — red_gate has not passed. A suite that has not " +
-        "been shown to fail for the right reason has not been shown to test anything, and the " +
-        "builder would be implementing against it blind.",
-    );
-  }
+  // Nothing below this line orders the two workers. The builder used to wait on
+  // a red-gate pass; it no longer does (ADR 2026-021). red_gate proves red in a
+  // shadow project built from the contracts, regenerated skeletons and the
+  // tests tree, so it never reads live `src/` and a builder working in parallel
+  // cannot contaminate it; green_gate then requires the standing red to match
+  // the current tests-tree hash, so a red that no longer describes the suite is
+  // void whether or not it was established first. Ordering was enforcing what
+  // the hashes already prove, at the cost of a serialized phase.
 
   return ALLOW;
+}
+
+// ---------------------------------------------------------------------------
+// The spawn FORM, not just the spawn target.
+// ---------------------------------------------------------------------------
+//
+// Everything above assumes one child per tool call, named in the call. Two
+// live runs showed that assumption is not free:
+//
+//   * r13/r14, twice: the architect wrapped both workers in a `workflowScript`
+//     (`runs.all([...])`). The gate saw one `subagent` call carrying a string,
+//     found no `agent`, and let it through — the builder ran with no
+//     precondition checked and no model tier injected.
+//   * twice more: the architect spawned `delegate`, the general write-capable
+//     worker, inside the pipeline. `delegate` carries no role binding, so the
+//     path gate has no zone to apply to it and it writes anywhere.
+//
+// Both are refused by SHAPE, which is the only thing a gate can check here: it
+// cannot follow a script it never watches run, and it cannot bind a role to a
+// child it never sees named.
+
+/** The pipeline roles, as names to be matched inside a script or item array. */
+const PIPELINE_ROLE_NAMES: readonly Role[] = ["architect", "test-writer", "builder", "reviewer"];
+
+/**
+ * Subagent input fields that can carry MORE THAN ONE child in a single call.
+ *
+ * `workflowScript` is the live one (pi-subagents runs it as a statement body
+ * over `runs.run`/`runs.all`). `chain` and `parallel` are the item-array forms
+ * the same schema models; they are covered here so the rule is about the shape
+ * rather than about one field name that happens to be current.
+ */
+const MULTI_SPAWN_FIELDS = ["workflowScript", "chain", "parallel"] as const;
+
+/** Word-boundary mention of a pipeline role. Blunt on purpose: a script that
+ *  merely talks about the builder is refused too, and rewording it costs a
+ *  sentence, while a missed spawn costs an ungated worker. */
+const ROLE_MENTION = new RegExp(`\\b(?:${PIPELINE_ROLE_NAMES.join("|")})\\b`, "g");
+
+/** A multi-spawn form found in a subagent input. */
+export interface MultiSpawnForm {
+  /** The field that carried it: "workflowScript", "chain", "parallel". */
+  readonly field: string;
+  /** Pipeline roles named anywhere inside it, deduplicated, in role order. */
+  readonly roles: readonly string[];
+}
+
+/** The multi-spawn form this input carries, if any, and the roles it names. */
+export function detectMultiSpawn(
+  input: Readonly<Record<string, unknown>>,
+): MultiSpawnForm | undefined {
+  for (const field of MULTI_SPAWN_FIELDS) {
+    const value = input[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    const text = typeof value === "string" ? value : safeStringify(value);
+    const found = new Set(text.match(ROLE_MENTION) ?? []);
+    return { field, roles: PIPELINE_ROLE_NAMES.filter((r) => found.has(r)) };
+  }
+  return undefined;
+}
+
+/** JSON with cycles and unserializable values degraded, never thrown. */
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (_k, v: unknown) => {
+      if (typeof v === "object" && v !== null) {
+        if (seen.has(v)) return "[circular]";
+        seen.add(v);
+      }
+      return v;
+    }) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** The general write-capable worker — no role, therefore no zone. */
+const UNBOUND_WRITER = "delegate";
+
+/** What the wiring should do with one `subagent` tool call. */
+export type SpawnVerdict =
+  /** Not a launch (status/steer/resume/…): never refuse, never record. */
+  | { readonly kind: "ignore" }
+  /** `children.list` — record the consult that licenses a later cold launch. */
+  | { readonly kind: "children-listed" }
+  /** A plain one-child spawn, permitted. */
+  | { readonly kind: "allow"; readonly target: string }
+  /** A fan-out naming no pipeline role: allowed, but recorded. */
+  | { readonly kind: "allow-multi"; readonly form: MultiSpawnForm }
+  /** Refused, with the line the architect reads. */
+  | {
+      readonly kind: "block";
+      readonly reason: string;
+      readonly target?: string;
+      readonly form?: MultiSpawnForm;
+    };
+
+/**
+ * Decide one `subagent` call made by a session that holds a bound pipeline role.
+ *
+ * The bound-role condition is the caller's (the path gate is inactive without
+ * one), and it is what makes rule 3 correct: `delegate` is an ordinary worker
+ * in an ordinary session and is refused only INSIDE the pipeline.
+ */
+export function checkSubagentCall(
+  input: Readonly<Record<string, unknown>>,
+  evidence: PhaseEvidence,
+): SpawnVerdict {
+  const action = input["action"];
+  if (typeof action === "string") {
+    if (action === "children.list") return { kind: "children-listed" };
+    // status/wait/stop/steer/resume on an existing child must never be refused,
+    // or a blocked architect could not even inspect what it started.
+    if (action !== "launch" && action !== "run") return { kind: "ignore" };
+  }
+
+  // Shape first: a multi-spawn form is refused whatever the phase, because the
+  // objection is that the gate cannot see the children at all.
+  const form = detectMultiSpawn(input);
+  if (form !== undefined) {
+    if (form.roles.length === 0) return { kind: "allow-multi", form };
+    return {
+      kind: "block",
+      form,
+      reason:
+        `phase-gate: this ${form.field} commissions pipeline roles (${form.roles.join(", ")}) — ` +
+        "spawn them one at a time through the plain form instead: " +
+        '`{ agent: "test-writer", task: "…" }`, one call per role. The gate cannot evaluate a ' +
+        "precondition per child inside a script it never watches run, and the model-tier injection " +
+        "that gives each role its model cannot reach a child spawned there either — so a role " +
+        "commissioned this way runs ungated and on the wrong model. A multi-spawn form that names " +
+        "no pipeline role is left alone.",
+    };
+  }
+
+  const target = spawnTarget(input);
+  if (target === undefined) return { kind: "ignore" };
+
+  if (target === UNBOUND_WRITER) {
+    return {
+      kind: "block",
+      target,
+      reason:
+        "phase-gate: delegate holds no role binding — inside the developer stage every writer is a " +
+        "bound role. Generated-file cleanup happens in design_gate's scaffold sync; implementation " +
+        "belongs to the builder; tests to the test-writer. Commission the role that owns the work; " +
+        "`scout` and `product-expert` stay available for read-only help.",
+    };
+  }
+
+  const decision = checkSpawnPrecondition(target, evidence);
+  if (!decision.allow) return { kind: "block", reason: decision.reason, target };
+  return { kind: "allow", target };
+}
+
+/** The agent a `subagent` call is trying to start, if it names one. */
+export function spawnTarget(input: Readonly<Record<string, unknown>>): string | undefined {
+  for (const key of ["agent", "agentName", "name", "type"]) {
+    const v = input[key];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return undefined;
 }

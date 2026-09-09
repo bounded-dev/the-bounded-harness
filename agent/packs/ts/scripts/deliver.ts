@@ -13,22 +13,27 @@
 //                     it (ts-morph, not grep). A surviving import of
 //                     NotImplementedError is a BLOCK: an unimplemented export
 //                     reached delivery. Imports from tests/ only ⇒ keep it.
-//   2. conformance    strip the trailing `const __conformance: typeof
+//   2. shadow         remove .pi/shadow-red/, the throwaway project red_gate
+//                     rebuilds to prove red in. It is a second copy of the
+//                     contracts, the skeletons and the whole tests tree — a
+//                     reader who found it would reasonably wonder which copy
+//                     is the real one.
+//   3. conformance    strip the trailing `const __conformance: typeof
 //                     __Contract = {…}; void __conformance;` blob and the
 //                     `import type * as __Contract` line from each
 //                     implementation (the shipped surface check replaces
 //                     them). `export type * from "./x.contract.js"` stays —
 //                     it is load-bearing for interface/type-alias exports.
-//   3. barrel         generate src/index.ts, one `export *` per
+//   4. barrel         generate src/index.ts, one `export *` per
 //                     contract-implementation pair. A pre-existing index.ts
 //                     the run produced is a BLOCK — merging is a design act.
-//   4. surface check  ship scripts/surface-check.ts into the target, add
+//   5. surface check  ship scripts/surface-check.ts into the target, add
 //                     `check:surface` to package.json, fold it into `check`,
 //                     pin ts-morph (the pack's own version).
-//   5. gitignore      ensure `.pi/` is ignored.
-//   6. README         add a "## Contracts" section for a reader who has
+//   6. gitignore      ensure `.pi/` is ignored.
+//   7. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
-//   7. timing         READ-ONLY: print where the run's minutes went, from the
+//   8. timing         READ-ONLY: print where the run's minutes went, from the
 //                     project's own guard log (issue #13). Measure before
 //                     optimizing further — and the run that just finished is
 //                     the only one whose numbers nobody has to remember.
@@ -59,6 +64,7 @@ import {
   type PhaseDurations,
 } from "../../../src/phase-durations.ts";
 import { findContractFiles } from "./checksum-gate.ts";
+import { SHADOW_RELATIVE } from "./red-gate.ts";
 import { skeletonPathFor } from "./scaffold-contract.ts";
 
 const GUARD = "deliver";
@@ -261,6 +267,26 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
+  // --- 2. the red-phase shadow project ---
+  //
+  // red_gate proves red in a project it builds itself at `.pi/shadow-red/` —
+  // contracts, regenerated skeletons and a copy of the tests tree — so the
+  // proof never depends on the live `src/`, and the builder may work in
+  // parallel without touching it. Once the run is over that copy is confusing
+  // rather than useful: a duplicate of the tests beside the real one.
+  //
+  // Removal, not preservation: the shadow is reproducible from the repo at any
+  // time by running red_gate again.
+  {
+    const shadowAbs = join(cwd, SHADOW_RELATIVE);
+    if (existsSync(shadowAbs)) {
+      rmSync(shadowAbs, { recursive: true, force: true });
+      pass("shadow", true, `removed ${SHADOW_RELATIVE}/ (red_gate rebuilds it on demand)`);
+    } else {
+      pass("shadow", false, `no ${SHADOW_RELATIVE}/ to remove`);
+    }
+  }
+
   // --- pairs: contract → existing sibling implementation ---
   const srcAbs = join(cwd, "src");
   const pairs: string[] = []; // impl paths relative to src/, posix
@@ -269,7 +295,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     if (existsSync(impl)) pairs.push(toPosix(relative(srcAbs, impl)));
   }
 
-  // --- 2. __conformance blobs ---
+  // --- 3. __conformance blobs ---
   const stripped: string[] = [];
   for (const implRel of pairs) {
     const abs = join(srcAbs, implRel);
@@ -286,7 +312,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     { stripped },
   );
 
-  // --- 3. barrel ---
+  // --- 4. barrel ---
   const indexAbs = join(srcAbs, "index.ts");
   if (pairs.length === 0) {
     pass("barrel", false, "no contract implementations — no barrel to write");
@@ -309,7 +335,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- 4. ship the surface check ---
+  // --- 5. ship the surface check ---
   {
     const checker = readFileSync(checkerSource, "utf8");
     const shippedAbs = join(cwd, "scripts", "surface-check.ts");
@@ -346,7 +372,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
   }
 
-  // --- 5. .gitignore ---
+  // --- 6. .gitignore ---
   {
     const ignoreAbs = join(cwd, ".gitignore");
     const current = existsSync(ignoreAbs) ? readFileSync(ignoreAbs, "utf8") : "";
@@ -359,7 +385,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- 6. README ---
+  // --- 7. README ---
   {
     const readmeAbs = join(cwd, "README.md");
     const current = existsSync(readmeAbs) ? readFileSync(readmeAbs, "utf8") : undefined;
@@ -374,7 +400,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     }
   }
 
-  // --- 7. phase timing (issue #13) ---
+  // --- 8. phase timing (issue #13) ---
   //
   // Every gate already timestamps itself into .pi/guard-log.jsonl, so the
   // shape of the run — which phase cost the minutes, where it bounced and to

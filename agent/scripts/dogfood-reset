@@ -220,7 +220,10 @@ EOF
   # prompt in docs/dogfood/. A per-arm copy (or symlink) was one more thing to
   # keep identical, and deleting it here without deleting it there meant every
   # reset resurrected it.
-  printf 'node_modules/\n' > "$dir/.gitignore"
+  # `.pi/` from birth: a run leaves a guard log and red_gate's shadow project
+  # under it, and an archive that committed either would be carrying a copy of
+  # the tests plus the harness's own bookkeeping into the record.
+  printf 'node_modules/\n.pi/\n' > "$dir/.gitignore"
   touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
 
   ( cd "$dir" && npm install --silent >/dev/null 2>&1 )
