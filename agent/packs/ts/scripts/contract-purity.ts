@@ -33,6 +33,7 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "pi-harness-ts/value-object-shape",
   "pi-harness-ts/value-object-documented",
   "pi-harness-ts/value-objects-own-contract",
+  "pi-harness-ts/no-cross-contract-type-import",
 ];
 
 export function createContractLinter(): ESLint {
@@ -67,6 +68,14 @@ export function createContractLinter(): ESLint {
           // r18/r19). Value objects get their own '*.contract.ts'; operations
           // import them from the implementation module (ADR 2026-026).
           "pi-harness-ts/value-objects-own-contract": "error",
+          // The cross-FILE twin of value-objects-own-contract: a contract may
+          // not import or re-export types from another '*.contract.ts' — reach
+          // the sibling component through its implementation module, which
+          // re-exports every type its own contract declares. Together the two
+          // rules put the whole "one identity per value object" concern (ADR
+          // 2026-023) at contract-purity; the scaffolder keeps the same refusal
+          // as a backstop (ADR 2026-027).
+          "pi-harness-ts/no-cross-contract-type-import": "error",
         },
       },
     ],

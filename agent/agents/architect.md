@@ -183,7 +183,10 @@ instance properties readonly, no extends), and
 rule — plus two `@accepts` examples so the generated laws all run), and
 `pi-harness-ts/value-objects-own-contract` (a value object may not share a file
 with an interface / type-alias / operation that references it — value objects
-get their own `*.contract.ts`; see below).
+get their own `*.contract.ts`; see below), and
+`pi-harness-ts/no-cross-contract-type-import` (a contract may not `import type`
+or `export type … from` another `*.contract.ts` — reach a sibling component
+through its implementation module; see below).
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
@@ -210,10 +213,12 @@ two declarations of the same private `__brand`, and TypeScript treats those as
 unrelated types. So cross-component types come from the IMPLEMENTATION module —
 `import type { Money } from "../values/values.js"`, never
 `"../values/values.contract.js"` — which re-exports everything its own contract
-declares and shadows the ambient class with the real one. The scaffolder
-refuses the contract-to-contract form outright, at scaffold time, and names the
-replacement import in the block; the same refusal covers a `export type … from`
-re-export, which is the identical defect one level further out. This is not a
+declares and shadows the ambient class with the real one. The
+`no-cross-contract-type-import` rule refuses the contract-to-contract form at
+`contract_purity` — the first design_gate step — and names the replacement
+import in the block; it covers a `export type … from` re-export too, the
+identical defect one level further out. The scaffolder keeps the same refusal as
+a backstop if purity is ever bypassed (ADR 2026-027). This is not a
 style rule you can trade away for convenience: r15 froze a design that reached
 `Money` through `values.contract.js`, and the shadow red came back with 41
 "separate declarations of a private property" errors over a value object no

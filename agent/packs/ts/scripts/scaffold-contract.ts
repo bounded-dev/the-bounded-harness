@@ -247,6 +247,10 @@ function memberNameText(member: NamedClassMember): string {
 function renderClass(node: ClassDeclaration): ValueExport & { kind: "class" } {
   const name = node.getName()!;
   if (node.getExtends()) {
+    // BACKSTOP: contract-purity's `value-object-shape` rule (classExtends) already
+    // refuses an exported `declare class` with a superclass at the FIRST
+    // design_gate step, with a reason; this fail() is the last line if purity is
+    // bypassed (ADR 2026-027 — extends was already at purity).
     fail(`class '${name}' extends a base class — not scaffoldable in v1 (the throwing skeleton constructor cannot call super); model the error as data (a string-literal union or interface) or drop 'extends'`);
   }
   const ctors = node.getMembers().filter(Node.isConstructorDeclaration);
@@ -372,7 +376,11 @@ function collect(sf: SourceFile): ContractInfo {
         if (!typeOnly) {
           fail(`value import '${source}' in contract — use 'import type' (declaration-only lint should have caught this)`);
         }
-        // ONE IDENTITY PER VALUE OBJECT (ADR 2026-023). Reaching into a sibling
+        // ONE IDENTITY PER VALUE OBJECT (ADR 2026-023). BACKSTOP: contract-purity's
+        // `no-cross-contract-type-import` rule now catches this at the FIRST
+        // design_gate step, and names the rule-id in the architect brief; this
+        // fail() is the last line if purity is ever bypassed (ADR 2026-027).
+        // Reaching into a sibling
         // CONTRACT picks up its ambient `declare class`, which is a second,
         // nominally distinct declaration of the same private `__brand` — so a
         // test that builds the value through the only legal route (the runtime
@@ -433,6 +441,10 @@ function collect(sf: SourceFile): ContractInfo {
       continue;
     }
     if (Node.isEnumDeclaration(stmt)) {
+      // BACKSTOP: contract-purity's `declaration-only` rule (enumRuntime) already
+      // refuses every enum at the FIRST design_gate step, with the same
+      // "use a string-literal union" remedy; this fail() is the last line if
+      // purity is bypassed (ADR 2026-027 — enum was already at purity).
       fail(`enum '${stmt.getName()}' is not scaffoldable — use a string-literal union type in the contract (TN-26-001)`);
     }
     if (Node.isModuleDeclaration(stmt)) {
@@ -450,7 +462,9 @@ function collect(sf: SourceFile): ContractInfo {
       if (!stmt.isTypeOnly()) fail("value re-export in contract — use 'export type …'");
       // Re-exporting another contract's declarations launders the second
       // identity into this contract's surface, which is the same defect one
-      // level of indirection further out.
+      // level of indirection further out. BACKSTOP: contract-purity's
+      // `no-cross-contract-type-import` rule catches this re-export form first
+      // (ADR 2026-027); this fail() is the last line if purity is bypassed.
       const from = stmt.getModuleSpecifierValue();
       const implSpecifier = from === undefined ? undefined : implementationSpecifierFor(from);
       if (from !== undefined && implSpecifier !== undefined) {

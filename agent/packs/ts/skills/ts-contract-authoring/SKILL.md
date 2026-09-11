@@ -407,8 +407,13 @@ export declare class OrderId {
 ```
 
 The operations are a different area, and import each value object from its
-IMPLEMENTATION module — one identity per value object (ADR 2026-023/026), and
-the reason `value-objects-own-contract` refuses declaring `OrderId` here:
+IMPLEMENTATION module — one identity per value object (ADR 2026-023/026/027), and
+the reason `value-objects-own-contract` refuses declaring `OrderId` here. Reach
+the impl module, never the sibling `*.contract.ts`: `no-cross-contract-type-import`
+refuses `import type { OrderId } from "./order-id.contract.js"` (and the matching
+`export type … from`) at `contract_purity`, naming the impl specifier to use
+instead — the contract's ambient `declare class` is a second `__brand` identity,
+so importing it is the cross-file twin of the same-file clash:
 
 ```ts
 // src/orders/orders.contract.ts

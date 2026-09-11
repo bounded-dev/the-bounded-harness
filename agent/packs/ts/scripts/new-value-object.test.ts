@@ -248,7 +248,10 @@ describe("addValueObjects", () => {
   // sent the architect here.
   test("everything it generates passes contract-purity", async () => {
     const out = addValueObjects(
-      'import type { Money } from "../shared/money.contract.js";\n' +
+      // Cross-component types come from the IMPLEMENTATION module, never the
+      // sibling contract — one identity per value object (ADR 2026-023/027,
+      // no-cross-contract-type-import).
+      'import type { Money } from "../shared/money.js";\n' +
         "\nexport interface Book { readonly price: Money }\n",
       CONTRACT,
       [
