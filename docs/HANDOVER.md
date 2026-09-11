@@ -1,6 +1,69 @@
 # Handover — pi-harness developer stage
 
-2026-09-09 addendum (r15 wave — read this one first): state of `main` after the
+2026-09-11 addendum (r16–r19 — read this one first): state of `main` after four
+harnessed pairs across three days. The arc and every number are in
+[dogfooding.md](dogfooding.md) (Runs 16–19 section); this is the state it left.
+
+**Where it landed.** r19 is the capstone: both arms delivered **headless**
+(`pi -p`), **zero human intervention, zero escalations, zero restarts**, each
+passing its own `npm run check`. anthropic (opus-5 / sonnet-5) GREEN 211/211,
+design 20m08s / total 33m06s, mutation 90%, ONE review cycle. kimi (k3 / k2p7)
+GREEN 208/208, design 15m09s / total 23m26s, mutation 100%, ONE review cycle, a
+decomposed multi-file design — its first clean end-to-end run ever. Two very
+different models delivered the same architectural shape: **cross-model
+convergence** is the result to carry forward.
+
+**Mechanisms that landed across these runs**, each motivated by a run:
+
+1. **Green catches skeletons** (r16, commit `7729c3c`). `green_gate` now runs
+   the dead-skeleton scan itself. r16's anthropic arm shipped a `billing.ts`
+   whose exports no test imported, still `NotImplementedError`, and green passed
+   it 179/179 twice — only `deliver`'s import census caught it. The backstop
+   should not be the first thing to look.
+2. **Run-start binds to the architect** (r16 → r19, commit `7729c3c`). r16's
+   kimi run-start marker bound to a subagent session and skewed the phase card;
+   the marker now binds to the architect's session.
+3. **Value-object laws filter hostile inputs by base type** (r17, commit
+   `215dc08`). The generated law suite asserted every VO rejects 0 and −1;
+   numeric VOs whose ranges include them (Kelvin 0–80, Percent 0–100) must
+   accept them. First bug found by a *real* application slice (the PKE
+   heating-cockpit). The architect refused to bend `parse` to a wrong test and
+   escalated, because the fix was in the pack.
+4. **One-round-trip review** (r18, commit `0d1bdab`, amends ADR 2026-020).
+   Review is a single fresh-eyes challenge, not a byte gate: across r15–r18 no
+   later review cycle caught a defect the first pass missed, and byte-freshness
+   policed the *trusted* architect's own edits. Freshness relaxed to the file
+   SET. r18 anthropic spent ~20 of 43 design minutes in the polish loop; r19
+   ran one cycle and design halved.
+5. **`__conformance` is `Pick<…>` of the exports it carries** (r18, commit
+   `b684e17`), and **value objects live in their own contract file** (ADR
+   2026-026, lint `pi-harness-ts/value-objects-own-contract`). A single-file
+   contract mixing value-object classes with functions scaffolded to
+   non-compiling code (`__brand` clash); decomposition is now enforced as a
+   contract-shape rule the architect meets up front. r18's kimi arm hit this and
+   stalled; r19's kimi arm was steered multi-file proactively.
+
+**Standing state.** `main` green. Both arms deliver headless and pass their own
+`npm run check`. The mutation-score measure-loop (measure → add tests → re-red →
+re-green) ran clean and headless to 100% on r19 kimi.
+
+**What is still queued / unproven.**
+- **Adversarial inspection of a clean run.** r19's code was NOT inspected line
+  by line the way r15 was — its quality is asserted from green + mutation +
+  sign-off, not a hostile read. r15's deep inspection found composition defects
+  shipped green; r19 has had no equivalent. Green + high mutation is not proof of
+  domain correctness. This is the highest-value next check.
+- **The post-red suite adversary** (issue #13) — a reviewer over the tests once
+  the red stands — remains unbuilt; ADR 2026-020 leaves it open.
+- **Integration.** Still one component, one worktree, one language. Several
+  components / architects / a merge is untested.
+- **Timing hygiene.** r16 per-phase splits are unreliable (subagent-bound
+  marker, now fixed); r17 cards carried no timing; verify the r19-era marker on
+  the next batch.
+
+---
+
+2026-09-09 addendum (r15 wave): state of `main` after the
 run-15 pair and the fix wave it produced. Run 15 is written up in
 [dogfooding.md](dogfooding.md); the twelve numbered findings there are what
 each of these closes.
