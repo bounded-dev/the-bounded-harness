@@ -180,7 +180,10 @@ need a cast the builder cannot legally write), `pi-harness-ts/value-object-shape
 name, private constructor, `static parse(raw: unknown): T | undefined`, all
 instance properties readonly, no extends), and
 `pi-harness-ts/value-object-documented` (a doc comment stating the validity
-rule — plus two `@accepts` examples so the generated laws all run).
+rule — plus two `@accepts` examples so the generated laws all run), and
+`pi-harness-ts/value-objects-own-contract` (a value object may not share a file
+with an interface / type-alias / operation that references it — value objects
+get their own `*.contract.ts`; see below).
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
@@ -217,6 +220,22 @@ style rule you can trade away for convenience: r15 froze a design that reached
 test could construct through any legal route — ~44 of that arm's 76 live
 minutes, ending in eight invented `parse*` functions and a mid-loop re-freeze
 (ADR 2026-023).
+
+**Value objects live in their own contract file — never beside the operations
+over them.** The same `__brand` clash has a same-file twin: if one contract file
+both declares a nominal value-object class and an interface / type-alias /
+operation / const that references it, the scaffolder emits the value object as a
+runtime class in the skeleton, and the compile-time conformance check compares
+that runtime identity against the contract's ambient `declare class` — two
+`__brand` declarations again, and the skeleton does not compile. So a
+value-object class and the interfaces/operations that consume it belong in
+*different* `*.contract.ts` files: the value objects in their own, and the
+operations importing them from the implementation module
+(`import type { BuildingId } from "../ids/ids.js"`), which resolves to one
+identity. The `value-objects-own-contract` rule refuses the same-file shape at
+`contract_purity`, naming the value object to move — a file mixing value objects
+with the operations over them is a decomposition failure, not one cohesive area
+(ADR 2026-026).
 
 **Revising a contract mid-loop is cheap now; it was not.** The scaffold step
 writes a skeleton only where the target is absent or is itself a generated

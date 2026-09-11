@@ -32,6 +32,7 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "pi-harness-ts/no-branded-aliases",
   "pi-harness-ts/value-object-shape",
   "pi-harness-ts/value-object-documented",
+  "pi-harness-ts/value-objects-own-contract",
 ];
 
 export function createContractLinter(): ESLint {
@@ -59,6 +60,13 @@ export function createContractLinter(): ESLint {
           // (which reads only spec.md and the contract) can see it.
           "pi-harness-ts/value-object-shape": "error",
           "pi-harness-ts/value-object-documented": "error",
+          // A value object and the operations over it may not share a contract
+          // file: the value object becomes a runtime class in its skeleton, and
+          // a same-file reference to it binds a second '__brand' identity that
+          // does not compile (the same-file twin of ADR 2026-023, dogfood
+          // r18/r19). Value objects get their own '*.contract.ts'; operations
+          // import them from the implementation module (ADR 2026-026).
+          "pi-harness-ts/value-objects-own-contract": "error",
         },
       },
     ],

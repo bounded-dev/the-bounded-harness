@@ -49,6 +49,31 @@ declaration has to be unreachable, and only the contract can arrange that.
 Read plainly: **a component's public surface is its implementation module, and
 its contract is private to its own skeleton.** Write contracts accordingly.
 
+**The same clash has a same-file twin: a value object and the operations over
+it may not share a contract file.** Declare a nominal value-object class and, in
+the same file, an interface / type-alias / operation / const that references it —
+
+```ts
+export declare class BuildingId { private readonly __brand: "BuildingId"; /* … */ }
+export interface Report { readonly id: BuildingId; }    // BLOCKED — value-objects-own-contract
+export declare function rate(id: BuildingId): number;   // BLOCKED — value-objects-own-contract
+```
+
+— and the scaffolder emits `BuildingId` as a runtime class in that file's
+skeleton, so a same-file reference binds the runtime identity while the
+skeleton's conformance check compares against the contract's ambient `declare
+class`: two `__brand` declarations, and the skeleton does not compile. The fix
+is decomposition, the shape multi-file designs already use: the value objects go
+in their own `*.contract.ts`, and the operations import them from the
+implementation module (`import type { BuildingId } from "../ids/ids.js"`), which
+resolves to one identity (ADR 2026-023). This is enforced, not advised: the
+`value-objects-own-contract` rule refuses the same-file shape at
+`contract_purity`, naming the value object to move (ADR 2026-026). A contract
+file holds one cohesive area — a value object is its own area; the operations
+over it are another. (Value objects may live together — a vocabulary file of
+several is fine, because a value object referencing another does not clash; what
+may not share the file is the interfaces and operations that consume them.)
+
 **A test that imports a value object from a `*.contract.js` reintroduces the
 second identity in its own file.** Today that is a loud local type error at the
 red gate rather than a rule — no lint blocks it, and it should. Import value
@@ -282,18 +307,26 @@ the code belongs):
   precondition order.
 
   **The parse boundary is the way out.** A raw primitive has to become a value
-  object somewhere, so a signature that *returns* a value object declared in
-  this contract may take naked primitives:
+  object somewhere, and that somewhere is the value object's own `static parse`,
+  which takes `unknown` — so the naked-primitive question never even arises for
+  it:
 
   ```ts
-  export declare function parseIsbn(raw: string): Isbn | undefined;
+  export declare class Isbn {
+    private readonly __brand: "Isbn";
+    private constructor();
+    static parse(raw: unknown): Isbn | undefined;   // the boundary — takes unknown
+  }
   ```
 
-  That is the rule's only escape hatch, and it improves the design instead of
-  suppressing the complaint: every primitive in the component funnels through
-  one named, testable function. The value object must be declared in the same
-  contract as its parser — a brand and its only legal constructor belong
-  together.
+  This improves the design instead of suppressing the complaint: every primitive
+  in the component funnels through one named, testable door — the value object's
+  own constructor, reached only through `parse`. The brand and its only legal
+  constructor belong together on the class, in the value object's own
+  `*.contract.ts`. (`no-naked-primitives` also exempts a free function that
+  *returns* a value object, but a free `parseIsbn(raw): Isbn` beside the `Isbn`
+  class is refused by `value-objects-own-contract` and would scaffold to a
+  `__brand` clash anyway — use the static `parse`.)
 
   What the rule deliberately leaves alone, so you can predict it: string-literal
   and template-literal unions (already value objects); `boolean`; `void` /
@@ -356,12 +389,10 @@ because there is no file — and an `eslint-disable` comment cannot either, beca
 
 ## Worked example
 
-```ts
-// src/orders/orders.contract.ts
-// Money is declared by src/shared/money.contract.ts and imported from its
-// IMPLEMENTATION module — one identity per value object.
-import type { Money } from "../shared/money.js";
+The value object lives in its OWN contract file — a cohesive area of one:
 
+```ts
+// src/orders/order-id.contract.ts
 /** A UUIDv4: lowercase hex, hyphenated 8-4-4-4-12, version nibble 4.
  * @accepts "3f2a1b64-9c1e-4a7d-8e55-0b1d2c3f4a5b"
  * @accepts "7d9e0c11-2b3a-4c5d-9e8f-1a2b3c4d5e6f"
@@ -373,6 +404,16 @@ export declare class OrderId {
   static parse(raw: unknown): OrderId | undefined;
   equals(other: OrderId): boolean;
 }
+```
+
+The operations are a different area, and import each value object from its
+IMPLEMENTATION module — one identity per value object (ADR 2026-023/026), and
+the reason `value-objects-own-contract` refuses declaring `OrderId` here:
+
+```ts
+// src/orders/orders.contract.ts
+import type { OrderId } from "./order-id.js";     // its impl module, never .contract.js
+import type { Money } from "../shared/money.js";  // Money's, likewise
 
 export interface Order {
   id: OrderId;

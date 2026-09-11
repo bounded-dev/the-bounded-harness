@@ -10,9 +10,12 @@ import { readGuardLog } from "../../../src/guard-log.ts";
 
 describe("lintContractSource", () => {
   test("a clean contract produces no problems", async () => {
+    // The value object (OrderId) lives in its own contract file and is imported
+    // from the implementation module — a value object may not share a file with
+    // the operations over it (value-objects-own-contract, ADR 2026-026).
     const problems = await lintContractSource(
-      '/** OrderId: a valid value. */\nexport declare class OrderId {\n  private readonly __brand: "OrderId";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): OrderId | undefined;\n}\n' +
-        "export interface Order { id: OrderId }\n" +
+      'import type { OrderId } from "./order-id.js";\n' +
+        "export interface Order { readonly id: OrderId }\n" +
         "export declare function create(o: Order): void;",
       "orders.contract.ts",
     );
@@ -65,10 +68,11 @@ describe("lintContractSource", () => {
   });
 
   test("the value-object version of the same contract is clean", async () => {
+    // The naked primitives are replaced by value objects, which — per
+    // value-objects-own-contract (ADR 2026-026) — live in their own contract
+    // file and are imported here from the implementation module.
     const problems = await lintContractSource(
-      '/** Isbn: a valid value. */\nexport declare class Isbn {\n  private readonly __brand: "Isbn";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): Isbn | undefined;\n}\n' +
-        '/** AuthorName: a valid value. */\nexport declare class AuthorName {\n  private readonly __brand: "AuthorName";\n  private constructor();\n  readonly value: string;\n  static parse(raw: unknown): AuthorName | undefined;\n}\n' +
-        '/** PagesRead: a valid value. */\nexport declare class PagesRead {\n  private readonly __brand: "PagesRead";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): PagesRead | undefined;\n}\n' +
+      'import type { Isbn, AuthorName, PagesRead } from "./values.js";\n' +
         "export interface Book { readonly isbn: Isbn; readonly authors: readonly [AuthorName, ...AuthorName[]] }\n" +
         "export interface ProgressEvent { readonly pagesRead: PagesRead }\n" +
         "export interface ReadingListStore { save(book: Book): Promise<void>; load(): Promise<readonly Book[]> }",
@@ -95,8 +99,10 @@ describe("formatProblems (one greppable line per problem)", () => {
 // --- CLI (the gate as a command) ------------------------------------------------
 
 const SCRIPT = join(import.meta.dirname, "contract-purity.ts");
+// A value-object-only contract: clean, and it does not co-locate the value
+// object with an interface/operation that references it (value-objects-own-contract).
 const GOOD_CONTRACT =
-  '/** Px: a valid value. */\nexport declare class Px {\n  private readonly __brand: "Px";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): Px | undefined;\n}\n/** px */\nexport interface P { x: Px }\n';
+  '/** Px: a valid value. */\nexport declare class Px {\n  private readonly __brand: "Px";\n  private constructor();\n  readonly value: number;\n  static parse(raw: unknown): Px | undefined;\n}\n';
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 

@@ -115,18 +115,12 @@ const SCRIPT = join(import.meta.dirname, "design-gate.ts");
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-/** A value object that satisfies contract-purity and scaffolds. */
-const CURRENCY = `/** Currency: ISO-4217 alphabetic code — exactly three uppercase letters. */
-export declare class Currency {
-  private readonly __brand: "Currency";
-  private constructor();
-  readonly value: string;
-  static parse(raw: unknown): Currency | undefined;
-}
-`;
+/** A contract that passes purity, scaffolds and typechecks. Its value object
+ *  (Currency) lives in its own contract file, imported here from the
+ *  implementation module — a value object may not share a file with the
+ *  operations over it (value-objects-own-contract, ADR 2026-026). */
+const CLEAN_CONTRACT = `import type { Currency } from "../shared/currency.js";
 
-/** A contract that passes purity, scaffolds and typechecks. */
-const CLEAN_CONTRACT = `${CURRENCY}
 export interface Money {
   readonly currency: Currency;
 }
@@ -143,7 +137,8 @@ export interface Ledger {
 }
 `;
 
-/** A second clean contract, for the file a review never saw. */
+/** A second clean contract, for the file a review never saw. A value object in
+ *  its own contract file — the shape value-objects-own-contract steers toward. */
 const TICKER_CONTRACT = `/** Ticker: an exchange symbol — one to five uppercase letters. */
 export declare class Ticker {
   private readonly __brand: "Ticker";
@@ -151,8 +146,6 @@ export declare class Ticker {
   readonly value: string;
   static parse(raw: unknown): Ticker | undefined;
 }
-
-export declare function normalize(ticker: Ticker): Ticker;
 `;
 
 /** A naked \`string\` on the public surface: the purity gate's own failure. */

@@ -452,6 +452,101 @@ describe("one class identity per value object", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// VALUE OBJECTS LIVE IN THEIR OWN CONTRACT FILE (ADR 2026-026)
+// ---------------------------------------------------------------------------
+//
+// ADR 2026-023 (above) refuses reaching a value object through a sibling
+// CONTRACT, forcing cross-file references through the implementation module —
+// which is why multi-file designs typecheck. Its SAME-FILE twin, uncovered until
+// dogfood r18/r19: when a value export's signature references a nominal
+// value-object class declared IN THE SAME contract, the scaffolder emits that
+// class as a RUNTIME class. The export's local signature then binds the value
+// object to the runtime identity, while the compile-time conformance check
+// compares it against `typeof __Contract` — the contract's AMBIENT `declare
+// class`. Two declarations of the same private `__brand`, and the skeleton does
+// not compile. The contract is purity-clean and freezes, yet scaffolds to code
+// that cannot compile.
+//
+// The enforcement lives one gate EARLIER, as the `value-objects-own-contract`
+// contract-purity lint rule (ADR 2026-026): a contract file may not declare a
+// value object beside an interface / type-alias / operation that references it.
+// These two tests pin the two ends the rule steers between — the shape it
+// forbids really does scaffold to non-compiling code, and the decomposed shape
+// it steers toward scaffolds and typechecks clean.
+
+// The forbidden shape, as the generator WOULD emit it for a same-file value
+// object referenced directly by an operation: it fails to compile with the
+// __brand clash. This is the evidence behind the lint rule.
+const SAME_FILE_CONTRACT = `/** BuildingId: a branded identifier. */
+export declare class BuildingId {
+  private readonly __brand: "BuildingId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): BuildingId | undefined;
+}
+
+export declare function rateBuildingReport(building: BuildingId): number;
+`;
+const SAME_FILE_SKELETON = `import type * as __Contract from "./report.contract.js";
+
+export type * from "./report.contract.js";
+
+export class BuildingId {
+  private declare readonly __brand: "BuildingId";
+  private constructor() { throw new Error(); }
+  declare readonly value: string;
+  static parse(raw: unknown): BuildingId | undefined { throw new Error(); }
+}
+
+export function rateBuildingReport(building: BuildingId): number { throw new Error(); }
+
+const __conformance: Pick<typeof __Contract, "rateBuildingReport"> = { rateBuildingReport };
+void __conformance;
+`;
+
+describe("value objects and the operations over them live in separate contracts (ADR 2026-026)", () => {
+  // WHY the lint rule exists: the same-file shape scaffolds to code TypeScript
+  // rejects with the __brand clash. (The lint rule at contract_purity stops it
+  // before it ever reaches this skeleton.)
+  test("a same-file value object referenced by an operation scaffolds to non-compiling code", () => {
+    const diags = typecheck({
+      "report.contract.ts": SAME_FILE_CONTRACT,
+      "report.ts": SAME_FILE_SKELETON,
+    }).join("\n");
+    expect(diags).toMatch(/separate declarations of a private property '__brand'/);
+  });
+
+  // THE POSITIVE CASE, decomposed — the shape the rule steers toward. The value
+  // object in its own contract, the operation contract importing it from the
+  // IMPLEMENTATION module: one class identity, and the whole project scaffolds
+  // and typechecks clean before anything is implemented.
+  const DECOMPOSED_VO = `/** BuildingId: a branded identifier. */
+export declare class BuildingId {
+  private readonly __brand: "BuildingId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): BuildingId | undefined;
+}
+`;
+  const DECOMPOSED_OP = `import type { BuildingId } from "../ids/ids.js";
+
+export declare function rateBuildingReport(building: BuildingId): number;
+`;
+
+  test("the decomposed equivalent (value object in its own contract) scaffolds and typechecks clean", () => {
+    expect(
+      typecheck({
+        "src/ids/ids.contract.ts": DECOMPOSED_VO,
+        "src/ids/ids.ts": scaffoldContract(DECOMPOSED_VO, "src/ids/ids.contract.ts"),
+        "src/report/report.contract.ts": DECOMPOSED_OP,
+        "src/report/report.ts": scaffoldContract(DECOMPOSED_OP, "src/report/report.contract.ts"),
+        "src/shared/errors.ts": ERRORS_MODULE_SOURCE,
+      }),
+    ).toEqual([]);
+  });
+});
+
 // --- every export throws NotImplementedError ---------------------------------
 
 // Skeletons import the shared errors module at runtime, so runtime tests
