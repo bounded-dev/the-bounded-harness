@@ -17,6 +17,7 @@ import {
   skeletonPathFor,
 } from "./scaffold-contract.ts";
 import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
+import { stripConformance } from "./deliver.ts";
 
 const TESTDATA = join(import.meta.dirname, "testdata");
 const fixture = (name: string) => readFileSync(join(TESTDATA, name), "utf8");
@@ -149,8 +150,8 @@ describe("skeletons compile against their contracts", () => {
 
   test("a skeleton missing a contract value export fails to compile (conformance block works)", () => {
     const broken = goldenOf("functions").replace(
-      "const __conformance: typeof __Contract = { createOrder, find, identity };",
-      "const __conformance: typeof __Contract = { createOrder, find };",
+      'const __conformance: Pick<typeof __Contract, "createOrder" | "find" | "identity"> = { createOrder, find, identity };',
+      'const __conformance: Pick<typeof __Contract, "createOrder" | "find" | "identity"> = { createOrder, find };',
     );
     const diags = typecheck({
       "functions.contract.ts": contractOf("functions"),
@@ -159,6 +160,155 @@ describe("skeletons compile against their contracts", () => {
     });
     expect(diags.length).toBeGreaterThan(0);
     expect(diags.join("\n")).toMatch(/identity/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MIXED CONTRACT CONFORMANCE (dogfood r18)
+// ---------------------------------------------------------------------------
+//
+// The __conformance check excludes nominal value-object classes from its object
+// literal (ADR 2026-015: a nominal class cannot be checked by a typeof
+// comparison; surface-check verifies classes semantically instead). The bug: the
+// annotation was `typeof __Contract` — the type of the WHOLE contract namespace,
+// classes included — so the object was missing those classes and TypeScript
+// raised TS2740 ("… is missing the following properties … BuildingId, …"). It
+// only bit when ONE contract file mixed a nominal class WITH non-class value
+// exports; a class-only or function-only contract never triggered it, which is
+// why every prior fixture passed. r18: kimi's cockpit.contract.ts (9 classes + 4
+// functions/consts) produced `src/cockpit/cockpit.ts(240): TS2740`.
+//
+// The fix: annotate `Pick<typeof __Contract, <the exact object-key names>>`, so
+// the check asserts precisely the scaffoldable non-class value exports and
+// demands nothing the object omits. Classes stay out of both the object and the
+// annotation, still covered by surface-check.
+
+// Nominal value-object classes (private __brand ⇒ nominal) mixed with a
+// non-class function AND a non-class const, all in one file — the shape r18 hit.
+// Two classes so the missing-properties error is the plural form the bug named
+// ("… is missing the following properties … BuildingId, MeterId"). The non-class
+// exports deliberately do NOT reference the value objects: that is the real r18
+// case (an operation referencing a same-file value object hits the SEPARATE
+// ADR-2026-023 dual-identity mechanism — the runtime class and the contract's
+// ambient class are two `__brand` declarations — which surfaces as a different
+// error and is not what the conformance annotation controls).
+const MIXED_CONTRACT = `/** BuildingId: a branded identifier. */
+export declare class BuildingId {
+  private readonly __brand: "BuildingId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): BuildingId | undefined;
+}
+
+/** MeterId: a branded identifier. */
+export declare class MeterId {
+  private readonly __brand: "MeterId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): MeterId | undefined;
+}
+
+export declare function summarize(count: number): string;
+export declare const DEFAULT_LIMIT: number;
+`;
+
+// A class-only contract: the one nominal value object and nothing else. No
+// scaffoldable non-class value export ⇒ no __conformance block at all.
+const CLASS_ONLY_CONTRACT = `/** MeterId: a branded identifier. */
+export declare class MeterId {
+  private readonly __brand: "MeterId";
+  private constructor();
+  readonly value: string;
+  static parse(raw: unknown): MeterId | undefined;
+}
+`;
+
+describe("mixed contract conformance (nominal class + non-class value exports)", () => {
+  // REPRODUCE (the spec). The bug was the annotation, so pin it as one: take the
+  // real generator's skeleton and put the OLD whole-namespace annotation back.
+  // It must fail exactly as r18 did — missing the value-object classes the object
+  // deliberately omits — which is why the object needs a narrower annotation.
+  test("the old `typeof __Contract` annotation fails, missing the nominal classes", () => {
+    const oldForm = scaffoldContract(MIXED_CONTRACT, "cockpit.contract.ts").replace(
+      /const __conformance: Pick<typeof __Contract, [^>]*> =/,
+      "const __conformance: typeof __Contract =",
+    );
+    const diags = typecheck({
+      "cockpit.contract.ts": MIXED_CONTRACT,
+      "cockpit.ts": oldForm,
+      ...SHARED,
+    }).join("\n");
+    expect(diags).toMatch(/missing the following properties from type 'typeof/);
+    expect(diags).toMatch(/BuildingId/);
+    expect(diags).toMatch(/MeterId/);
+  });
+
+  // THE r18 SPEC, stated positively: with the real (Pick) annotation the
+  // scaffolded skeleton assembles and typechecks clean, everything throwing.
+  test("a mixed contract scaffolds to a COMPILING skeleton", () => {
+    expect(
+      typecheck({
+        "cockpit.contract.ts": MIXED_CONTRACT,
+        "cockpit.ts": scaffoldContract(MIXED_CONTRACT, "cockpit.contract.ts"),
+        ...SHARED,
+      }),
+    ).toEqual([]);
+  });
+
+  // The conformance block names EXACTLY the non-class value exports — the same
+  // names in the Pick union and in the object literal — and no class appears in
+  // either. This is what keeps the annotation from drifting from the object.
+  test("the Pick union and the object list exactly the non-class value exports", () => {
+    const skeleton = scaffoldContract(MIXED_CONTRACT, "cockpit.contract.ts");
+    expect(skeleton).toContain(
+      'const __conformance: Pick<typeof __Contract, "summarize" | "DEFAULT_LIMIT"> = { summarize, DEFAULT_LIMIT };',
+    );
+    // No nominal class appears in the annotation or the object.
+    expect(skeleton).not.toMatch(/__conformance[^\n]*BuildingId/);
+    expect(skeleton).not.toMatch(/__conformance[^\n]*MeterId/);
+    // And never the whole-namespace annotation that caused the r18 failure.
+    expect(skeleton).not.toContain("const __conformance: typeof __Contract");
+  });
+
+  // A class-only contract has no scaffoldable non-class value export, so there is
+  // nothing a typeof check could assert — emit no block rather than
+  // `Pick<typeof __Contract, never>`. It still compiles.
+  test("a class-only contract emits no conformance block and compiles", () => {
+    const skeleton = scaffoldContract(CLASS_ONLY_CONTRACT, "meter.contract.ts");
+    expect(skeleton).not.toContain("__conformance");
+    expect(skeleton).not.toContain("__Contract");
+    expect(
+      typecheck({
+        "meter.contract.ts": CLASS_ONLY_CONTRACT,
+        "meter.ts": skeleton,
+        ...SHARED,
+      }),
+    ).toEqual([]);
+  });
+
+  // A function/const-only contract still gets a correct Pick-annotated block and
+  // compiles (the common case, now stated with the Pick form pinned).
+  test("a function/const-only contract gets a Pick-annotated block and compiles", () => {
+    expect(goldenOf("functions")).toContain(
+      'const __conformance: Pick<typeof __Contract, "createOrder" | "find" | "identity"> = { createOrder, find, identity };',
+    );
+    expect(goldenOf("values")).toContain(
+      'const __conformance: Pick<typeof __Contract, "DEFAULT_PAGE_SIZE" | "SERVICE_NAME"> = { DEFAULT_PAGE_SIZE, SERVICE_NAME };',
+    );
+  });
+
+  // deliver strips the block by AST identity (the __conformance variable and the
+  // `import type * as __Contract` namespace import), not by matching the old
+  // `typeof __Contract` text — so the Pick form is stripped just the same.
+  test("deliver's conformance strip still removes the Pick-annotated block", () => {
+    const skeleton = scaffoldContract(MIXED_CONTRACT, "cockpit.contract.ts");
+    const stripped = stripConformance(skeleton, "cockpit.ts");
+    expect(stripped).not.toBeNull();
+    expect(stripped!).not.toContain("__conformance");
+    expect(stripped!).not.toContain("__Contract");
+    // The real exports survive the strip.
+    expect(stripped!).toContain("export function summarize");
+    expect(stripped!).toContain("export class BuildingId");
   });
 });
 

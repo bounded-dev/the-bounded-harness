@@ -24,5 +24,5 @@ export function identity<T>(value: T): T {
 
 // Compile-time conformance: every scaffoldable value export of the contract
 // exists above, with the signature the contract declared.
-const __conformance: typeof __Contract = { createOrder, find, identity };
+const __conformance: Pick<typeof __Contract, "createOrder" | "find" | "identity"> = { createOrder, find, identity };
 void __conformance;

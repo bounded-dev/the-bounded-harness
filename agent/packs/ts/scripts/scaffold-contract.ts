@@ -686,10 +686,20 @@ export function scaffoldContract(
   }
 
   if (conformance.length > 0) {
+    // The annotation is Pick'd down to EXACTLY the names in the object literal,
+    // never the whole `typeof __Contract`. A nominal value-object class cannot be
+    // checked by a typeof comparison (ADR 2026-015: surface-check verifies it
+    // semantically), so it is excluded from the object — but `typeof __Contract`
+    // still includes it, and TS then raises TS2740 ("… is missing … BuildingId")
+    // for a skeleton that mixes a nominal class with non-class value exports in
+    // one file (dogfood r18). Pick lists the same names as the keys, so the check
+    // asserts precisely those exports conform and demands nothing the object omits.
+    const conformanceNames = conformance.map((v) => v.name);
+    const pick = conformanceNames.map((n) => `"${n}"`).join(" | ");
     w.blankLine();
     w.writeLine("// Compile-time conformance: every scaffoldable value export of the contract");
     w.writeLine("// exists above, with the signature the contract declared.");
-    w.writeLine(`const __conformance: typeof __Contract = { ${conformance.map((v) => v.name).join(", ")} };`);
+    w.writeLine(`const __conformance: Pick<typeof __Contract, ${pick}> = { ${conformanceNames.join(", ")} };`);
     w.writeLine("void __conformance;");
   }
 

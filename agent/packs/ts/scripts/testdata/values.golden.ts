@@ -13,5 +13,5 @@ export const SERVICE_NAME: string = notImplemented("SERVICE_NAME");
 
 // Compile-time conformance: every scaffoldable value export of the contract
 // exists above, with the signature the contract declared.
-const __conformance: typeof __Contract = { DEFAULT_PAGE_SIZE, SERVICE_NAME };
+const __conformance: Pick<typeof __Contract, "DEFAULT_PAGE_SIZE" | "SERVICE_NAME"> = { DEFAULT_PAGE_SIZE, SERVICE_NAME };
 void __conformance;
