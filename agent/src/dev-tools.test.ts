@@ -124,10 +124,10 @@ describe("dev-tools registration surface", () => {
     expect(Object.keys(params.properties ?? {}).sort()).toEqual(["cwd", "findings"]);
   });
 
-  test("record_design_review says the record is bound to the bytes reviewed", () => {
+  test("record_design_review says the review covers a file set, challenged once", () => {
     const description = tool("record_design_review").description;
     expect(description).toMatch(/empty list is a valid review/);
-    expect(description).toMatch(/bound to the exact bytes|stale/);
+    expect(description).toMatch(/added or removed|whole design once/);
   });
 
   // A worker that is not TOLD its typecheck is scoped reads a shrunken error

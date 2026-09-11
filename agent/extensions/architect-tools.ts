@@ -124,11 +124,11 @@ export default function (pi: ExtensionAPI): void {
     label: "Design Gate",
     description:
       "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order.",
-    promptSnippet: "Run the design phase: purity, scaffold, typecheck, review freshness, freeze.",
+    promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     promptGuidelines: [
-      "It will not freeze a design nobody has read: commission the `reviewer` subagent first, and again after any edit to the spec or a contract — an edited design is an unreviewed design, and the step names the files that moved.",
-      "The reviewer's findings are advisory and blockers do not fail this gate — settling them is yours. The passing line prints the blocker count so an unsettled one stays visible.",
-      "Re-run it after every contract revision: a revised contract must be re-reviewed, re-scaffolded and re-frozen, and this is the only way to do the last two.",
+      "It will not freeze a design nobody has challenged: commission the `reviewer` subagent once first. A review covers the SET of contract files it saw, so editing one you revised in answer to it does not un-review the design — only adding or removing a contract file does, and then the step names the file.",
+      "The reviewer's findings are advisory and blockers do not fail this gate — you keep authority over the design and may freeze over any finding, blocker included. The passing line prints the blocker count so an unsettled one stays visible.",
+      "Re-run it after every contract revision to re-scaffold and re-freeze — that is the only way to do the last two — but do NOT re-commission the reviewer to chase findings; a fresh review is owed only when a contract file is added or removed.",
       "Every failure it reports is yours to fix — at DESIGN there is no test-writer or builder output for a defect to live in.",
       "While you are still iterating on a contract, `contract_purity` alone is the cheap check; `design_gate` is how the phase advances.",
     ],

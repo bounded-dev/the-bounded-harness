@@ -70,30 +70,34 @@ removes it at the end of the run.
      minutes at exactly this point). Stop and ask ONLY if the user explicitly
      requested a design review, or a genuine product decision — not a design
      choice — is yours to guess at.
-   - **Have it read before you freeze it.** Once the contract settles and
-     `contract_purity` is clean, commission the **`reviewer`** subagent on the
-     spec and every contract file. It is read-only — no pen anywhere in the
-     project — and reads the design as the two blind roles will have to, then
-     records what it found with `record_design_review`, bound by checksum to
-     the exact bytes it read. Its findings are claims, not verdicts: you settle
-     each one, by revising the design or by stating your reasons in the turn
-     you re-run the gate. A blocker does not fail anything. This is what buys
-     the phase back: on run r13 a contract defect legible before a single test
-     existed cost 30–38 minutes once the test-writer was already building on it.
+   - **Have it challenged before you freeze it.** Once the contract settles and
+     `contract_purity` is clean, commission the **`reviewer`** subagent ONCE on
+     the spec and every contract file. It is read-only — no pen anywhere in the
+     project — a fresh mind that reads the design as the two blind roles will
+     have to and records the challenges it raises with `record_design_review`.
+     Its findings are claims, not verdicts: you keep full authorship and
+     authority over the spec and the contract, and you settle each finding — by
+     revising the design, or by freezing over it (blockers included) with your
+     reasons stated in the turn you run the gate. A blocker does not fail
+     anything. This is what buys the phase back: on run r13 a contract defect
+     legible before a single test existed cost 30–38 minutes once the
+     test-writer was already building on it.
    - **Gate:** `design_gate` — the whole phase in one call: contract-purity
      (declaration-only *and* free of naked primitives on the public surface) →
      scaffold (the throwing skeletons, machine-generated from every contract,
      never agent-written) → the project typecheck → design-review (a recorded
-     review whose checksums match the design as it now stands — never reviewed,
-     or reviewed then edited, and the freeze does not run) → freeze (the
-     checksum manifest, so drift under you later is detectable rather than
-     silent). It stops at the first failure, names the step, and routes to you;
-     fix what it names and run it again. `contract_purity` on its own is the
-     cheap check while you are still iterating on a contract.
-   - **Any edit to the spec or a contract voids the review.** The review covers
-     the bytes it read and nothing else, so re-review comes before every re-run
-     of `design_gate` that follows a design edit — the gate names the files that
-     moved.
+     review that covered the current SET of contract files — never challenged,
+     or a contract file added or removed since, and the freeze does not run) →
+     freeze (the checksum manifest, so drift under you later is detectable
+     rather than silent). It stops at the first failure, names the step, and
+     routes to you; fix what it names and run it again. `contract_purity` on its
+     own is the cheap check while you are still iterating on a contract.
+   - **Adding or removing a contract file voids the review; editing one does
+     not.** The review challenges the whole design once, so revising a file the
+     reviewer already saw — in answer to what it raised — does not send the
+     design back to it. Only a contract file added or removed since is surface
+     no reviewer has read, and then `design_gate` blocks and names it; commission
+     the reviewer once more before you re-run.
 
 2. **COMMISSION BOTH** — once the contract is frozen, spawn the
    **test-writer** and the **builder**, each with the spec + contract *in the
@@ -370,9 +374,10 @@ In particular:
   Any repair to a test voids the standing red, so re-run `red_gate` before you
   reach for `green_gate` — one call, and it does not disturb the builder.
 - Type errors in a contract → **architect**, which is *you*: revise the
-  contract with a logged rationale, re-review it, re-run `design_gate`, and
-  re-run the red gate. A contract revision invalidates both the red and the
-  review — a revised contract is an unreviewed contract.
+  contract with a logged rationale, re-run `design_gate`, and re-run the red
+  gate. A contract revision invalidates the red — but not the review, unless it
+  adds or removes a contract file; editing a file the reviewer already saw does
+  not re-require a review.
 - `orchestrator` means no role may write the offending file (config, build
   files) — also you, and the one case where you are acting outside the
   pipeline's zones rather than inside them.
@@ -391,10 +396,10 @@ voice, not a pen. Route disputes; don't let workers overrule each other.
   cited spec section yourself (you can see both; neither of them can) and
   settle it. A dispute is usually spec ambiguity, and the spec is yours.
 - `CONTRACT-DISPUTE` — the contract is wrong mid-loop → you revise it with a
-  logged rationale → re-commission the **`reviewer`** on the revised design (the
-  previous review is stale by construction, and `design_gate` will say so) →
-  re-run `design_gate` → full **red-gate re-run** → the test-writer repairs
-  broken tests → the loop resumes.
+  logged rationale → re-run `design_gate` → full **red-gate re-run** → the
+  test-writer repairs broken tests → the loop resumes. Re-commission the
+  **`reviewer`** only if the fix added or removed a contract file — the one
+  change `design_gate` will still block the freeze on.
 - Genuine product decisions reach the **user**.
 
 The chain is **builder → test-writer → you → user**. The **bounce budget is

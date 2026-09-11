@@ -229,28 +229,38 @@ clobbered both implementations; one survived on a lucky `git add -A` and the
 other rebuilt 28 minutes of work. Today the builder keeps its code and any
 drift between it and the revised contract surfaces as type errors routed to the
 builder, which is the role that can reconcile them. So revise when the design
-is wrong. What a revision still costs is exactly two things, and neither is
-negotiable: it voids the review that covered the old bytes, and it voids the
-red.
+is wrong. What a revision still costs is the red: a changed contract voids the
+red that ran against the old shape, and re-establishing it is not optional. It
+does NOT cost a re-review — the reviewer challenged the whole design once, and
+editing a contract it already saw does not send the design back to it. Only
+adding or removing a contract file does, because that is surface no reviewer has
+read.
 
 **On a re-freeze the review is checked first.** The canonical order is purity →
 scaffold → typecheck → design-review → freeze, and a passing run reports it
-that way. But when a design has been frozen once already, a stale review blocks
-immediately, before three steps spend a pass on bytes no reviewer has read.
-Re-review, then re-run.
+that way. But when a design has been frozen once already and a contract file was
+added or removed since the review, the block comes immediately, before three
+steps spend a pass on surface no reviewer has read. Commission the reviewer once
+more, then re-run.
 
-**Have the design read before you freeze it.** Once the contract settles and
-`contract_purity` is clean, commission the **`reviewer`** subagent on `spec.md`
-and every contract file. It is read-only and holds no pen: it reads the design
-as the two blind roles will have to and records what it found with
-`record_design_review`, checksum-bound to the exact bytes it read. The findings
-are claims for you to settle — fix the design, or run `design_gate` again with
-your reasons stated in that turn — and a blocker never fails the gate. What is
-mechanism is that a review EXISTS and covers the design as it now stands:
-`design_gate`'s design-review step refuses to freeze without one, naming the
-files that moved. Every edit to the spec or a contract voids the review that
-covered it, so review last, freeze immediately after — and after any revision,
-re-review before you re-run `design_gate`.
+**Have the design challenged before you freeze it.** Once the contract settles
+and `contract_purity` is clean, commission the **`reviewer`** subagent ONCE on
+`spec.md` and every contract file. It is read-only and holds no pen: it reads
+the design as the two blind roles will have to, as a fresh mind, and records the
+challenges it raises with `record_design_review`. The findings are claims for
+you to settle — you keep full authorship and authority over the spec and the
+contract. Weigh each one and decide: revise the design if it convinces you, or
+freeze over it — including over a blocker — with your reasons stated in the turn
+you run `design_gate`. A blocker never fails the gate, and the objectively
+broken contract a blocker would name (an operation nobody can call, a type
+nobody can construct) is already caught mechanically by the scaffold and
+typecheck steps — so what the reviewer leaves you is exactly the judgment that
+is yours. Do NOT re-commission it to chase findings: settling a finding by
+editing a contract does not need a fresh review. What is mechanism is only that
+a review EXISTS and covered the current SET of contract files — `design_gate`'s
+design-review step refuses to freeze without one. Adding or removing a contract
+file voids the review, and the step names the files, so if the file set changes
+commission the reviewer once more; editing a file it already saw does not.
 
 **On a first design, run `design_gate` once BEFORE you commission the
 reviewer.** It is not a wasted call: purity, the scaffold step and the project
@@ -262,17 +272,18 @@ kimi arm did it the other way round and spent three review cycles on a design
 that then failed to scaffold; every finding in them was about a shape the
 scaffolder was never going to accept. On a RE-freeze the order inverts and the
 gate does it for you — the review is checked first, before three steps spend a
-pass on bytes no reviewer has read.
+pass on surface no reviewer has read.
 
-**Zero blockers means freeze NOW.** The gate asks two questions and no others:
-does a review exist, and does it cover these bytes. Once both are yes the phase
-is finished. Concerns and notes are settled by your decision — in the design if
-you accept them, in writing at `sign_off` if they survive — never by
-commissioning another review to look again. A re-review is owed only when bytes
-changed, and when it is owed it reads the whole design as it now stands rather
-than a diff. One run spent nine review cycles polishing advisory findings; the
-gate had never asked for anything but freshness, and the phase paid for the
-difference.
+**One review is enough — freeze when you have weighed it.** The gate asks two
+questions and no others: does a review exist, and did it cover the current set
+of contract files. Once both are yes the phase is finished, whatever the
+findings say — blockers included. Findings are settled by your decision — in the
+design if you accept them, in writing at `sign_off` if they survive — never by
+commissioning another review to look again. A re-review is owed only when a
+contract file is added or removed, and then it reads the whole design as it now
+stands rather than a diff. One run spent nine review cycles polishing advisory
+findings; the gate had never asked for anything but a single challenge, and the
+phase paid for the difference.
 
 You and the reviewer may be running on a different model from the two workers —
 `.pi/dev-stage-models.json`, if the project carries one, names a `designModel`

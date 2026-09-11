@@ -111,19 +111,19 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // The reviewer's only pen. It reads the spec and every contract before the
-  // freeze and writes nothing — its whole output is this one guard event, and
-  // the event is bound to the bytes it read so a design revised afterwards is
-  // detectably no longer the design that was reviewed.
+  // The reviewer's only pen. As a fresh mind it reads the spec and every
+  // contract once before the freeze and writes nothing — its whole output is
+  // this one guard event, which records the SET of files it challenged so a
+  // contract added or removed afterwards is detectably surface it never saw.
   pi.registerTool({
     name: "record_design_review",
     label: "Record Design Review",
     description:
-      "Record your design review of spec + contracts. Findings are claims for the architect to settle, not verdicts; an empty list is a valid review. The record is bound to the exact bytes you reviewed — any later edit makes it stale.",
-    promptSnippet: "Record what you found reading the spec and the contracts.",
+      "Record the challenges you raise reading spec + contracts. Findings are claims for the architect to weigh, not verdicts — a blocker included — and an empty list is a valid review. You review the whole design once; the architect may revise a file in answer and it stays covered, so only a contract file added or removed later re-requires a review.",
+    promptSnippet: "Record the challenges you raise reading the spec and the contracts.",
     promptGuidelines: [
-      "Call this once, at the end of the review, with everything you found — it is the only output of the role.",
-      "severity: 'blocker' means the pipeline will jam on it (an operation nobody can call, a type nobody can construct, two requirements that contradict); 'concern' means two careful implementers could read it differently; 'note' is everything else.",
+      "Call this once, at the end of the review, with everything you found — it is the only output of the role, and you are not re-run to re-check.",
+      "severity: 'blocker' is the challenge you would stake most on — the pipeline looks set to jam (an operation nobody can call, a type nobody can construct, two requirements that contradict) — still advisory, the architect may freeze over it; 'concern' means two careful implementers could read it differently; 'note' is everything else.",
       "Pass [] when you found nothing. A clean review that is recorded can be audited later; a silence cannot.",
     ],
     parameters: Type.Object({

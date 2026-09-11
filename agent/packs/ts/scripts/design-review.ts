@@ -19,12 +19,14 @@
 // silence and a clean review are indistinguishable unless one of them is
 // written down.
 //
-// The record is CHECKSUM-BOUND. A review is a review of specific bytes, and the
-// bytes are still editable when it is recorded: the architect may revise the
-// spec or the contract in response to a finding, which is the point of hearing
-// it. So the event carries a sha256 per file, computed exactly as checksum-gate
-// computes them, and any later edit makes the review demonstrably stale rather
-// than silently obsolete.
+// The record names the FILE SET it covered. A review challenges the whole
+// design once; the architect, who owns the spec and the contracts, then revises
+// them in answer to what it raised — which is the point of hearing it, and does
+// not un-review the design. So an edit to a file the review already saw is not
+// what stales it; only a contract file added or removed since is (ADR 2026-020).
+// The event still carries a sha256 per file — computed exactly as checksum-gate
+// computes them — as provenance in the log; the freshness decision reads only
+// the keys.
 //
 // THE FINDINGS TRAVEL WITH THE RECORD. r15's architect commissioned a review,
 // got a count back, and could not read what the reviewer had actually said: it
@@ -161,10 +163,10 @@ export function classifyDesignReview(
       ...findingLines(findings),
       ...(blockers.length > 0
         ? [
-            "design-review: you recorded a blocker — it is a claim for the architect to settle, not a verdict; the design is not ready to freeze until it has been answered",
+            "design-review: you recorded a blocker — it is a challenge for the architect to weigh, not a verdict; the freeze does not wait on it and the architect may freeze over it",
           ]
         : [FREEZABLE_NOW]),
-      "design-review: bound to the bytes below — any later edit to one of them makes this review stale",
+      "design-review: this challenges the whole design as it now stands; only ADDING or REMOVING a contract file since re-requires a review — editing one you reviewed does not. The hashes below are provenance:",
       ...files.map((f) => `  ${reviewed[f]!.slice(0, SHORT_HASH)}  ${f}`),
     ],
     // No `findings` count here: the logged event carries the findings

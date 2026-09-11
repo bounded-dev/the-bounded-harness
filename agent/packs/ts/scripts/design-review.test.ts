@@ -138,13 +138,13 @@ describe("classifyDesignReview", () => {
     expect(findingLines(findings)).toEqual(lines.slice(1, 4));
   });
 
-  // The gate records a claim; the architect settles it. A blocker must not read
-  // as a verdict, or the reviewer has quietly become a second architect.
-  test("a blocker is a claim for the architect to settle, not a failure", () => {
+  // The gate records a challenge; the architect weighs it. A blocker must not
+  // read as a verdict, or the reviewer has quietly become a second architect.
+  test("a blocker is a challenge for the architect to weigh, not a failure", () => {
     const r = classifyDesignReview([{ severity: "blocker", summary: "uncallable operation" }], reviewed);
     expect(r.code).toBe(0);
     expect(r.verdict).toBe("pass");
-    expect(r.lines.join("\n")).toMatch(/claim for the architect to settle, not a verdict/);
+    expect(r.lines.join("\n")).toMatch(/challenge for the architect to weigh, not a verdict/);
   });
 
   // The polish-loop nudge (r15/r16): zero blockers is loud, because the k3
@@ -176,12 +176,12 @@ describe("classifyDesignReview", () => {
     });
   });
 
-  test("the files reviewed are shown, with the hash that binds the record", () => {
+  test("the files reviewed are shown, as provenance, with the file-set rule", () => {
     const text = classifyDesignReview([], reviewed).lines.join("\n");
     expect(text).toContain("spec.md");
     expect(text).toContain("src/x.contract.ts");
     expect(text).toContain("aaaaaaaaaaaa");
-    expect(text).toMatch(/makes this review stale/);
+    expect(text).toMatch(/ADDING or REMOVING a contract file/);
   });
 });
 

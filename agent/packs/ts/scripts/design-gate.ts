@@ -10,11 +10,14 @@
 // tools exist to avoid.
 //
 // The design-review step is the one that does not run anything: it reads the
-// guard log and refuses to freeze a design no reviewer has read AS IT NOW
-// STANDS (issue #13 §2). The reviewer's findings are advisory — the architect
-// settles them — so this gate never judges one. What it enforces is that a
-// review EXISTS and that it covers the current bytes, which is the half a
-// machine can decide.
+// guard log and refuses to freeze a design no reviewer has CHALLENGED (issue
+// #13 §2). The reviewer's findings are advisory — the architect, the trusted
+// author of the spec and contracts, weighs them and decides — so this gate
+// never judges one. What it enforces is only that a review EXISTS and that it
+// covered the current SET of contract files (ADR 2026-020): a review challenges
+// the whole design once, so editing a file it already saw does not un-review
+// it — only adding or removing a contract file, which is surface the fresh mind
+// never read.
 //
 // It also REPLAYS the findings verbatim. Not judging a finding is not the same
 // as not showing it, and the two were conflated: the step printed "fresh (3
@@ -49,8 +52,8 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { runContractPurity } from "./contract-purity.ts";
 import { runScaffold } from "./scaffold-contract.ts";
-import { diffManifests, hasDrift, hasManifest, runChecksumGate } from "./checksum-gate.ts";
-import { findingLines, FREEZABLE_NOW, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
+import { hasManifest, runChecksumGate } from "./checksum-gate.ts";
+import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
 import type { Finding } from "./sign-off.ts";
 import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
@@ -198,13 +201,19 @@ async function runProjectTypecheck(cwd: string): Promise<{ code: number; lines: 
 // --- the design-review step -----------------------------------------------------
 
 /**
- * What the guard log says about the design AS IT NOW STANDS.
+ * Whether the recorded review covers the current design, by FILE SET.
  *
- * `fresh` carries the counts AND the findings themselves. The counts are what
- * the gate reasons about (nothing here judges a finding — that is the
- * architect's call, and a gate that could judge one would not need a
- * reviewer); the findings are what it hands on, because the architect cannot
- * reach them any other way.
+ * `fresh` — the latest review covered the same set of files the design now has,
+ * so the whole design has been challenged. It carries the counts AND the
+ * findings themselves: the counts are what the gate reasons about (nothing here
+ * judges a finding — that is the architect's call, and a gate that could judge
+ * one would not need a reviewer); the findings are what it hands on, because the
+ * architect cannot reach them any other way.
+ *
+ * `stale` — a contract file was ADDED or REMOVED since the review, so the design
+ * has surface the fresh mind never saw. A file whose CONTENT changed but whose
+ * path the review already covered is NOT stale: the architect owns the spec and
+ * the contracts and may revise them in answer to what the review raised.
  */
 export type ReviewFreshness =
   | {
@@ -219,7 +228,6 @@ export type ReviewFreshness =
   | {
       readonly state: "stale";
       readonly at: string;
-      readonly changed: readonly string[];
       readonly added: readonly string[];
       readonly removed: readonly string[];
     }
@@ -227,7 +235,7 @@ export type ReviewFreshness =
   | { readonly state: "unreviewable"; readonly reason: string };
 
 /** The `detail.reviewed` map of a recorded review, or undefined if it carries none. */
-function reviewedBytes(event: LoggedGuardEvent): Reviewed | undefined {
+function reviewedFiles(event: LoggedGuardEvent): Reviewed | undefined {
   const raw = (event.detail as { reviewed?: unknown } | undefined)?.reviewed;
   if (typeof raw !== "object" || raw === null) return undefined;
   const out: Record<string, string> = {};
@@ -264,18 +272,23 @@ function reviewCounts(event: LoggedGuardEvent): {
 }
 
 /**
- * Does a recorded review cover the design as it now stands? Pure: no I/O.
+ * Does a recorded review cover the current design, by file set? Pure: no I/O.
  *
  * THE LATEST PASS BY APPEND ORDER is the review that stands — the same rule
  * green-gate uses for the red it requires, and for the same reason: "the last
  * thing the log says" is one event to find and cannot depend on how long the
- * log is. Accepting any older matching review instead would turn a freshness
- * check into a search through history for a set of bytes the reviewer once
- * saw; the only case that costs anything is an edit reverted after a second
- * review, and that costs one re-review.
+ * log is.
+ *
+ * The comparison is over PATHS, not bytes. The design is challenged as a whole,
+ * once: a file the review already covered is a file the fresh mind read, and an
+ * edit the architect made to it in answer to the review does not un-read it.
+ * What the review never saw is a contract file added since (new surface) or the
+ * hole left by one removed (the shape it read is gone), so only add/remove
+ * stales it. The recorded hashes are ignored here; they stay in the log as
+ * provenance (ADR 2026-020, amending 2026-020's original byte lock).
  *
  * `verdict: "error"` events are misuse — no spec, no contracts, a malformed
- * payload — and are not reviews. So is a pass carrying no byte record: it
+ * payload — and are not reviews. So is a pass carrying no file record: it
  * demonstrably covers nothing.
  */
 export function classifyReviewFreshness(
@@ -288,29 +301,16 @@ export function classifyReviewFreshness(
   }
   if (latest === undefined) return { state: "missing" };
 
-  const reviewed = reviewedBytes(latest);
+  const reviewed = reviewedFiles(latest);
   if (reviewed === undefined) return { state: "missing" };
 
-  // checksum-gate's own differ over checksum-gate's own hashes: "the bytes the
-  // reviewer read" and "the bytes the freeze records" are one question asked
-  // twice, never two implementations that can disagree.
-  const drift = diffManifests({ files: reviewed }, { files: current });
-  if (hasDrift(drift)) {
-    return {
-      state: "stale",
-      at: latest.ts,
-      changed: drift.changed,
-      added: drift.added,
-      removed: drift.removed,
-    };
+  const reviewedSet = new Set(Object.keys(reviewed));
+  const added = Object.keys(current).filter((f) => !reviewedSet.has(f)).sort();
+  const removed = [...reviewedSet].filter((f) => !(f in current)).sort();
+  if (added.length > 0 || removed.length > 0) {
+    return { state: "stale", at: latest.ts, added, removed };
   }
   return { state: "fresh", at: latest.ts, ...reviewCounts(latest) };
-}
-
-/** Time of day from an ISO timestamp — enough to find the line in the log. */
-function clock(ts: string): string {
-  const match = /T(\d{2}:\d{2}:\d{2})/.exec(ts);
-  return match ? `${match[1]}Z` : ts;
 }
 
 function count(n: number, noun: string): string {
@@ -323,55 +323,42 @@ export function reviewStepOutcome(freshness: ReviewFreshness): {
   lines: string[];
 } {
   const commission =
-    "  Commission the `reviewer` subagent on spec.md and every *.contract.ts; it";
+    "  Commission the `reviewer` subagent once on spec.md and every *.contract.ts; it";
   switch (freshness.state) {
     case "fresh":
       return {
         code: 0,
-        // A PASSING step still prints why it passed: a gate that is silent when
-        // it agrees leaves "reviewed and clean" and "never checked" looking
-        // identical in the transcript, which is the failure the review exists
-        // to fix one level up.
+        // A PASSING step still prints why it passed, and REPLAYS the findings
+        // verbatim: you hold no `record_design_review`, so this is the only
+        // place the reviewer's words reach you. Every finding, blockers
+        // included, is a challenge for you to weigh — the freeze does not wait
+        // on any of them, and you may freeze over them.
         lines: [
-          `design-review: fresh (${count(freshness.findings, "finding")}, ` +
-            `${count(freshness.blockers, "blocker")}, recorded ${clock(freshness.at)})`,
-          // Verbatim, because you hold no `record_design_review` and this is
-          // the only place the reviewer's words reach you.
+          `design-review: challenged (${count(freshness.findings, "finding")}, ` +
+            `${count(freshness.blockers, "blocker")}) — advisory; you decide.`,
           ...findingLines(freshness.recorded),
-          ...(freshness.blockers > 0
-            ? [
-                `design-review: ${count(freshness.blockers, "blocker")} recorded — advisory: the freeze does not wait on it`,
-                "  and nothing downstream raises it again, so settling it is yours.",
-              ]
-            : // The polish-loop nudge (r15/r16): zero blockers means freezable
-              // now. Advisory, no verdict changes — see FREEZABLE_NOW.
-              [FREEZABLE_NOW]),
         ],
       };
     case "missing":
       return {
         code: 1,
         lines: [
-          "design-review: BLOCK — this design has never been reviewed",
-          commission,
-          "  records what it found with record_design_review. Settle each blocker —",
-          "  fix it, or say in your next design_gate run why it stands — then run",
-          "  design_gate again.",
+          "design-review: BLOCK — this design has not been challenged",
+          "  Commission the `reviewer` once on the current contracts, weigh what it",
+          "  raises, then freeze.",
         ],
       };
-    case "stale":
+    case "stale": {
+      const moved = [...freshness.added, ...freshness.removed].join(", ");
       return {
         code: 1,
         lines: [
-          `design-review: BLOCK — reviewed at ${clock(freshness.at)}, then edited`,
-          ...(freshness.changed.length > 0 ? [`  changed since that review: ${freshness.changed.join(", ")}`] : []),
-          ...(freshness.added.length > 0 ? [`  added since that review: ${freshness.added.join(", ")}`] : []),
-          ...(freshness.removed.length > 0 ? [`  removed since that review: ${freshness.removed.join(", ")}`] : []),
-          "  A review covers the bytes it read and nothing else, so a revised design is",
-          "  an unreviewed design. Re-commission the `reviewer` on it as it now stands,",
-          "  settle its findings, then run design_gate again.",
+          `design-review: BLOCK — the reviewer never saw ${moved} — a contract file changed the design's shape since the review; commission it once more.`,
+          ...(freshness.added.length > 0 ? [`  added since the review: ${freshness.added.join(", ")}`] : []),
+          ...(freshness.removed.length > 0 ? [`  removed since the review: ${freshness.removed.join(", ")}`] : []),
         ],
       };
+    }
     case "unreviewable":
       return {
         code: 1,
@@ -381,8 +368,8 @@ export function reviewStepOutcome(freshness: ReviewFreshness): {
 }
 
 /**
- * The freshness check, with its one I/O step: read the design's current bytes
- * and the guard log, then classify.
+ * The freshness check, with its one I/O step: read the design's current file
+ * set and the guard log, then classify.
  */
 function runDesignReviewStep(cwd: string): {
   code: number;
@@ -442,8 +429,8 @@ function finishDesignGate(
  * missing review blocks there.
  *
  * That is sound because freshness is the one step whose answer does not depend
- * on any other: it compares the guard log against the CURRENT bytes of spec.md
- * and the contracts, and neither purity nor scaffolding nor tsc writes those.
+ * on any other: it compares the guard log against the CURRENT set of contract
+ * files, and neither purity nor scaffolding nor tsc adds or removes those.
  * (Scaffolding writes skeletons and law suites, which no review covers.) It is
  * worth doing because run r14 paid a full purity + scaffold + typecheck pass,
  * repeatedly, only to be told at step four to go and commission the reviewer.
