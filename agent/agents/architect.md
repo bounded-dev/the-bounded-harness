@@ -252,8 +252,16 @@ re-freeze still leaves real work alone. That r15 re-freeze ran the scaffolder ov
 clobbered both implementations; one survived on a lucky `git add -A` and the
 other rebuilt 28 minutes of work. Today the builder keeps its code and any
 drift between it and the revised contract surfaces as type errors routed to the
-builder, which is the role that can reconcile them. So revise when the design
-is wrong. What a revision still costs is the red: a changed contract voids the
+builder, which is the role that can reconcile them — and on a re-freeze those
+worker-owned diagnostics do not block the typecheck step (ADR 2026-028): they
+are printed and attributed, the freeze proceeds, and the workers repair their
+own zones once commissioned. What still blocks is anything design-owned — a
+contract, project config, or a generated skeleton, whose errors are the
+contract's own. This is also how a CHANGE RUN enters: on a delivered tree whose
+run boundary the driver has opened (`pi-change-run` archives the guard log; the
+manifest survives), the same re-freeze path runs — fresh review first, then a
+freeze that stands over the drift the change itself created. So revise when the
+design is wrong. What a revision still costs is the red: a changed contract voids the
 red that ran against the old shape, and re-establishing it is not optional. It
 does NOT cost a re-review — the reviewer challenged the whole design once, and
 editing a contract it already saw does not send the design back to it. Only

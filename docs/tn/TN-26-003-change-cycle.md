@@ -39,6 +39,16 @@ hit this constantly.
 - **Green bound to contract + tests hashes.** A changed contract or suite
   re-binds cleanly; a stale red is refused.
 
+> **Partially landed (2026-09-12).** ADR 2026-028 built the entry point: a
+> change run is a new run on the same tree, entered by the driver opening the
+> **run boundary** (`pi-change-run` archives the guard log; the manifest, role
+> and tiers survive), and `design_gate`'s typecheck step now stands over
+> worker-owned drift on a re-freeze so the freeze-first order the dispute
+> protocol always described is reachable. Gaps 1 (same-machine case) and 2
+> (deliver was already idempotent enough to ship a delta) are closed; gap 1's
+> fresh-clone adopt, gap 3 (review-as-diff) and gap 4 (knowledge artifacts)
+> remain open.
+
 ## The gaps a change needs that greenfield does not
 
 1. **Re-baseline entry point.** `deliver` gitignores `.pi/`, so a delivered

@@ -49,15 +49,16 @@
 // directory, which is what both the tool and the CLI do.
 
 import { fileURLToPath } from "node:url";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { runContractPurity } from "./contract-purity.ts";
-import { runScaffold } from "./scaffold-contract.ts";
+import { isGeneratedArtifact, runScaffold } from "./scaffold-contract.ts";
 import { hasManifest, runChecksumGate } from "./checksum-gate.ts";
 import { findingLines, readReviewed, recordedFindings, type Reviewed } from "./design-review.ts";
 import type { Finding } from "./sign-off.ts";
 import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
-import { routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
+import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
 
 const GUARD = "design-gate";
@@ -170,9 +171,37 @@ export function classifyDesignGate(steps: readonly StepOutcome[]): {
   };
 }
 
-/** The project typecheck, run exactly as the red and green gates run it — same
- *  runner, same env seam, same routing renderer. */
-async function runProjectTypecheck(cwd: string): Promise<{ code: number; lines: readonly string[] }> {
+/** What the typecheck step allowed through on a re-freeze: worker-owned drift
+ *  the change itself created, recorded so the composite event says so. */
+export interface TypecheckDrift {
+  readonly errors: number;
+  readonly owners: readonly string[];
+}
+
+/**
+ * The project typecheck, run exactly as the red and green gates run it — same
+ * runner, same env seam, same routing renderer.
+ *
+ * ON A RE-FREEZE, WORKER-OWNED DRIFT DOES NOT BLOCK (ADR 2026-028). A change
+ * run revises the contract over a tree that already implements the old one, so
+ * the tree failing to compile IS the change: the existing implementation and
+ * tests no longer match the revised design, and repairing them is exactly what
+ * the two workers are commissioned to do — which they cannot be until the
+ * freeze this step was blocking. So diagnostics owned entirely by the workers
+ * are printed, attributed and let through; nothing is hidden, and green_gate
+ * still requires a fully compiling project, so the false-green invariant
+ * (ADR 2026-017) is untouched.
+ *
+ * What still blocks a re-freeze: a diagnostic in design-owned surface — a
+ * contract file, project config (`orchestrator`), or a GENERATED skeleton,
+ * whose errors are the contract's own defects wearing the builder's path. A
+ * FIRST freeze keeps the full block: there, `src/` holds nothing but skeletons
+ * and no tests exist yet, so every diagnostic is the design's.
+ */
+async function runProjectTypecheck(
+  cwd: string,
+  reFreeze: boolean,
+): Promise<{ code: number; lines: readonly string[]; drift?: TypecheckDrift }> {
   const result = await typecheck(cwd, gateTypecheckOptionsFromEnv());
   if (result.ok) return { code: 0, lines: [formatTypecheck(result)] };
 
@@ -190,6 +219,43 @@ async function runProjectTypecheck(cwd: string): Promise<{ code: number; lines: 
     };
   }
   const plural = routing.errorCount === 1 ? "" : "s";
+
+  if (reFreeze) {
+    const generated = (routing.byOwner.builder ?? [])
+      .filter(isDiagnosticStart)
+      .map((l) => diagnosticPath(l))
+      .filter((p): p is string => p !== undefined)
+      .filter((p) => {
+        try {
+          return isGeneratedArtifact(readFileSync(join(cwd, p), "utf8"));
+        } catch {
+          return false; // a diagnostic naming a file that is not on disk is not a skeleton's
+        }
+      });
+    const designOwned = routing.owners.some((o) => o === "architect" || o === "orchestrator");
+    if (!designOwned && generated.length === 0) {
+      return {
+        code: 0,
+        lines: [
+          `typecheck: ${routing.errorCount} pre-freeze drift error${plural} — all worker-owned, so the re-freeze proceeds`,
+          ...typecheckLines(routing).slice(1),
+          "  this drift is the change itself: the workers repair their own zones once commissioned, and green_gate still requires a clean project",
+        ],
+        drift: { errors: routing.errorCount, owners: [...routing.owners] },
+      };
+    }
+    if (generated.length > 0) {
+      return {
+        code: 1,
+        lines: [
+          `typecheck: ${routing.errorCount} type error${plural}`,
+          ...typecheckLines(routing).slice(1),
+          `  note: ${[...new Set(generated)].join(", ")} ${generated.length === 1 ? "is a" : "are"} generated skeleton${generated.length === 1 ? "" : "s"} — those diagnostics are the contract's own, not builder drift`,
+        ],
+      };
+    }
+  }
+
   return {
     code: 1,
     // typecheckLines' first line is its own count headline; the rest is the
@@ -457,6 +523,9 @@ export async function runDesignGate(
   // Set by the design-review step below, so the composite event can record what
   // the review said as well as that it ran.
   let review: ReviewFreshness | undefined;
+  // Set by the typecheck step when a re-freeze let worker-owned drift through,
+  // so the composite event records that the freeze knowingly stood over it.
+  let drift: TypecheckDrift | undefined;
 
   const reFreeze = hasManifest(cwd);
   if (reFreeze) {
@@ -484,7 +553,14 @@ export async function runDesignGate(
   }[] = [
     { step: "contract-purity", run: () => runContractPurity(cwd, patterns) },
     { step: "scaffold", run: async () => runScaffold(cwd) },
-    { step: "typecheck", run: () => runProjectTypecheck(cwd) },
+    {
+      step: "typecheck",
+      run: async () => {
+        const r = await runProjectTypecheck(cwd, reFreeze);
+        drift = r.drift;
+        return { code: r.code, lines: r.lines };
+      },
+    },
     // Reviewed BEFORE the freeze, because after it the review is worth a
     // fraction of what it cost: run r13 measured 30–38 minutes to repair a
     // contract defect discovered once the test-writer was already building on
@@ -511,7 +587,10 @@ export async function runDesignGate(
     if (r.code !== 0) break; // stop at the first failure — nothing downstream is meaningful
   }
 
-  return finishDesignGate(cwd, steps, review, { reFreeze });
+  return finishDesignGate(cwd, steps, review, {
+    reFreeze,
+    ...(drift !== undefined ? { typecheckDrift: drift } : {}),
+  });
 }
 
 // --- CLI ------------------------------------------------------------------------

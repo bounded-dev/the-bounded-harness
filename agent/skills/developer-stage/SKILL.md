@@ -219,6 +219,32 @@ removes it at the end of the run.
    green), so they rarely overlap in the arithmetic even when the two children
    were plainly running side by side.
 
+## Change runs — the same loop over a delivered tree
+
+Most real work is **change**: a spec change to a component this stage already
+delivered (ADR 2026-028). From where you sit almost nothing is different — the
+tree already holds `spec.md`, contracts, an implementation and a suite; the
+frozen manifest survived; the guard log was archived by the driver before your
+session started, so every gate treats this as a new run. The loop is the same
+five phases with three things worth knowing:
+
+- **Edit, don't rebuild.** Revise `spec.md` and the contract files to say what
+  changes; the scaffolder never overwrites an implemented file, so the
+  existing code rides along. `design_gate` will block first on a missing
+  review — the changed design must be challenged fresh — then re-freeze.
+- **The re-freeze stands over drift.** After a contract edit the existing
+  implementation and tests may no longer compile. That drift IS the change:
+  the typecheck step prints it, attributes each error to its owner, and does
+  not block the freeze on worker-owned errors — only a diagnostic in a
+  contract, config, or generated skeleton blocks. Green is unchanged: the
+  project must fully compile before you may call it green.
+- **Workers revise, blindness holds.** Commission both as usual. The
+  test-writer updates and extends `tests/**` from the revised spec — still
+  never seeing `src/`; the builder brings `src/**` along — still never seeing
+  test source. The shadow red covers the whole revised suite (old tests fail
+  `NotImplementedError` against the regenerated skeletons too), and `deliver`
+  is idempotent — it ships the delta and re-runs the repo's own check.
+
 ## Gates are tools, not judgment
 
 Never eyeball a phase transition. Call the gate and read its verdict. Per

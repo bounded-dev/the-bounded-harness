@@ -123,7 +123,7 @@ export default function (pi: ExtensionAPI): void {
     name: "design_gate",
     label: "Design Gate",
     description:
-      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order. On a RE-freeze (a manifest already exists) the review is checked first, and the typecheck step lets worker-owned drift through, printed and attributed — a contract revision over existing code freezes first and the workers repair after; a diagnostic in a contract, config, or generated skeleton still blocks.",
     promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     promptGuidelines: [
       "It will not freeze a design nobody has challenged: commission the `reviewer` subagent once first. A review covers the SET of contract files it saw, so editing one you revised in answer to it does not un-review the design — only adding or removing a contract file does, and then the step names the file.",

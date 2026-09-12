@@ -356,6 +356,78 @@ describe("design-gate CLI: the first failure halts the sequence", () => {
   });
 });
 
+// A change run (ADR 2026-028) revises the contract over a tree that already
+// implements the old one, so the tree failing to compile IS the change: the
+// workers repair their own zones once commissioned, and they cannot be
+// commissioned until the freeze. On a RE-freeze, worker-owned drift therefore
+// does not block — while anything design-owned (a contract, config, or a
+// generated skeleton wearing the builder's path) still does, and a FIRST
+// freeze keeps the full block.
+describe("design-gate CLI: on a re-freeze, worker-owned drift does not block", () => {
+  const TESTS_TYPE_ERR = "tests/money.test.ts(3,3): error TS2339: Property 'reformat' does not exist.";
+  const HAND_IMPL_ERR = "src/money/helper.ts(1,1): error TS2322: Type 'string' is not assignable.";
+
+  /** Freeze once clean, then hand the gate a dirty tsc for the second pass. */
+  function frozenFixture(prefix: string): string {
+    const dir = fixtureRepo(prefix, CLEAN_CONTRACT);
+    review(dir);
+    expect(runGate(dir).status).toBe(0);
+    // A hand-written implementation file (no generated marker): builder-owned.
+    writeFileSync(join(dir, "src", "money", "helper.ts"), "export const rounding = 1;\n");
+    return dir;
+  }
+
+  test("drift owned by the workers alone → the re-freeze proceeds, attributed and logged", () => {
+    const dir = frozenFixture("design-refreeze-drift-");
+    writeFileSync(join(dir, "tsc.txt"), `${TESTS_TYPE_ERR}\n${HAND_IMPL_ERR}\nFound 2 errors.\n`);
+    const r = runGate(dir, true);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/typecheck: 2 pre-freeze drift errors — all worker-owned, so the re-freeze proceeds/);
+    expect(r.stdout).toContain("  test-writer (1):");
+    expect(r.stdout).toContain("  builder (1):");
+    expect(r.stdout).toMatch(/green_gate still requires a clean project/);
+    expect(r.stdout).toMatch(/design-gate: OK/);
+    expect(existsSync(join(dir, MANIFEST))).toBe(true);
+    // The composite event records that the freeze knowingly stood over drift.
+    const composite = readGuardLog(dir).filter((e) => e.guard === "design-gate");
+    expect(composite.at(-1)).toMatchObject({
+      verdict: "pass",
+      detail: { reFreeze: true, typecheckDrift: { errors: 2, owners: ["test-writer", "builder"] } },
+    });
+  });
+
+  test("a contract diagnostic still blocks a re-freeze", () => {
+    const dir = frozenFixture("design-refreeze-contract-");
+    writeFileSync(join(dir, "tsc.txt"), `${CONTRACT_TYPE_ERR}\n${TESTS_TYPE_ERR}\nFound 2 errors.\n`);
+    const r = runGate(dir, true);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/typecheck: 2 type errors/);
+    expect(r.stdout).toContain("design-gate: route → architect");
+  });
+
+  test("a diagnostic in a generated skeleton is the contract's, and still blocks", () => {
+    const dir = frozenFixture("design-refreeze-skeleton-");
+    // src/money/money.ts was scaffolded during the first pass, marker intact.
+    writeFileSync(join(dir, "tsc.txt"), `${SKELETON_TYPE_ERR}\nFound 1 error.\n`);
+    const r = runGate(dir, true);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(
+      "note: src/money/money.ts is a generated skeleton — those diagnostics are the contract's own, not builder drift",
+    );
+    expect(r.stdout).toContain("design-gate: route → architect");
+  });
+
+  test("a FIRST freeze keeps the full block, worker-owned or not", () => {
+    const dir = fixtureRepo("design-first-drift-", CLEAN_CONTRACT, `${TESTS_TYPE_ERR}\nFound 1 error.\n`);
+    review(dir);
+    const r = runGate(dir, true);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/typecheck: 1 type error/);
+    expect(r.stdout).toContain("design-gate: FAIL — typecheck blocked; design-review, freeze did not run");
+    expect(existsSync(join(dir, MANIFEST))).toBe(false);
+  });
+});
+
 
 // The freeze is the moment a design becomes expensive to change: from here the
 // test-writer and the builder both build on it, and run r13 measured 30–38

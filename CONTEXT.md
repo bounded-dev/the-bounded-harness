@@ -159,6 +159,22 @@ _Avoid_: blocks (unqualified), overhead, iteration (the other half of the old co
 Blocks a worker's own dev tool logged because the code was red — `typecheck`, `run_tests`, `lint-*`, and `git` exiting non-zero on a search that missed. The call happened and told the truth, so this is normal work with no target, printed only when non-zero. Kept apart from friction because one counter covering both made the headline lie: r15 printed 31 "unrouted blocks" of which exactly one was a refusal.
 _Avoid_: friction (the refusals), churn, bounce (that's a routed hand-back)
 
+**Change run**:
+A new developer-stage run against a tree the stage already delivered — the
+spec change edited into the existing `spec.md` and contracts, re-challenged,
+re-frozen over the drift it creates, re-red, re-green, delivered as a delta.
+Entered by opening the run boundary (ADR 2026-028); resuming an interrupted
+run (`pi -c`) is not one.
+_Avoid_: brownfield run, incremental run
+
+**Run boundary**:
+The driver-side act that ends one run and arms the next on the same tree:
+`pi-change-run` archives the guard log (run state) while the manifest, role
+binding and model tiers (tree state) survive. Every log-derived gate — review
+freshness, the phase gate, green-requires-red, timing — is re-armed by it, and
+it refuses to cut through an undelivered run without `--force`.
+_Avoid_: log rotation (the mechanism, not the concept), reset
+
 **Run-start**:
 The guard event the path gate logs at the **first gated tool call of a session** — the first moment a run is demonstrably doing work. The timing block starts its clock there and names the time, so minutes between a session opening and the prompt landing are excluded instead of being charged to DESIGN. With several, the last one before the first phase marker wins; one appearing after belongs to a second run in a shared log and is ignored.
 _Avoid_: session start (that's when the process opened), first event
