@@ -19,4 +19,5 @@ note, born from a GitHub issue.
 | TN | Title | Status |
 | --- | --- | --- |
 | [TN-26-001](TN-26-001-developer-stage-pipeline.md) | Developer stage: architect / test-writer / builder pipeline | draft |
-- TN-26-002 — Mechanism vs guidance: the six-cell experiment
+| [TN-26-002](TN-26-002-mechanism-vs-guidance.md) | Mechanism vs guidance: the six-cell experiment | draft |
+| [TN-26-003](TN-26-003-change-cycle.md) | The change cycle — evolving a delivered component | draft |
