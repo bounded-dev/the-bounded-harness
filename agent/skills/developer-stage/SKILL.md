@@ -59,7 +59,10 @@ removes it at the end of the run.
 1. **DESIGN** — you decide the approach and write `spec.md` plus the
    component's contract files (`src/**/*.contract.ts` — as many as the design
    needs; the loop is per component, the file count is yours). There is no
-   separate plan document:
+   separate plan document: a plan, a spec and a contract describing the same
+   domain at three altitudes was duplication that drifted, so think it
+   through and write it once. Use `scout` if you want read-only
+   investigation of an unfamiliar codebase.
    - **Strip the "how" at intake (ADR 2026-032).** The ticket's authority is
      the requirement, not the implementation it happens to mention. Rework
      the request into what must be possible, for whom, under what rules;
@@ -76,9 +79,6 @@ removes it at the end of the run.
      surface it to the user; never silently obey it and never silently lose
      it. Implementation choices come from harness policy (the packs), not
      from ticket phrasing.
-   a plan, a spec and a contract describing the same domain at three altitudes
-   was duplication that drifted, so think it through and write it once. Use
-   `scout` if you want read-only investigation of an unfamiliar codebase.
    - **Do not stop for approval. The default is to proceed.** Summarize the
      design in two or three lines as you continue — the user can interrupt if
      they disagree; an interrupt costs them one message, while a run parked on
@@ -86,12 +86,16 @@ removes it at the end of the run.
      minutes at exactly this point). Stop and ask ONLY if the user explicitly
      requested a design review, or a genuine product decision — not a design
      choice — is yours to guess at.
-   - **A ticket exposing a component to callers is an api-service ticket.**
-     Load the pack's `ts-api-service` skill before designing: the service
-     structure, payload shapes, serialization and error taxonomy are a fixed
-     reference set (TN-26-004), not per-run design — and its rules enforce
-     themselves whether or not you read them, so reading them first is the
-     cheap path.
+   - **A ticket whose ASK is exposing a component to callers is an
+     api-service ticket.** Load the pack's `ts-api-service` skill before
+     designing one: the service structure, payload shapes, serialization and
+     error taxonomy are a fixed reference set (TN-26-004), not per-run design
+     — and its rules enforce themselves whether or not you read them, so
+     reading them first is the cheap path. The trigger is the ticket's ask,
+     not its scenery: a domain ticket that merely MENTIONS a frontend or a
+     caller does not get an API component built on spec (r23's baseline
+     added one nobody asked for). Build the domain; the exposure arrives as
+     its own ticket.
    - **Have it challenged before you freeze it.** Once the contract settles and
      `contract_purity` is clean, commission the **`reviewer`** subagent ONCE on
      the spec and every contract file. It is read-only — no pen anywhere in the

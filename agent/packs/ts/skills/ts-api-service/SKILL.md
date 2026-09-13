@@ -63,6 +63,10 @@ scaffold.
 ## The service surface (`api.contract.ts`)
 
 ```ts
+// Re-export Ack, do not merely import it: the test-writer's imports are
+// limited to contract paths, so the contract is the only route through
+// which the suite can name the type every write returns.
+export type { Ack } from "./service-runtime.js";
 import type { Ack } from "./service-runtime.js";
 import type { IngestReportCommand, BuildingStatusQuery } from "./commands.js";
 import type { BuildingReportStore, Clock } from "../heating-cockpit/heating-cockpit.js";
