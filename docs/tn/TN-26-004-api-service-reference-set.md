@@ -183,26 +183,39 @@ twice, the GraphQL request is challenged and escalated rather than built, no
 type erasure, generated laws green, and the review round-trip is spent on the
 domain rather than the wire.
 
+## Settled at the grill (2026-09-13)
+
+- **Ack shape:** a minimal receipt — `applied` vs `replayed` — command
+  metadata, never domain data. One pack-owned type; `writes-return-ack`
+  refuses anything else.
+- **No blanket command id.** Idempotency is a domain rule each command's
+  spec states (the cockpit's replace-by-(building, period) style). Revisit
+  only if a real at-least-once transport arrives; "optional" was rejected
+  because nothing optional can be gated.
+- **Duplicate-id behaviour is declared per command, machine-readably.** Each
+  command's contract carries its policy (`replace` or `conflict`) as a
+  static literal the probe generator reads — prose cannot drive generated
+  tests. `conflict` commands add a `CONFLICT` row to the error taxonomy;
+  either way the declared behaviour gets its generated probe.
+- **Two port interfaces over one store from day one** — a read port and a
+  write port, same backing store; a lintable shape, and the read side
+  becomes swappable for a projection without a contract revision.
+- **No grandfather clause, anywhere.** The only existing trees are
+  disposable dogfood arms; rules apply unconditionally from the day the pack
+  ships, and the cockpit is simply rebuilt under them in the next run. A
+  migration-style change run remains available as an experiment, not an
+  obligation.
+
+Also settled without a round-trip: the `zod-backed-parse` pairing is
+sufficient by construction — lint verifies a schema exists and `parse`
+delegates to it, generated hostile laws verify the schema's judgment; that
+split of labour is the harness's standard layering, not a compromise. And
+detection is belt-and-braces: the developer-stage skill gains one routing
+line ("a ticket exposing a component to callers is an api-service ticket —
+load the pack skill"), with lint-on-presence as the unconditional backstop.
+
 ## Open questions
 
-- The acknowledgement shape: nothing at all, or a minimal receipt (applied vs
-  idempotent-replay)? Decided only that it carries no domain data.
-- Do commands carry a client-minted command id as a dedupe key, distinct from
-  the entity ids they name?
-- Same client-minted id, different payload: conflict error or replace? (The
-  cockpit precedent is replace-by-(building, period).)
-- Read side depth: queries through the same store port as writes (r22), or a
-  separate read port from day one?
-- Migration: existing value objects (cockpit arm, three delivered runs) are
-  hand-rolled — does `zod-backed-parse` apply to new VOs only, or does the
-  first service run on a tree migrate its domain VOs (a change run of its
-  own)?
-- How far `zod-backed-parse` can see: lint can verify a schema is present
-  and referenced by `parse`; it cannot verify the schema is *right* — the
-  generated hostile laws carry that half. Is the pairing sufficient?
-- Detection fallback when the skill misses: is lint-on-presence enough, or
-  should the developer-stage skill route "this ticket is an exposure"
-  explicitly?
 - The React half stays out of scope: this set keeps the router's type intact
   for a typed client; nothing yet says how a frontend consumes it under the
   pipeline.

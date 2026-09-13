@@ -34,8 +34,14 @@ the store to invent one.
 Reviewers read every exposure in one fixed vocabulary. The payload shape,
 the ack-only rule, and primitive-free fields are all lintable at
 contract-purity; the hostile-input behaviour of every command is covered by
-generated law suites (TN-26-004). r22's delivered `ingestReport` (returns
-the full building status) becomes non-conforming and is brought into line by
-the first pack-era change run. Open, tracked in TN-26-004: the exact ack
-shape, command-level dedupe ids, and conflict-vs-replace semantics for a
-reused client-minted id.
+generated law suites (TN-26-004). Settled at the 2026-09-13 grill: the ack
+is a minimal receipt (`applied` vs `replayed` — command metadata, no domain
+state); there is no blanket command-level dedupe id (idempotency is a domain
+rule each command's spec states); duplicate-id behaviour (`replace` vs
+`conflict`) is declared per command as a machine-readable literal in its
+contract, and the declared behaviour gets its generated probe, with
+`CONFLICT` joining the error taxonomy for commands that declare it; reads
+and writes get separate port interfaces over one store from day one. No
+grandfather clause anywhere: the only pre-pack trees are disposable dogfood
+arms, so the rules apply unconditionally and the cockpit is simply rebuilt
+under them (r22's data-returning `ingestReport` dies with its tree).
