@@ -446,6 +446,68 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     pass("surface-check", did.length > 0, did.length > 0 ? did.join(", ") : "already shipped and wired", { did });
   }
 
+  // --- 5b. blessed stack pins (ADR 2026-029, TN-26-004) ---
+  //
+  // The stack is harness policy, and a policy nobody installed is a repo
+  // whose check dies with ERR_MODULE_NOT_FOUND — the ts-morph lesson (r15),
+  // applied to the blessed stacks. What the tree USES decides what is
+  // pinned: zod when any src module imports it (every zod-backed value
+  // object does), @trpc/server when a shipped service-runtime is present.
+  // Regular dependencies, not dev — both are imported by shipped src/**.
+  // The pin is the pack's own version, and a failed install is a BLOCK.
+  {
+    const srcFiles = tsFilesUnder(cwd, srcAbs);
+    const importsZod = srcFiles.some((rel) =>
+      /from\s+["']zod(\/[^"']*)?["']/.test(readFileSync(join(cwd, rel), "utf8")),
+    );
+    const hasServiceRuntime = srcFiles.some((rel) => basename(rel) === "service-runtime.ts");
+    const wanted: readonly string[] = [
+      ...(importsZod ? ["zod"] : []),
+      ...(hasServiceRuntime ? ["@trpc/server"] : []),
+    ];
+    const did: string[] = [];
+    for (const name of wanted) {
+      const pkgAbs = join(cwd, "package.json");
+      const pkg = JSON.parse(readFileSync(pkgAbs, "utf8")) as {
+        dependencies?: Record<string, string>;
+      };
+      const pin = pkg.dependencies?.[name] ?? packPin(name);
+      if (pkg.dependencies?.[name] === undefined) {
+        const deps: Record<string, string> = { ...pkg.dependencies, [name]: pin };
+        pkg.dependencies = Object.fromEntries(Object.keys(deps).sort().map((k) => [k, deps[k]!]));
+        writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
+        did.push(`pinned ${name}@${pin}`);
+      }
+      const installedAbs = join(cwd, "node_modules", ...name.split("/"), "package.json");
+      if (!existsSync(installedAbs)) {
+        const out = run(
+          NPM,
+          ["install", "--save-exact", "--no-audit", "--no-fund", `${name}@${pin}`],
+          cwd,
+        );
+        if (out.code !== 0 || !existsSync(installedAbs)) {
+          const tail = outputTail(out);
+          const result = block(
+            "stack-pins",
+            `could not install ${name}@${pin} into the target — the tree imports it, so shipping ` +
+              `without it is a repo whose check dies with ERR_MODULE_NOT_FOUND; re-run deliver where ` +
+              `the package registry is reachable`,
+            { name, pin, exitCode: out.code, tail },
+          );
+          lines.push(...tail.map((t) => `  install: ${t}`));
+          return { ...result, lines };
+        }
+        did.push(`installed ${name}@${pin}`);
+      }
+    }
+    pass(
+      "stack-pins",
+      did.length > 0,
+      did.length > 0 ? did.join(", ") : wanted.length > 0 ? "already pinned and installed" : "no blessed stacks in use",
+      { wanted, did },
+    );
+  }
+
   // --- 6. .gitignore ---
   {
     const ignoreAbs = join(cwd, ".gitignore");
@@ -554,14 +616,20 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   return { code: 0, lines };
 }
 
-/** The pack's own ts-morph version — the shipped checker gets the same pin. */
-function tsMorphPin(): string {
+/** The pack's own pinned version of a blessed dependency — targets get the
+ *  same pin, so the harness and every delivered repo run one version. */
+function packPin(name: string): string {
   const pkg = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../package.json"), "utf8"),
   ) as { devDependencies?: Record<string, string> };
-  const pin = pkg.devDependencies?.["ts-morph"];
-  if (pin === undefined) throw new Error("deliver: cannot find the pack's ts-morph version to pin");
+  const pin = pkg.devDependencies?.[name];
+  if (pin === undefined) throw new Error(`deliver: cannot find the pack's ${name} version to pin`);
   return pin;
+}
+
+/** The pack's own ts-morph version — the shipped checker gets the same pin. */
+function tsMorphPin(): string {
+  return packPin("ts-morph");
 }
 
 // --- CLI ------------------------------------------------------------------------

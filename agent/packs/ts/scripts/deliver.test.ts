@@ -170,8 +170,15 @@ function fakeNpm(options: FakeNpmOptions = {}): { calls: NpmCall[]; run: Command
     if (args[0] === "install") {
       const outcome = options.install ?? { code: 0, stdout: "added 3 packages\n", stderr: "" };
       if (outcome.code === 0 && (options.materialize ?? true)) {
-        mkdirSync(join(cwd, "node_modules", "ts-morph"), { recursive: true });
-        writeFileSync(join(cwd, "node_modules", "ts-morph", "package.json"), '{"name":"ts-morph"}\n');
+        // Materialize whatever was asked for, the way a real install would —
+        // "name@1.2.3" and "@scope/name@1.2.3" both resolve to their package dir.
+        const spec = args[args.length - 1] ?? "ts-morph";
+        const name = spec.startsWith("@")
+          ? spec.slice(0, spec.indexOf("@", 1))
+          : spec.split("@")[0] ?? spec;
+        const pkgDir = join(cwd, "node_modules", ...name.split("/"));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name }) + "\n");
       }
       return outcome;
     }
@@ -677,5 +684,61 @@ describe("runDeliver: the real npm install (integration)", () => {
       readFileSync(join(dir, "node_modules", "ts-morph", "package.json"), "utf8"),
     ) as { version: string };
     expect(installed.version).toBe(pin);
+  });
+});
+
+// --- 5b. blessed stack pins (ADR 2026-029, TN-26-004) ---------------------------
+
+describe("blessed stack pins", () => {
+  test("zod import and a shipped runtime pin and install both, as dependencies", () => {
+    const dir = proj({
+      "src/values/values.ts":
+        'import { z } from "zod";\nexport const schema = z.string();\n',
+      "src/api/service-runtime.ts":
+        "// GENERATED from packs/ts/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\nexport const rt = true;\n",
+    });
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(0);
+    expect(r.lines.some((l) => /stack-pins — pinned zod@[\d.]+, installed zod@/.test(l))).toBe(true);
+    expect(r.lines.some((l) => /pinned @trpc\/server@[\d.]+/.test(l))).toBe(true);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    expect(pkg.dependencies["zod"]).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(pkg.dependencies["@trpc/server"]).toMatch(/^\d+\.\d+\.\d+$/);
+    // Regular dependencies — both are imported by shipped src/**.
+    const installs = npm.calls.filter((c) => c.args[0] === "install").map((c) => c.args.at(-1));
+    expect(installs.some((s) => s?.startsWith("zod@"))).toBe(true);
+    expect(installs.some((s) => s?.startsWith("@trpc/server@"))).toBe(true);
+  });
+
+  test("a tree using neither stack pins nothing", () => {
+    const dir = proj();
+    const npm = fakeNpm();
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(0);
+    expect(r.lines.some((l) => l.includes("stack-pins — no blessed stacks in use"))).toBe(true);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(pkg.dependencies?.["zod"]).toBeUndefined();
+  });
+
+  test("a failed stack install blocks the delivery", () => {
+    const dir = proj({
+      "src/values/values.ts": 'import { z } from "zod";\nexport const schema = z.string();\n',
+    });
+    // ts-morph resolves already so step 5 never installs; the zod install fails.
+    mkdirSync(join(dir, "node_modules", "ts-morph"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", "ts-morph", "package.json"), '{"name":"ts-morph"}\n');
+    const pkgAbs = join(dir, "package.json");
+    const pkg = JSON.parse(readFileSync(pkgAbs, "utf8")) as Record<string, unknown>;
+    pkg["devDependencies"] = { "ts-morph": "1.0.0" };
+    writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
+    const npm = fakeNpm({ install: { code: 1, stdout: "", stderr: "ENETDOWN" } });
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toMatch(/could not install zod@/);
   });
 });
