@@ -21,3 +21,4 @@ note, born from a GitHub issue.
 | [TN-26-001](TN-26-001-developer-stage-pipeline.md) | Developer stage: architect / test-writer / builder pipeline | draft |
 | [TN-26-002](TN-26-002-mechanism-vs-guidance.md) | Mechanism vs guidance: the six-cell experiment | draft |
 | [TN-26-003](TN-26-003-change-cycle.md) | The change cycle — evolving a delivered component | draft |
+| [TN-26-004](TN-26-004-api-service-reference-set.md) | The API-service reference set — one deterministic way onto the wire | draft |
