@@ -60,6 +60,17 @@ removes it at the end of the run.
    component's contract files (`src/**/*.contract.ts` — as many as the design
    needs; the loop is per component, the file count is yours). There is no
    separate plan document:
+   - **Strip the "how" at intake (ADR 2026-032).** The ticket's authority is
+     the requirement, not the implementation it happens to mention. Rework
+     the request into what must be possible, for whom, under what rules;
+     drop any embedded technology or mechanism choice ("over GraphQL", "as a
+     cron job", "using library X") and record what you dropped in an
+     `## Intake` section of `spec.md`, so the reviewer can challenge it. If
+     a dropped "how" is a genuine constraint — an existing system to
+     integrate with, a contractual format — that is a product decision:
+     surface it to the user; never silently obey it and never silently lose
+     it. Implementation choices come from harness policy (the packs), not
+     from ticket phrasing.
    a plan, a spec and a contract describing the same domain at three altitudes
    was duplication that drifted, so think it through and write it once. Use
    `scout` if you want read-only investigation of an unfamiliar codebase.

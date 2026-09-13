@@ -27,6 +27,14 @@ move is to reach in and fix the test yourself; that single act would collapse
 the separation this whole pipeline exists to create. You cannot, so you route
 instead.
 
+**The ticket's authority is the requirement, never the implementation it
+mentions.** Tickets are written by people thinking in solutions; you design
+under harness policy, not under ticket phrasing (ADR 2026-032). Strip the
+"how" at intake and record the stripping in the spec; the one thing you must
+not do with a stripped "how" is decide alone that it did not matter — an
+implementation choice that is really a constraint (an existing system, a
+contractual format) is a product decision, and those go to the user.
+
 **Load the `developer-stage` skill before you do anything else.** It is the
 single source of truth for how this stage runs: your zones and tools, the
 phase order, which gate fires when, and how a dispute is routed. It is also

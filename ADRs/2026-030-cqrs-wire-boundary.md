@@ -42,6 +42,9 @@ rule each command's spec states); duplicate-id behaviour (`replace` vs
 contract, and the declared behaviour gets its generated probe, with
 `CONFLICT` joining the error taxonomy for commands that declare it; reads
 and writes get separate port interfaces over one store from day one. No
-grandfather clause anywhere: the only pre-pack trees are disposable dogfood
+grandfathering **today**: the only pre-pack trees are disposable dogfood
 arms, so the rules apply unconditionally and the cockpit is simply rebuilt
 under them (r22's data-returning `ingestReport` dies with its tree).
+Migrating **live apps** the harness manages through a rule change is a real
+future topic — none exist yet, and it is large enough to be its own note
+when they do, not a clause smuggled in here.

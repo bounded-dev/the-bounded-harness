@@ -38,12 +38,14 @@ binding stick:
    is present in the tree, not conditional on anyone having read anything.
 
 **Intake strips the "how" before anything else reads the ticket.** This is
-general, not GraphQL-specific: every spec arriving from a user or a parent
-agent is reworked into pure requirement language — *what* must be possible,
-for *whom*, under *what* rules — and any embedded implementation choice
-("over GraphQL", "as a REST endpoint", "using library X") is stripped at the
-door. The architect's spec records what was stripped, so the removal is a
-visible act rather than a silent one. Two outcomes follow:
+a general rule of the whole developer stage, ratified as ADR 2026-032 —
+API services are merely where it first bit: every spec arriving from a user
+or a parent agent is reworked into pure requirement language — *what* must
+be possible, for *whom*, under *what* rules — and any embedded
+implementation choice ("over GraphQL", "as a cron job", "using library X")
+is stripped at the door. The architect's spec records what was stripped in
+an "Intake" section, so the removal is a visible act rather than a silent
+one. Two outcomes follow:
 
 - **The common case: the "how" was incidental.** "Expose the data to the
   frontend over GraphQL" becomes "the frontend needs typed access to the
@@ -200,11 +202,14 @@ domain rather than the wire.
 - **Two port interfaces over one store from day one** — a read port and a
   write port, same backing store; a lintable shape, and the read side
   becomes swappable for a projection without a contract revision.
-- **No grandfather clause, anywhere.** The only existing trees are
-  disposable dogfood arms; rules apply unconditionally from the day the pack
-  ships, and the cockpit is simply rebuilt under them in the next run. A
+- **No grandfathering today.** The only existing trees are disposable
+  dogfood arms; rules apply unconditionally from the day the pack ships, and
+  the cockpit is simply rebuilt under them in the next run. A
   migration-style change run remains available as an experiment, not an
-  obligation.
+  obligation. **Live-app migration is deferred, not dismissed:** once the
+  harness manages real apps, evolving them through a rule change is its own
+  large topic (change-cycle adjacent, TN-26-003) and gets its own note —
+  today's statement is about today's empty installed base.
 
 Also settled without a round-trip: the `zod-backed-parse` pairing is
 sufficient by construction — lint verifies a schema exists and `parse`

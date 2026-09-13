@@ -1,26 +1,21 @@
-# 2026-029: Tickets name capability; the harness binds the stack; intake strips the how
+# 2026-029: Tickets name capability; the harness binds the stack
 
 **Status:** accepted
 
 ## Decision
 
-Incoming specs — from users and parent agents alike — are **capability
-statements**. Intake reworks every spec into pure "what is required" language
-and strips any embedded implementation choice ("over GraphQL", "as REST",
-"using library X"); the architect's spec records what was stripped, so the
-removal is visible. A stripped "how" that turns out to be a genuine
-constraint (an existing gateway to integrate with) is a product decision and
-routes to the user (TN-26-001 dispute protocol) — never silently obeyed,
-never silently dropped.
-
-The stack that satisfies a capability is **harness policy**, one blessed
-choice per capability per language, pack-pinned — as vitest is *the* TS test
-runner: today, tRPC for "typed access for a frontend" and zod as the schema
-engine (ADR 2026-031). Three layers bind it: a pack skill triggered by
-capability language (guidance, best-effort); availability — targets cannot
-add dependencies and the pack pins and installs the blessed stack, so no
-other is reachable; and the `blessed-stacks-only` import lint, which blocks
-non-allowlisted frameworks unconditionally.
+Incoming specs are **capability statements** — intake strips any embedded
+"how" as a general rule of the stage (ADR 2026-032). This ADR is the stack
+half: the stack that satisfies a capability is **harness policy**, one
+blessed choice per capability per language, pack-pinned — as vitest is *the*
+TS test runner: today, tRPC for "typed access for a frontend" and zod as the
+schema engine (ADR 2026-031). Three layers bind it: a pack skill triggered
+by capability language (guidance, best-effort); availability — targets
+cannot add dependencies and the pack pins and installs the blessed stack, so
+no other is reachable; and the `blessed-stacks-only` import lint, which
+blocks non-allowlisted frameworks unconditionally. A ticket naming a
+different stack is the ADR 2026-032 constraint case: challenged and routed
+to the user, never silently obeyed.
 
 ## Why
 
