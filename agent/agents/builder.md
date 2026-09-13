@@ -150,6 +150,14 @@ express, fastify, ajv, joi, yup, …). tRPC (`@trpc/server`) is the RPC stack
 and zod the schema engine (ADR 2026-029); if the spec seems to require a
 banned framework, that is a `CONTRACT-DISPUTE`, not an import.
 
+**The framework has one door** — `pi-harness-ts/raw-framework-entry`: a
+runtime import of `@trpc/*` is legal only inside the generated
+`service-runtime.ts` (`import type` is fine anywhere). Build procedures
+through `createService` / `command` / `query` from `./service-runtime.js` —
+the error taxonomy (parse failure → BAD_REQUEST, the named throwers for
+NOT_FOUND / UNPROCESSABLE_CONTENT / CONFLICT) is code in that one shipped
+file, not a convention for you to re-implement (TN-26-004).
+
 **Value objects parse with zod** — `pi-harness-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level
 `const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of

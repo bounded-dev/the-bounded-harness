@@ -15,6 +15,8 @@ import {
   scaffoldContract,
   runScaffold,
   skeletonPathFor,
+  serviceRuntimeTargets,
+  shippedServiceRuntimeSource,
 } from "./scaffold-contract.ts";
 import { lawsPathFor, valueObjectLawsSource } from "./value-object-laws.ts";
 import { stripConformance } from "./deliver.ts";
@@ -1192,5 +1194,92 @@ export function normalize(currency: Currency): Currency {
     expect(r.code).toBe(1);
     expect(r.lines.some((l) => l.includes("pruned"))).toBe(false);
     expect(existsSync(join(dir, "src/money/money.ts"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The API-service runtime (TN-26-004): shipped by the sync, never written
+// ---------------------------------------------------------------------------
+
+describe("runScaffold: the service runtime is shipped where a contract points", () => {
+  const dirs: string[] = [];
+  const project = (files: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "scaffold-rt-"));
+    dirs.push(dir);
+    for (const [rel, source] of Object.entries(files)) {
+      const path = join(dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    return dir;
+  };
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  const API_CONTRACT = `import type { Ack } from "./service-runtime.js";
+import type { IngestReportCommand } from "./commands.js";
+
+export interface ServiceCaller {
+  ingestReport(raw: unknown): Promise<Ack>;
+}
+export declare function createServiceCaller(deps: { readonly now: () => string }): ServiceCaller;
+`;
+
+  test("a contract importing ./service-runtime.js gets the canonical copy, marker first", () => {
+    const dir = project({ "src/api/api.contract.ts": API_CONTRACT });
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    const rt = join(dir, "src/api/service-runtime.ts");
+    expect(existsSync(rt)).toBe(true);
+    const source = readFileSync(rt, "utf8");
+    expect(isGeneratedArtifact(source)).toBe(true);
+    expect(source).toContain("createService");
+    expect(source).toContain('code: "BAD_REQUEST"');
+    expect(source).toBe(shippedServiceRuntimeSource());
+    expect(r.lines.some((l) => l.includes("service-runtime.ts (API-service runtime"))).toBe(true);
+  });
+
+  test("re-running changes nothing; a component that stops being a service loses the copy", () => {
+    const dir = project({ "src/api/api.contract.ts": API_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    const rt = join(dir, "src/api/service-runtime.ts");
+    const first = readFileSync(rt, "utf8");
+    const second = runScaffold(dir);
+    expect(second.code).toBe(0);
+    expect(readFileSync(rt, "utf8")).toBe(first);
+    expect(second.lines.some((l) => l.includes("API-service runtime"))).toBe(false); // compare-and-skip
+
+    // The contract stops importing the runtime → the sync prunes the copy.
+    writeFileSync(
+      join(dir, "src/api/api.contract.ts"),
+      'export declare function ping(raw: unknown): "pong";\n',
+    );
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(rt)).toBe(false);
+  });
+
+  test("an unmarked file already at the runtime's path is a block, not a keep", () => {
+    const dir = project({
+      "src/api/api.contract.ts": API_CONTRACT,
+      "src/api/service-runtime.ts": "export const handRolled = true;\n",
+    });
+    const r = runScaffold(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toMatch(/does not carry the generated marker/);
+    // The hand-written file survives untouched — non-destructive even in refusal.
+    expect(readFileSync(join(dir, "src/api/service-runtime.ts"), "utf8")).toBe(
+      "export const handRolled = true;\n",
+    );
+  });
+
+  test("serviceRuntimeTargets resolves the specifier relative to the contract", () => {
+    expect(
+      serviceRuntimeTargets(
+        'import type { Ack } from "./service-runtime.js";\nimport type { X } from "../other/service-runtime.js";\n',
+        "/repo/src/api/api.contract.ts",
+      ),
+    ).toEqual(["/repo/src/api/service-runtime.ts", "/repo/src/other/service-runtime.ts"]);
+    expect(serviceRuntimeTargets('import type { Y } from "./values.js";\n', "/r/c.contract.ts")).toEqual([]);
   });
 });

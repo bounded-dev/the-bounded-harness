@@ -116,6 +116,35 @@ export function isGeneratedArtifact(source: string): boolean {
   return GENERATED_MARKER.test(firstNewline === -1 ? source : source.slice(0, firstNewline));
 }
 
+// --- The API-service runtime (TN-26-004) -------------------------------------
+//
+// A contract imports "./service-runtime.js" to declare itself a service
+// component; the scaffolder answers by shipping the pack's canonical runtime
+// to that exact path. The specifier is the address, so the copy always lands
+// where the contract is already pointing.
+
+const SERVICE_RUNTIME_SPECIFIER = /from\s+["']([^"']*service-runtime)\.js["']/g;
+
+/** Absolute .ts paths this contract's service-runtime imports resolve to,
+ *  deduplicated. Empty for a contract that never mentions the runtime. */
+export function serviceRuntimeTargets(contractSource: string, contractPath: string): string[] {
+  const out = new Set<string>();
+  for (const match of contractSource.matchAll(SERVICE_RUNTIME_SPECIFIER)) {
+    out.add(resolve(dirname(contractPath), `${match[1]!}.ts`));
+  }
+  return [...out].sort();
+}
+
+/** The canonical runtime with the generated marker as line 1 — byte-identical
+ *  on every emission, which is what lets the sync compare-and-skip. */
+export function shippedServiceRuntimeSource(): string {
+  const canonical = join(dirname(fileURLToPath(import.meta.url)), "..", "api", "service-runtime.ts");
+  return (
+    "// GENERATED from packs/ts/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\n" +
+    readFileSync(canonical, "utf8")
+  );
+}
+
 /**
  * Delete generated files whose source contract is gone, and the directories
  * that leaves empty. Returns what it removed, project-relative and posix.
@@ -846,6 +875,43 @@ export function runScaffold(
         summary: `wrote ${outRel}`,
         detail: { contract: contractPath, skeleton: outRel, createdErrorsModule },
       });
+    }
+
+    // --- The API-service runtime (TN-26-004, ADR 2026-029/030) --------------
+    //
+    // A contract that imports "./service-runtime.js" has declared itself a
+    // service component, and the runtime it names is SHIPPED, never written:
+    // the pack's canonical packs/ts/api/service-runtime.ts is copied to the
+    // resolved path with a GENERATED marker — the surface-check rule again,
+    // ONE implementation copied verbatim, so the error taxonomy is code the
+    // builder cannot vary. In `generated`, so a component that stops being a
+    // service loses its copy in the same sync that removes any other orphan.
+    // A file already at that path WITHOUT the marker is a block, not a keep:
+    // unlike a skeleton's sibling, this file is machinery, and a hand-written
+    // twin is exactly the fork the one-implementation rule exists to prevent.
+    for (const rtAbs of serviceRuntimeTargets(readFileSync(contractPath, "utf8"), contractPath)) {
+      const rtRel = relative(cwd, rtAbs).split(sep).join("/");
+      const shipped = shippedServiceRuntimeSource();
+      const current = existsSync(rtAbs) ? readFileSync(rtAbs, "utf8") : undefined;
+      if (current !== undefined && !isGeneratedArtifact(current)) {
+        const summary =
+          `${rtRel} exists but does not carry the generated marker — the service runtime is shipped ` +
+          "machinery (one implementation, copied verbatim), never hand-written; move the file aside and re-run";
+        logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary, detail: { contract: contractPath } });
+        return { code: 1, lines: [...lines, `scaffold: BLOCK — ${summary}`] };
+      }
+      if (current !== shipped) {
+        mkdirSync(dirname(rtAbs), { recursive: true });
+        writeFileSync(rtAbs, shipped);
+        lines.push(`scaffold: wrote ${rtRel} (API-service runtime, shipped verbatim from the pack)`);
+        logGuardEvent(cwd, {
+          guard: "scaffold",
+          verdict: "pass",
+          summary: `wrote ${rtRel}`,
+          detail: { contract: contractPath, runtime: rtRel },
+        });
+      }
+      generated.add(rtAbs);
     }
 
     // The value-object law suite is generated from the same frozen contract, in

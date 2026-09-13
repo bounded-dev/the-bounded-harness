@@ -67,7 +67,12 @@ export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts"];
 const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
-const SRC_ONLY_RULES = new Set(["pi-harness-ts/zod-backed-parse"]);
+const SRC_ONLY_RULES = new Set([
+  "pi-harness-ts/zod-backed-parse",
+  // Tests may import the framework freely (asserting a TRPCError is not
+  // re-mapping the taxonomy); only src/** is bound to the runtime's one door.
+  "pi-harness-ts/raw-framework-entry",
+]);
 
 /** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
  *  can require each one to be named in builder.md. The deterministic-check
@@ -85,6 +90,7 @@ export const SRC_RULE_IDS: readonly string[] = [
   "@typescript-eslint/ban-ts-comment",
   "pi-harness-ts/blessed-stacks-only",
   "pi-harness-ts/zod-backed-parse",
+  "pi-harness-ts/raw-framework-entry",
 ];
 
 /** The subset enforced on tests/** (size ceilings excluded). */
@@ -162,6 +168,10 @@ export function createSrcLinter(cwd?: string): ESLint {
           // hand-rolled typeof-chains drift across builders and blunt the
           // generated hostile laws. src/** only (see TEST_RULE_IDS).
           "pi-harness-ts/zod-backed-parse": "error",
+          // --- One door to the framework (TN-26-004) -----------------------
+          // Runtime imports of @trpc/* belong to the shipped service-runtime
+          // alone — the error taxonomy is code there, not convention here.
+          "pi-harness-ts/raw-framework-entry": "error",
         },
       },
     ],

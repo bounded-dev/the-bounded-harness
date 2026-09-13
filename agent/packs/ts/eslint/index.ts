@@ -5,6 +5,7 @@ import { noCrossContractTypeImport } from "./rules/no-cross-contract-type-import
 import { noErasedRouter } from "./rules/no-erased-router.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
 import { noSchemaOnSurface } from "./rules/no-schema-on-surface.ts";
+import { rawFrameworkEntry } from "./rules/raw-framework-entry.ts";
 import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { zodBackedParse } from "./rules/zod-backed-parse.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
@@ -28,6 +29,7 @@ export const plugin = {
     "no-erased-router": noErasedRouter,
     "no-schema-on-surface": noSchemaOnSurface,
     "blessed-stacks-only": blessedStacksOnly,
+    "raw-framework-entry": rawFrameworkEntry,
     "zod-backed-parse": zodBackedParse,
   },
 } as const;
