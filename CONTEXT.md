@@ -183,6 +183,42 @@ _Avoid_: session start (that's when the process opened), first event
 The role-scoped view of the `typecheck` tool the two workers and the reviewer get: diagnostics in the caller's own zone and in the shared interface (`*.contract.ts`, `spec.md`, the project config) in full; every other diagnostic collapsed to a count plus the owning role, with no path, line or symbol name, and shown lines scrubbed of foreign path tokens. The architect's view is unscoped — it arbitrates and needs everything. "Clean in your zone" is a distinct verdict from "the project compiles", and the tool never prints `OK` over a red project.
 _Avoid_: filtered typecheck, partial typecheck, sanitized (that's `run_tests`)
 
+### Reference sets
+
+**Reference set**:
+The fixed, deterministic structure a pack rolls out for one capability —
+file layout, payload shapes, serialization, error taxonomy, gates — identical
+in every run, so only the genuine design decisions vary. First instance: the
+API-service set (TN-26-004).
+_Avoid_: template, boilerplate, starter
+
+**Blessed stack**:
+The one framework a pack binds to a capability (tRPC for typed frontend
+access, zod as schema engine), pack-pinned and pack-installed. Tickets name
+capabilities; a ticket naming a different stack is challenged and escalated,
+never obeyed (ADR 2026-029).
+_Avoid_: default library, preferred stack
+
+**How-stripping**:
+The intake act of reworking an incoming spec to pure "what is required",
+removing embedded implementation choices and recording what was removed. A
+stripped "how" that is a real constraint routes to the user as a product
+decision.
+_Avoid_: requirement laundering, scope cleaning
+
+**Command / Query (wire)**:
+The single value object every mutation (Command) or query (Query) accepts as
+its whole payload — nominal class, zod-backed parse, fields composed from
+the domain's existing value objects (ADR 2026-030). Writes return an
+acknowledgement, never data; ids inside commands are client-produced.
+_Avoid_: DTO, request object, params
+
+**Wire form**:
+The raw JSON shape a value object emits from `toJSON()` and accepts back in
+`parse` — the round-trip law `parse(toJSON(v)) ≡ v` is generated into its
+law suite when the value crosses an API boundary.
+_Avoid_: serialized form (unqualified), JSON representation
+
 ### Issue tracking
 
 **Board**:

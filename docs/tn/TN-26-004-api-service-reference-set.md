@@ -77,10 +77,16 @@ scalars, no anonymous option bags.
   what a valid building id is. The existing `no-naked-primitives` rule
   already polices the field types; a new shape rule polices the pairing
   (below).
-- Outputs are read models: plain readonly DTO types over value objects,
-  declared in the api contract. Whether mutations may return read models or
-  only acknowledgements is an open question below — r22 returned the full
-  status from ingest, and that stays legal until decided.
+- **Writes never return data.** A mutation's output is an acknowledgement
+  only — never a read model; anything the caller wants to see after a write,
+  it asks a query for. (r22's `ingestReport` returned the full building
+  status; it becomes non-conforming and is brought into line by the first
+  pack-era change run.) The exact acknowledgement shape is an open question
+  below; that it carries no domain data is decided.
+- **Ids are client-produced.** The caller mints entity ids and sends them in
+  the command; the system never relies on store-generated ids. This is what
+  makes commands replayable and idempotency expressible at the boundary —
+  the command names its subject instead of asking the store to invent one.
 
 This gives the boundary one identity per request: the procedure's input type
 IS the command, the command IS a value object, and the value object IS the
@@ -144,6 +150,7 @@ enforcement, not advice:
 | `no-naked-primitives` (existing) | purity lint | primitive fields inside commands, queries, read models |
 | `zod-backed-parse` | zone lint on VO implementations | a value object `parse` with hand-rolled structural validation instead of a zod schema |
 | `no-schema-on-surface` | purity lint | any zod type or schema constant exported from a contract |
+| `writes-return-ack` | purity lint | a mutation whose declared output is anything but the pack's acknowledgement type — writes never return data |
 | `blessed-stacks-only` | zone lint on `src/**` | imports of non-allowlisted API/schema frameworks (graphql, express, fastify, ajv, …) |
 | round-trip law | generated test | a value object whose wire form does not parse back to an equal value |
 | API hostile probes | generated test | a procedure that maps malformed input to anything but `BAD_REQUEST`, or leaks internals on unexpected failure |
@@ -178,8 +185,14 @@ domain rather than the wire.
 
 ## Open questions
 
-- May mutations return read models (r22 did; CQRS purism says acknowledge
-  only)? Pick once, gate the shape if gateable.
+- The acknowledgement shape: nothing at all, or a minimal receipt (applied vs
+  idempotent-replay)? Decided only that it carries no domain data.
+- Do commands carry a client-minted command id as a dedupe key, distinct from
+  the entity ids they name?
+- Same client-minted id, different payload: conflict error or replace? (The
+  cockpit precedent is replace-by-(building, period).)
+- Read side depth: queries through the same store port as writes (r22), or a
+  separate read port from day one?
 - Migration: existing value objects (cockpit arm, three delivered runs) are
   hand-rolled — does `zod-backed-parse` apply to new VOs only, or does the
   first service run on a tree migrate its domain VOs (a change run of its
