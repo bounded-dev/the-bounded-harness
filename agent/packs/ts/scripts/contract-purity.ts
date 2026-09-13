@@ -34,6 +34,8 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "pi-harness-ts/value-object-documented",
   "pi-harness-ts/value-objects-own-contract",
   "pi-harness-ts/no-cross-contract-type-import",
+  "pi-harness-ts/no-erased-router",
+  "pi-harness-ts/no-schema-on-surface",
 ];
 
 export function createContractLinter(): ESLint {
@@ -76,6 +78,14 @@ export function createContractLinter(): ESLint {
           // 2026-023) at contract-purity; the scaffolder keeps the same refusal
           // as a backstop (ADR 2026-027).
           "pi-harness-ts/no-cross-contract-type-import": "error",
+          // The API-service reference set (TN-26-004). A type-erased framework
+          // type on a contract surface throws away the typed client (dogfood
+          // r22's `ServiceRouter = AnyRouter`); the inferred router type is
+          // re-exported from the implementation module instead (ADR 2026-030).
+          "pi-harness-ts/no-erased-router": "error",
+          // zod is the engine inside a value object, never a public identity:
+          // nothing from zod may appear in a contract (ADR 2026-031).
+          "pi-harness-ts/no-schema-on-surface": "error",
         },
       },
     ],

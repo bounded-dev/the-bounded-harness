@@ -487,6 +487,29 @@ So the `export type * from "./x.contract.js"` line the scaffolder writes into
 every skeleton is load-bearing and must survive to delivery — `deliver` strips
 the `__conformance` blob and leaves that re-export exactly where it is.
 
+## API-service contracts (TN-26-004)
+
+Two more purity rules apply the moment a contract describes a service
+surface:
+
+- **`no-erased-router`** — never declare the surface with a type-erased
+  framework type (`AnyRouter`, `AnyProcedure`, …). A client typed against
+  `AnyRouter` gets `unknown` inputs (dogfood r22 shipped exactly this). The
+  router's type is *inferred* from the implementation, so re-export it — the
+  same route ADR 2026-026 already sanctions for value objects:
+
+  ```ts
+  // src/api/api.contract.ts
+  import type { serviceRouter } from "./api.js"; // the impl module
+  export type ServiceRouter = typeof serviceRouter;
+  ```
+
+- **`no-schema-on-surface`** — nothing from zod may appear in a contract, as
+  an import, a type, or a re-export. The schema is the value object's
+  internal engine (ADR 2026-031); the contract's whole validation surface is
+  `static parse(raw: unknown): T | undefined`, exactly as for every other
+  value object.
+
 ## The guard log
 
 Every gate and the scaffolder append to `.pi/guard-log.jsonl` in the project —

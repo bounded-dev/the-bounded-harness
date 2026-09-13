@@ -1,7 +1,9 @@
 import { declarationOnly } from "./rules/declaration-only.ts";
 import { noBrandedAliases } from "./rules/no-branded-aliases.ts";
 import { noCrossContractTypeImport } from "./rules/no-cross-contract-type-import.ts";
+import { noErasedRouter } from "./rules/no-erased-router.ts";
 import { noNakedPrimitives } from "./rules/no-naked-primitives.ts";
+import { noSchemaOnSurface } from "./rules/no-schema-on-surface.ts";
 import { valueObjectDocumented } from "./rules/value-object-documented.ts";
 import { valueObjectShape } from "./rules/value-object-shape.ts";
 import { valueObjectsOwnContract } from "./rules/value-objects-own-contract.ts";
@@ -21,6 +23,8 @@ export const plugin = {
     "value-object-documented": valueObjectDocumented,
     "value-objects-own-contract": valueObjectsOwnContract,
     "no-cross-contract-type-import": noCrossContractTypeImport,
+    "no-erased-router": noErasedRouter,
+    "no-schema-on-surface": noSchemaOnSurface,
   },
 } as const;
 

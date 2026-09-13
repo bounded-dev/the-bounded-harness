@@ -194,7 +194,15 @@ with an interface / type-alias / operation that references it — value objects
 get their own `*.contract.ts`; see below), and
 `pi-harness-ts/no-cross-contract-type-import` (a contract may not `import type`
 or `export type … from` another `*.contract.ts` — reach a sibling component
-through its implementation module; see below).
+through its implementation module; see below), and
+`pi-harness-ts/no-erased-router` (a type-erased framework type — `AnyRouter`
+and kin — may not describe a service surface: the router's type is inferred,
+so re-export it from the implementation module, `export type ServiceRouter =
+typeof serviceRouter`; ADR 2026-030), and
+`pi-harness-ts/no-schema-on-surface` (nothing from zod may appear in a
+contract — the schema is the value object's internal engine, and the
+contract's whole validation surface is `static parse(raw: unknown)`; ADR
+2026-031).
 
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
