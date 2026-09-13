@@ -154,6 +154,9 @@ enforcement, not advice:
 | `no-schema-on-surface` | purity lint | any zod type or schema constant exported from a contract |
 | `writes-return-ack` | purity lint | a mutation whose declared output is anything but the pack's acknowledgement type — writes never return data |
 | `blessed-stacks-only` | zone lint on `src/**` | imports of non-allowlisted API/schema frameworks (graphql, express, fastify, ajv, …) |
+| `raw-framework-entry` | zone lint on `src/**` | `initTRPC` (and kin) used anywhere outside the pack-shipped procedure wrapper |
+| intake presence | phase gate (existing spec check) | commissioning workers over a `spec.md` with no `## Intake` section |
+| tech-noun denylist | purity-layer lint on `spec.md` | stack nouns surviving intake into the spec (curated list, packs contribute) |
 | round-trip law | generated test | a value object whose wire form does not parse back to an equal value |
 | API hostile probes | generated test | a procedure that maps malformed input to anything but `BAD_REQUEST`, or leaks internals on unexpected failure |
 | stack pin | deliver step | a tree whose installed @trpc/server or zod differs from the pack pin, or is missing |
@@ -162,6 +165,51 @@ Not gateable, and named as such: whether the *exposure design* is right
 (which operations, their granularity) — that stays architect judgment plus
 the reviewer's challenge, and the CQRS shape rule at least guarantees the
 reviewer reads it in one fixed vocabulary.
+
+## Leaning out of steering — the mechanization ledger
+
+Grill follow-up (2026-09-13): the set as first drafted still leaned on
+guidance in four places. Determinism over minimalism applies; each gets a
+mechanical form, and skills demote to explanation (ADR 2026-018's
+bidirectional briefs), never enforcement:
+
+1. **Intake becomes an information-flow boundary, not an instruction.** The
+   bulletproof version of how-stripping is the same trick that makes worker
+   blindness real: **the architect never sees the raw ticket.** Intake is a
+   step the driver runs (deterministically launched, like role binding)
+   whose output — the requirement document — is the only text the architect
+   session receives; a "how" the architect never read cannot leak into the
+   design. Backstops: the phase gate's existing spec check also requires an
+   `## Intake` section (trivially deterministic — today it already checks
+   size); and a curated technology-noun denylist lint over `spec.md`
+   (graphql, express, kafka, …, contributed per pack) catches the crude
+   leaks. Residue for judgment: whether a stripped how is a real constraint
+   — that escalates to the user, by design, forever.
+2. **Structure is emitted, not described.** A `new-api-service` scaffolder
+   (precedent: `new-value-object`) generates the reference layout — the api
+   contract skeleton with the pack's Ack type, the commands contract file,
+   the ports/context wiring, the standalone HTTP entry point, and the
+   generated law suites wired in. The skill stops being the thing that
+   makes runs identical; the generator is. Residue: which operations exist
+   and what they are called.
+3. **The error taxonomy becomes a runtime, not a convention.** The pack
+   ships one procedure-definition wrapper into the target (the
+   surface-check pattern: one file, copied verbatim, pinned) that performs
+   the parse→`BAD_REQUEST`, declared-policy→`CONFLICT`/`NOT_FOUND`,
+   catch-all→`INTERNAL` mapping mechanically; a lint bans touching the
+   framework's raw entry points (`initTRPC`) anywhere but inside that
+   wrapper. The taxonomy is then not tested into existence — it is
+   structurally impossible to hand-roll. The generated hostile probes stay,
+   as proof rather than as the only line of defence.
+4. **Value objects start generated, so hand-rolling never begins.**
+   `new-value-object` grows the zod-backed template (schema + `parse` +
+   `toJSON` + brand) and the law suite comes with it; `zod-backed-parse`
+   lint then polices drift, not adoption. Residue: the schema's domain
+   judgment — which the generated hostile laws interrogate.
+
+What is left to steering after this is exactly what should be: whether to
+expose something at all, what to call it, and whether a stripped "how" was
+load-bearing. Everything shape-like is generator + lint + generated test.
 
 ## What stays agent, what becomes machine
 
