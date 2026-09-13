@@ -46,6 +46,7 @@ import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export type { Problem };
 import parser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
+import harnessPlugin from "../eslint/index.ts";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
@@ -64,6 +65,9 @@ export const DEFAULT_PATTERNS: readonly string[] = ["src/**/*.ts"];
  *  is one "function" to max-lines-per-function. */
 export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts"];
 const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
+// Value objects live in src/**; a test file declares none, so the zod rule
+// would only ever fire on a test HELPER faking one — which the laws own.
+const SRC_ONLY_RULES = new Set(["pi-harness-ts/zod-backed-parse"]);
 
 /** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
  *  can require each one to be named in builder.md. The deterministic-check
@@ -79,10 +83,14 @@ export const SRC_RULE_IDS: readonly string[] = [
   "@typescript-eslint/consistent-type-assertions",
   "@typescript-eslint/no-explicit-any",
   "@typescript-eslint/ban-ts-comment",
+  "pi-harness-ts/blessed-stacks-only",
+  "pi-harness-ts/zod-backed-parse",
 ];
 
 /** The subset enforced on tests/** (size ceilings excluded). */
-export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter((r) => !SIZE_RULES.has(r));
+export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter(
+  (r) => !SIZE_RULES.has(r) && !SRC_ONLY_RULES.has(r),
+);
 
 export function createSrcLinter(cwd?: string): ESLint {
   return new ESLint({
@@ -100,7 +108,10 @@ export function createSrcLinter(cwd?: string): ESLint {
         languageOptions: { parser },
         // @typescript-eslint RuleModule and eslint's flat-config Plugin type
         // are structurally incompatible (known upstream friction); runtime fine.
-        plugins: { "@typescript-eslint": tsPlugin as unknown as ESLint.Plugin },
+        plugins: {
+          "@typescript-eslint": tsPlugin as unknown as ESLint.Plugin,
+          "pi-harness-ts": harnessPlugin as unknown as ESLint.Plugin,
+        },
         // The file under inspection does not get a vote on whether it is
         // inspected: no eslint-disable, no inline severity override.
         linterOptions: { noInlineConfig: true },
@@ -140,6 +151,17 @@ export function createSrcLinter(cwd?: string): ESLint {
               "ts-check": false,
             },
           ],
+          // --- The blessed-stack binding (ADR 2026-029) --------------------
+          // Known non-blessed API frameworks and schema engines may not be
+          // imported: the stack is harness policy, and this is the layer of
+          // the binding that holds when no skill loaded and no dependency
+          // rule intervened. tRPC and zod are the blessed members.
+          "pi-harness-ts/blessed-stacks-only": "error",
+          // --- zod inside every value object (ADR 2026-031) ----------------
+          // A branded class's static parse must delegate to a zod schema;
+          // hand-rolled typeof-chains drift across builders and blunt the
+          // generated hostile laws. src/** only (see TEST_RULE_IDS).
+          "pi-harness-ts/zod-backed-parse": "error",
         },
       },
     ],
@@ -230,7 +252,9 @@ async function classify(cwd: string, patterns: string[], options: { dropSizeRule
 
   if (options.dropSizeRules) {
     for (const r of results) {
-      r.messages = r.messages.filter((m) => m.ruleId === null || !SIZE_RULES.has(m.ruleId));
+      r.messages = r.messages.filter(
+        (m) => m.ruleId === null || (!SIZE_RULES.has(m.ruleId) && !SRC_ONLY_RULES.has(m.ruleId)),
+      );
     }
   }
   if (options.dropSizeRules) {

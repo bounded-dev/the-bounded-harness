@@ -144,6 +144,18 @@ that is a `CONTRACT-DISPUTE`, not a cast. The canonical value-object class
 needs none of these: `new Currency(raw)` inside `static parse` is a real
 constructor, and composite parsers narrow with `in`, never `as`.
 
+**The stack is policy, not preference** — `pi-harness-ts/blessed-stacks-only`
+refuses imports of non-blessed API frameworks and schema engines (graphql,
+express, fastify, ajv, joi, yup, …). tRPC (`@trpc/server`) is the RPC stack
+and zod the schema engine (ADR 2026-029); if the spec seems to require a
+banned framework, that is a `CONTRACT-DISPUTE`, not an import.
+
+**Value objects parse with zod** — `pi-harness-ts/zod-backed-parse`: a
+branded class's `static parse` must delegate to a zod schema (module-level
+`const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of
+the value objects it contains rather than re-checking them by hand (ADR
+2026-031). Hand-rolled `typeof` chains are refused.
+
 **Size and complexity ceilings** — `complexity` max 15 per function,
 `max-lines-per-function` 60 (comments and blanks free), `max-lines` 350 per
 file, `max-depth` 4. These are ceilings, not targets. If an implementation
