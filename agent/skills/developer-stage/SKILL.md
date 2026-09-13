@@ -86,6 +86,12 @@ removes it at the end of the run.
      minutes at exactly this point). Stop and ask ONLY if the user explicitly
      requested a design review, or a genuine product decision — not a design
      choice — is yours to guess at.
+   - **A ticket exposing a component to callers is an api-service ticket.**
+     Load the pack's `ts-api-service` skill before designing: the service
+     structure, payload shapes, serialization and error taxonomy are a fixed
+     reference set (TN-26-004), not per-run design — and its rules enforce
+     themselves whether or not you read them, so reading them first is the
+     cheap path.
    - **Have it challenged before you freeze it.** Once the contract settles and
      `contract_purity` is clean, commission the **`reviewer`** subagent ONCE on
      the spec and every contract file. It is read-only — no pen anywhere in the
