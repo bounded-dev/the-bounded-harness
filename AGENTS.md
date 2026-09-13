@@ -47,6 +47,21 @@ rules, not just today's dozens.
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
   product judgment). Don't add roles ad hoc (ADR 2026-003).
 
+## Working with the user
+
+- **Plain language over internal vocabulary.** The user (and most readers)
+  understand the harness's *concepts* but not its mechanical internals. When
+  reporting or discussing, describe each mechanism by what it does ("an
+  instruction package that loads automatically when the task looks like
+  building an API") and attach the internal name only when it is needed for a
+  follow-up. Don't lean on terms like pack skill, purity rule, re-freeze, or
+  wire-boundary convention as if they are self-explanatory.
+- **Durable guidance lives here, not in agent memory.** Do not write Claude
+  memories (or any per-agent memory store) for this project — including
+  preferences like this one. Anything worth remembering across sessions
+  belongs in this file, an ADR, or a TN, where every agent and every human
+  reads the same record.
+
 ## Issue tracking
 
 All work is tracked in GitHub Issues plus a per-repo board (GitHub Projects
