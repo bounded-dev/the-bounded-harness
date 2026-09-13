@@ -510,6 +510,13 @@ surface:
   `static parse(raw: unknown): T | undefined`, exactly as for every other
   value object.
 
+And one opt-in with a generated reward: a value object that crosses the wire
+declares `toJSON(): <raw form>` — the exact shape its own `parse` accepts.
+Declaring it adds the **round-trip law** to the generated suite
+(`parse(toJSON(v)) ≡ v`, exercised through `JSON.stringify` as the transport
+will), so serialization correctness is machine-tested, never remembered.
+Landlocked domain types skip `toJSON` and skip the law.
+
 ## The guard log
 
 Every gate and the scaffolder append to `.pi/guard-log.jsonl` in the project —

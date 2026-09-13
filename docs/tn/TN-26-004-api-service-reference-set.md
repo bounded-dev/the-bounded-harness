@@ -128,17 +128,30 @@ value object itself:
 - Command parse composes field parses, so one malformed leaf fails the whole
   command with the field path named — which feeds the error taxonomy below.
 
-## The error taxonomy: fixed table, generated probes
+## The error taxonomy: fixed table, held by composition
 
 Pack-owned, total, closed: malformed payload (command/query parse failure) →
-`BAD_REQUEST` naming the field path; unknown resource → `NOT_FOUND`; violated
-domain invariant on a well-formed payload → `UNPROCESSABLE_CONTENT`;
-everything else → `INTERNAL_SERVER_ERROR` carrying nothing. Alongside the
-table, a **generated API law suite**: for every declared procedure, generated
-tests feed a top-level non-object, an unknown enum name, and a missing
-required field, asserting the mapped code. Run 22's two confessed coverage
-holes (non-object body, unknown threshold-set name) are exactly the tests
-this generator writes; that class of hole becomes structural, not findable.
+`BAD_REQUEST`; unknown resource → `NOT_FOUND`; violated domain invariant on a
+well-formed payload → `UNPROCESSABLE_CONTENT`; duplicate client-minted id on
+a `conflict`-declared command → `CONFLICT`; everything else →
+`INTERNAL_SERVER_ERROR` carrying nothing.
+
+**Implementation finding (slice E): no per-target probe generator is needed.**
+The taxonomy holds by composition of three things that are each already
+machine-checked: (1) commands and queries are value objects, so the generated
+law suites already feed every one of them the hostile corpus — non-object
+bodies, unknown enum names, missing fields all land in `parse → undefined`;
+(2) the shipped runtime maps `undefined` to `BAD_REQUEST` before any resolver
+runs, and that mapping is pinned by the runtime's own tests in the harness;
+(3) the runtime ships byte-identical (scaffolder sync compares against the
+canonical copy) and `raw-framework-entry` closes every other door to the
+framework. Run 22's two confessed coverage holes are both instances of (1)
+and stop existing the moment commands are value objects. What lint cannot
+decide — whether an operation is *semantically* a write — stays with the
+reviewer; everything downstream of that choice is machinery. (Field-path
+detail in `BAD_REQUEST` messages is deferred: it needs a parse-with-issues
+door that respects `no-schema-on-surface`; v1 names the command, not the
+field.)
 
 ## What is gated — the deterministic core
 
@@ -158,7 +171,8 @@ enforcement, not advice:
 | intake presence | phase gate (existing spec check) | commissioning workers over a `spec.md` with no `## Intake` section |
 | tech-noun denylist | purity-layer lint on `spec.md` | stack nouns surviving intake into the spec (curated list, packs contribute) |
 | round-trip law | generated test | a value object whose wire form does not parse back to an equal value |
-| API hostile probes | generated test | a procedure that maps malformed input to anything but `BAD_REQUEST`, or leaks internals on unexpected failure |
+| hostile wire inputs | generated test | a command/query value object accepting any of the hostile corpus (the law suite — covers non-object bodies, unknown names, missing fields) |
+| runtime byte-identity | scaffolder sync | a service-runtime.ts differing from the pack's canonical copy (edits do not survive a design_gate) |
 | stack pin | deliver step | a tree whose installed @trpc/server or zod differs from the pack pin, or is missing |
 
 Not gateable, and named as such: whether the *exposure design* is right

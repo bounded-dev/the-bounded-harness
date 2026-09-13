@@ -62,7 +62,7 @@ describe("valueObjectsOf", () => {
     expect(valueObjectsOf(CURRENCY, CONTRACT)).toEqual([
       // base "string" is inferred from the @accepts examples: Currency's nominal
       // field is `code`, not `value`, so the field read falls through.
-      { name: "Currency", accepts: ['"USD"', '"EUR"'], hasEquals: true, base: "string" },
+      { name: "Currency", accepts: ['"USD"', '"EUR"'], hasEquals: true, hasToJson: false, base: "string" },
     ]);
   });
 
@@ -74,7 +74,7 @@ describe("valueObjectsOf", () => {
        }`,
       CONTRACT,
     );
-    expect(vo).toEqual({ name: "Isbn", accepts: [], hasEquals: false });
+    expect(vo).toEqual({ name: "Isbn", accepts: [], hasEquals: false, hasToJson: false });
   });
 
   test("non-exported classes, interfaces and functions are not value objects", () => {
@@ -171,6 +171,25 @@ describe("generated file", () => {
     expect(source.split("\n")[0]).toBe(
       "// GENERATED from pricing.contract.ts by packs/ts/scripts/value-object-laws.ts — do not edit.",
     );
+  });
+
+  // TN-26-004: toJSON() is the opt-in for the wire round-trip law. CURRENCY
+  // declares none, so the law must be absent — a law generated for a value
+  // object with no wire form would fail on every landlocked domain type.
+  test("no toJSON, no round-trip law", () => {
+    expect(source).not.toContain("round-trips through its wire form");
+  });
+
+  test("a declared toJSON() generates the wire round-trip law", () => {
+    const withWire = CURRENCY.replace(
+      "  equals(other: Currency): boolean;",
+      "  equals(other: Currency): boolean;\n  toJSON(): string;",
+    );
+    const generated = valueObjectLawsSource(withWire, CONTRACT);
+    expect(generated).toContain('test("round-trips through its wire form"');
+    expect(generated).toContain("JSON.parse(JSON.stringify(v))");
+    expect(generated).toContain("Currency.parse(wire)");
+    expect(generated).toContain("expect(again).toStrictEqual(v);");
   });
 
   test("the header justifies skipping over failing, because of the red gate", () => {

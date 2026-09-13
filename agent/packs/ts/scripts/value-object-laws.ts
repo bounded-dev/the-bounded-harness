@@ -197,6 +197,9 @@ export interface ValueObjectInfo {
   /** Verbatim expression texts from JSDoc `@accepts` tags, in source order. */
   readonly accepts: readonly string[];
   readonly hasEquals: boolean;
+  /** Instance `toJSON()` declared — the value object states its wire form, so
+   *  the round-trip law parse(toJSON(v)) ≡ v applies (TN-26-004). */
+  readonly hasToJson: boolean;
   /** The base primitive this value object wraps ("number" | "string" | …), read
    *  from the nominal `readonly value: <primitive>` field (ADR 2026-015) or, when
    *  absent, inferred from the first `@accepts` example. Absent when unknowable,
@@ -309,6 +312,10 @@ export function valueObjectsOf(contractSource: string, contractFileName: string)
       .getMembers()
       .filter(Node.isMethodDeclaration)
       .some((m) => m.getName() === "equals" && !m.hasModifier(SyntaxKind.StaticKeyword));
+    const hasToJson = stmt
+      .getMembers()
+      .filter(Node.isMethodDeclaration)
+      .some((m) => m.getName() === "toJSON" && !m.hasModifier(SyntaxKind.StaticKeyword));
 
     let unsupported: string | undefined;
     if (stmt.getTypeParameters().length > 0) {
@@ -324,6 +331,7 @@ export function valueObjectsOf(contractSource: string, contractFileName: string)
       name,
       accepts,
       hasEquals,
+      hasToJson,
       ...(base !== undefined ? { base } : {}),
       ...(unsupported !== undefined ? { unsupported } : {}),
     });
@@ -530,6 +538,23 @@ function writeLaws(w: CodeBlockWriter, vo: ValueObjectInfo, contractBase: string
     w.writeLine(`expect(${mustFirst}).toStrictEqual(${mustFirst});`);
   });
   w.write(");").newLine();
+
+  // Law 3b — the wire round trip (TN-26-004). Only for value objects that
+  // DECLARE a wire form: toJSON() is the opt-in, made when the value crosses
+  // an API boundary. JSON.stringify exercises toJSON exactly as the transport
+  // will, nesting included, and the parse door must accept what it emitted.
+  if (vo.hasToJson) {
+    w.blankLine();
+    w.write(`test("round-trips through its wire form", () => `).inlineBlock(() => {
+      w.writeLine(`const v = ${mustFirst};`);
+      w.writeLine("const wire: unknown = JSON.parse(JSON.stringify(v));");
+      w.writeLine(
+        `const again = mustParse(${name}.parse(wire), ${q(`${name}.parse(<its own wire form>)`)});`,
+      );
+      w.writeLine("expect(again).toStrictEqual(v);");
+    });
+    w.write(");").newLine();
+  }
 
   if (!vo.hasEquals) return;
 
