@@ -12,7 +12,7 @@
 // be unit-tested without spawning pi.
 
 import { logGuardEvent, RUN_START_GUARD } from "./guard-log.ts";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
@@ -412,11 +412,11 @@ export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
  * come back as "no override" — so a broken config still cannot cost a run.
  */
 function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEvidence {
-  let specBytes = 0;
+  let specText = "";
   try {
-    specBytes = statSync(join(cwd, "spec.md")).size;
+    specText = readFileSync(join(cwd, "spec.md"), "utf8");
   } catch {
-    specBytes = 0; // absent
+    specText = ""; // absent
   }
   let events: PhaseEvidence["events"] = [];
   try {
@@ -426,7 +426,7 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
   }
   return {
     contracts: findContracts(cwd),
-    specBytes,
+    specText,
     events,
     models: readDevStageModels(cwd),
     ...(known !== undefined ? { known } : {}),

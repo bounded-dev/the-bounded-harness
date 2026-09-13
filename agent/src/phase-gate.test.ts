@@ -4,6 +4,8 @@ import {
   checkSubagentCall,
   checkTierResolvable,
   detectMultiSpawn,
+  specIntakeSection,
+  techNounsOutsideIntake,
   type PhaseEvidence,
 } from "./phase-gate.ts";
 import { parseDevStageModels } from "./dev-stage-models.ts";
@@ -45,7 +47,11 @@ const spawned = (role: string): LoggedGuardEvent =>
 /** Evidence for a design that has correctly completed every DESIGN step. */
 const READY: PhaseEvidence = {
   contracts: ["src/money.contract.ts"],
-  specBytes: 4000,
+  specText:
+    "# Money\n\n" +
+    "## Intake\n\nNothing stripped: the ticket named no implementation choices.\n\n" +
+    "## Rules\n\n" +
+    "Ordering, arithmetic, tie-breaks and identity. ".repeat(12),
   events: [
     ev("contract-purity", "pass"),
     ev("scaffold", "pass"),
@@ -60,7 +66,7 @@ describe("spawning the test-writer", () => {
 
   // The three-for-three failure.
   test("is refused when there is no spec", () => {
-    const d = checkSpawnPrecondition("test-writer", { ...READY, specBytes: 0 });
+    const d = checkSpawnPrecondition("test-writer", { ...READY, specText: "" });
     expect(d.allow).toBe(false);
     if (!d.allow) {
       expect(d.reason).toContain("spec.md");
@@ -72,8 +78,50 @@ describe("spawning the test-writer", () => {
   test("is refused when the spec is a stub rather than a document", () => {
     // An empty-file check is trivially satisfied by `touch spec.md`. The spec
     // carries arithmetic and ordering; a handful of bytes cannot.
-    const d = checkSpawnPrecondition("test-writer", { ...READY, specBytes: 40 });
+    const d = checkSpawnPrecondition("test-writer", { ...READY, specText: "# Money\ntodo" });
     expect(d.allow).toBe(false);
+  });
+
+  // ADR 2026-032: the Intake section is where stripped hows are recorded, so
+  // its absence means the reworking never demonstrably happened.
+  test("is refused when the spec has no Intake section", () => {
+    const noIntake = {
+      ...READY,
+      specText: "# Money\n\n## Rules\n\n" + "Ordering, arithmetic and identity. ".repeat(15),
+    };
+    const d = checkSpawnPrecondition("test-writer", noIntake);
+    expect(d.allow).toBe(false);
+    if (!d.allow) {
+      expect(d.reason).toContain('"## Intake"');
+      expect(d.reason).toContain("2026-032");
+      expect(d.reason).toContain("nothing stripped");
+    }
+  });
+
+  test("is refused when a stack noun survives outside the Intake section", () => {
+    const leaky = {
+      ...READY,
+      specText: READY.specText + "\nThe component is exposed to callers over GraphQL.\n",
+    };
+    const d = checkSpawnPrecondition("test-writer", leaky);
+    expect(d.allow).toBe(false);
+    if (!d.allow) {
+      expect(d.reason).toContain("graphql");
+      expect(d.reason).toMatch(/ratified|constraint/);
+    }
+  });
+
+  // The Intake section is the one legal home for a technology name: a stripped
+  // how is RECORDED there, and a user-ratified constraint is DOCUMENTED there.
+  test("a stack noun inside the Intake section is legal", () => {
+    const documented = {
+      ...READY,
+      specText:
+        "# Money\n\n## Intake\n\nStripped: the ticket asked for GraphQL; typed access is the requirement.\n\n" +
+        "## Rules\n\n" +
+        "Ordering, arithmetic, tie-breaks and identity. ".repeat(12),
+    };
+    expect(checkSpawnPrecondition("test-writer", documented).allow).toBe(true);
   });
 
   test("is refused when no contract exists at all", () => {
@@ -149,14 +197,14 @@ describe("spawning the builder", () => {
   });
 
   test("no refusal mentions the red gate any more", () => {
-    for (const evidence of [READY, { ...READY, specBytes: 0 }, { ...READY, contracts: [] }]) {
+    for (const evidence of [READY, { ...READY, specText: "" }, { ...READY, contracts: [] }]) {
       const d = checkSpawnPrecondition("builder", evidence);
       if (!d.allow) expect(d.reason).not.toMatch(/red_gate|red gate/);
     }
   });
 
   test("still requires everything the test-writer required", () => {
-    expect(checkSpawnPrecondition("builder", { ...READY, specBytes: 0 }).allow).toBe(false);
+    expect(checkSpawnPrecondition("builder", { ...READY, specText: "" }).allow).toBe(false);
     expect(checkSpawnPrecondition("builder", { ...READY, contracts: [] }).allow).toBe(false);
     expect(
       checkSpawnPrecondition("builder", { ...READY, events: [ev("contract-purity", "pass")] }).allow,
@@ -186,7 +234,7 @@ describe("spawns the gate does not govern", () => {
   // `scout` is read-only investigation during DESIGN — gating it would forbid
   // the very research the architect needs before it can write a contract.
   test("a read-only helper is never blocked", () => {
-    const empty: PhaseEvidence = { contracts: [], specBytes: 0, events: [] };
+    const empty: PhaseEvidence = { contracts: [], specText: "", events: [] };
     expect(checkSpawnPrecondition("scout", empty).allow).toBe(true);
     expect(checkSpawnPrecondition("product-expert", empty).allow).toBe(true);
   });
@@ -289,7 +337,7 @@ describe("cold respawn", () => {
 // cannot follow a script it never watches run, and it cannot bind a role to a
 // child it never sees named.
 
-const EMPTY: PhaseEvidence = { contracts: [], specBytes: 0, events: [] };
+const EMPTY: PhaseEvidence = { contracts: [], specText: "", events: [] };
 
 describe("detectMultiSpawn (pure)", () => {
   test("a plain one-child spawn is not a multi-spawn form", () => {
@@ -628,5 +676,44 @@ describe("a configured tier the registry cannot resolve refuses the spawn", () =
     expect(checkTierResolvable("reviewer", tiered(GOOD))).toBeUndefined();
     expect(checkTierResolvable("reviewer", READY)).toBeUndefined();
     expect(checkTierResolvable("scout", tiered(BAD))).toBeUndefined();
+  });
+});
+
+// --- intake helpers (ADR 2026-032) ------------------------------------------------
+
+describe("specIntakeSection / techNounsOutsideIntake", () => {
+  const SPEC =
+    "# Thing\n\nIntro.\n\n## Intake\n\nStripped: 'over GraphQL' — typed access is the need.\n\n## Behaviour\n\nRules.\n";
+
+  test("finds the Intake body and stops at the next same-level heading", () => {
+    const body = specIntakeSection(SPEC);
+    expect(body).toContain("Stripped: 'over GraphQL'");
+    expect(body).not.toContain("## Behaviour");
+    expect(body).not.toContain("Rules.");
+  });
+
+  test("returns undefined when there is no Intake heading", () => {
+    expect(specIntakeSection("# Thing\n\n## Behaviour\n")).toBeUndefined();
+  });
+
+  test("a deeper heading level and different case still count", () => {
+    expect(specIntakeSection("### INTAKE\nbody\n")).toBe("\nbody\n");
+  });
+
+  test("nouns inside Intake are exempt; the same noun outside is caught", () => {
+    expect(techNounsOutsideIntake(SPEC)).toEqual([]);
+    expect(techNounsOutsideIntake(SPEC + "\nAlso expose it via graphql.\n")).toEqual(["graphql"]);
+  });
+
+  test("word boundaries: 'expressed' does not trip 'express'", () => {
+    const spec = "## Intake\n\nNothing stripped.\n\n## Rules\nThe invariant is expressed as a law.\n";
+    expect(techNounsOutsideIntake(spec)).toEqual([]);
+  });
+
+  test("hyphenated names match whole, not inside longer tokens", () => {
+    const spec = "## Intake\n\nNothing.\n\n## Rules\nUses io-ts somewhere.\n";
+    expect(techNounsOutsideIntake(spec)).toEqual(["io-ts"]);
+    const notIt = "## Intake\n\nNothing.\n\n## Rules\nThe ratio-ts-factor is fine.\n";
+    expect(techNounsOutsideIntake(notIt)).toEqual([]);
   });
 });

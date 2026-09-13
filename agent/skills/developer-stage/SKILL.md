@@ -65,7 +65,12 @@ removes it at the end of the run.
      the request into what must be possible, for whom, under what rules;
      drop any embedded technology or mechanism choice ("over GraphQL", "as a
      cron job", "using library X") and record what you dropped in an
-     `## Intake` section of `spec.md`, so the reviewer can challenge it. If
+     `## Intake` section of `spec.md`, so the reviewer can challenge it. The
+     section is mandatory even when there was nothing to strip ("nothing
+     stripped" is a valid entry), and it is the one place a technology may
+     legally be named: the phase gate refuses to commission workers over a
+     spec with no Intake section, or with a non-blessed stack noun anywhere
+     outside it. If
      a dropped "how" is a genuine constraint — an existing system to
      integrate with, a contractual format — that is a product decision:
      surface it to the user; never silently obey it and never silently lose

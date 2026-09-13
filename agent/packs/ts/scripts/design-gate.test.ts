@@ -256,7 +256,9 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     expect(
       checkSpawnPrecondition("test-writer", {
         contracts: ["src/money/money.contract.ts"],
-        specBytes: 4000,
+        specText:
+          "# Money\n\n## Intake\n\nNothing stripped.\n\n## Rules\n\n" +
+          "Ordering, arithmetic, tie-breaks and identity. ".repeat(12),
         events,
       }).allow,
     ).toBe(true);

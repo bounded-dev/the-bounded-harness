@@ -91,8 +91,8 @@ export type Decision =
 export interface PhaseEvidence {
   /** Project-relative paths of the *.contract.ts files that exist. */
   readonly contracts: readonly string[];
-  /** Size of spec.md in bytes; 0 when absent. */
-  readonly specBytes: number;
+  /** Full text of spec.md; "" when absent or unreadable. */
+  readonly specText: string;
   /** The project's guard log, oldest first. */
   readonly events: readonly LoggedGuardEvent[];
   /**
@@ -117,6 +117,81 @@ export interface PhaseEvidence {
  * 147–335 lines, so a few hundred bytes is far below anything genuine.
  */
 const MIN_SPEC_BYTES = 400;
+
+// --- intake (ADR 2026-032) -------------------------------------------------------
+//
+// Every spec entering the stage is reworked to "what is required", and the
+// implementation choices stripped in that rework are recorded under an
+// `## Intake` heading — including the empty case ("nothing stripped"), so the
+// act is always visible and the reviewer always has something to challenge.
+//
+// The noun denylist is the crude mechanical backstop: names of non-blessed
+// API frameworks and schema engines (the two categories ADR 2026-029 governs)
+// appearing OUTSIDE the Intake section are a "how" that survived intake. The
+// Intake section itself is exempt on purpose — a stripped how is *recorded*
+// there, and a user-ratified constraint is *documented* there, both by name.
+//
+// The list lives here for now (the phase gate is language-agnostic root code,
+// the nouns are not); when a second pack exists, packs contribute their own
+// category members and this constant becomes the merge point. Bare English
+// collisions ("express" the verb) are accepted: the refusal message asks for
+// a reword, which costs a minute and keeps the check deterministic.
+
+/** Non-blessed stack nouns that must not survive intake into the spec body. */
+export const TECH_NOUN_DENYLIST: readonly string[] = [
+  "graphql",
+  "apollo",
+  "express",
+  "fastify",
+  "koa",
+  "hapi",
+  "restify",
+  "nestjs",
+  "ajv",
+  "joi",
+  "yup",
+  "superstruct",
+  "io-ts",
+  "runtypes",
+  "class-validator",
+  "valibot",
+  "arktype",
+];
+
+const INTAKE_HEADING = /^(#{2,6})\s+intake\b.*$/im;
+
+/**
+ * The body of the spec's Intake section, or undefined when no `## Intake`
+ * heading exists. The section runs to the next heading of the same or a
+ * shallower level, or to the end of the text.
+ */
+export function specIntakeSection(specText: string): string | undefined {
+  const match = INTAKE_HEADING.exec(specText);
+  if (match === null || match.index === undefined) return undefined;
+  const level = match[1]!.length;
+  const bodyStart = match.index + match[0].length;
+  const rest = specText.slice(bodyStart);
+  const next = new RegExp(`^#{1,${level}}\\s`, "m").exec(rest);
+  return next === null ? rest : rest.slice(0, next.index);
+}
+
+/**
+ * Denylisted stack nouns appearing OUTSIDE the Intake section, unique and
+ * sorted. Word-bounded, case-insensitive; the Intake body is excised first,
+ * because that is exactly where a stripped or user-ratified "how" is
+ * legitimately named.
+ */
+export function techNounsOutsideIntake(specText: string): string[] {
+  let body = specText;
+  const intake = specIntakeSection(specText);
+  if (intake !== undefined) body = specText.replace(intake, "");
+  const found = new Set<string>();
+  for (const noun of TECH_NOUN_DENYLIST) {
+    const pattern = new RegExp(`(?<![\\w-])${noun.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i");
+    if (pattern.test(body)) found.add(noun);
+  }
+  return [...found].sort();
+}
 
 /** Roles the phase gate governs. Anything else spawns freely. */
 const GATED_TARGETS = new Set(["test-writer", "builder"]);
@@ -159,7 +234,8 @@ function passed(events: readonly LoggedGuardEvent[], guard: string): boolean {
 export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence): Decision {
   if (!GATED_TARGETS.has(target)) return ALLOW; // scout, product-expert, …
 
-  const { contracts, specBytes, events } = evidence;
+  const { contracts, specText, events } = evidence;
+  const specBytes = Buffer.byteLength(specText, "utf8");
 
   if (contracts.length === 0) {
     return deny(
@@ -182,6 +258,25 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
       `phase-gate: cannot commission the ${target} — spec.md is ${specBytes} bytes, which is a ` +
         "placeholder rather than a document. It must carry the ordering, arithmetic and identity " +
         "rules the contract cannot express.",
+    );
+  }
+
+  if (specIntakeSection(specText) === undefined) {
+    return deny(
+      `phase-gate: cannot commission the ${target} — spec.md has no "## Intake" section ` +
+        "(ADR 2026-032). Every ticket is reworked to what-is-required, and the Intake section " +
+        "records the implementation choices stripped in that rework — \"nothing stripped\" is a " +
+        "valid entry — so the reviewer can challenge the reworking. Add it, then commission.",
+    );
+  }
+
+  const leaked = techNounsOutsideIntake(specText);
+  if (leaked.length > 0) {
+    return deny(
+      `phase-gate: cannot commission the ${target} — spec.md names ${leaked.join(", ")} outside ` +
+        "the Intake section. A technology a ticket names is a \"how\" that intake strips (ADR " +
+        "2026-032): remove it from the requirement text, or — if the user has ratified it as a " +
+        "genuine constraint — document it under \"## Intake\" with that rationale, where it is legal.",
     );
   }
 

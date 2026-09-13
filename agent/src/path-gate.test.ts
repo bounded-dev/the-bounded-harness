@@ -165,7 +165,10 @@ describe("ungated tools pass through untouched", () => {
 /** Evidence of a completed design, written into the project the gate reads. */
 function readyProject(): string {
   const cwd = tmp();
-  writeFileSync(join(cwd, "spec.md"), "x".repeat(4000));
+  writeFileSync(
+    join(cwd, "spec.md"),
+    "## Intake\n\nNothing stripped.\n\n## Rules\n\n" + "x".repeat(4000),
+  );
   mkdirSync(join(cwd, "src"), { recursive: true });
   writeFileSync(join(cwd, "src", "money.contract.ts"), "export type Money = number;\n");
   for (const guard of ["contract-purity", "scaffold", "checksum-gate"]) {
