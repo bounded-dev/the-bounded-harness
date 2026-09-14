@@ -240,6 +240,16 @@ load-bearing. Everything shape-like is generator + lint + generated test.
 
 ## Validation
 
+> **Validated (Run 23, 2026-09-14).** Both re-runs delivered green with the
+> identical five-file structure and zero expertise in the ticket: the
+> GraphQL-worded variant stripped the technology into the Intake section
+> (nothing leaked into code), and the one-sentence ticket derived the
+> operations from the core's delivered surface. Residue tracked in the run's
+> dogfooding entry: router-type re-export is omitted (legal) rather than
+> present — consider a rule that requires it; Ack was once re-declared
+> structurally instead of re-exported; decomposition width vs mutation
+> density stays on the watchlist.
+
 Re-run Run 22's task with (a) the prompt stripped of all smuggled expertise,
 (b) the capability phrased without naming any framework, and (c) a variant
 ticket that explicitly asks for GraphQL. Pass = identical structure lands
