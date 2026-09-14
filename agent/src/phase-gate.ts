@@ -95,6 +95,10 @@ export interface PhaseEvidence {
   readonly specText: string;
   /** The project's guard log, oldest first. */
   readonly events: readonly LoggedGuardEvent[];
+  /** Stack nouns contributed by installed packs (TN-26-005) that must not
+   *  survive intake into the spec body. Absent or empty = no contributions,
+   *  and the noun check is vacuous — never a refusal. */
+  readonly techNouns?: readonly string[];
   /**
    * The project's seat→model tiers. Absent means the caller could not read
    * them, which is the same as none being configured: no policy, no refusal.
@@ -126,37 +130,18 @@ const MIN_SPEC_BYTES = 400;
 // act is always visible and the reviewer always has something to challenge.
 //
 // The noun denylist is the crude mechanical backstop: names of non-blessed
-// API frameworks and schema engines (the two categories ADR 2026-029 governs)
-// appearing OUTSIDE the Intake section are a "how" that survived intake. The
-// Intake section itself is exempt on purpose — a stripped how is *recorded*
-// there, and a user-ratified constraint is *documented* there, both by name.
+// stacks appearing OUTSIDE the Intake section are a "how" that survived
+// intake. The Intake section itself is exempt on purpose — a stripped how is
+// *recorded* there, and a user-ratified constraint is *documented* there,
+// both by name.
 //
-// The list lives here for now (the phase gate is language-agnostic root code,
-// the nouns are not); when a second pack exists, packs contribute their own
-// category members and this constant becomes the merge point. Bare English
-// collisions ("express" the verb) are accepted: the refusal message asks for
-// a reword, which costs a minute and keeps the check deterministic.
-
-/** Non-blessed stack nouns that must not survive intake into the spec body. */
-export const TECH_NOUN_DENYLIST: readonly string[] = [
-  "graphql",
-  "apollo",
-  "express",
-  "fastify",
-  "koa",
-  "hapi",
-  "restify",
-  "nestjs",
-  "ajv",
-  "joi",
-  "yup",
-  "superstruct",
-  "io-ts",
-  "runtypes",
-  "class-validator",
-  "valibot",
-  "arktype",
-];
+// THE NOUNS ARE NOT CORE CONTENT (TN-26-005). This gate is the socket; the
+// words are pack contributions, merged from the installed packs'
+// contrib.json manifests by src/pack-contrib.ts and handed in as evidence.
+// A harness composed without a pack lacks that pack's nouns — the core names
+// no technology. Bare English collisions ("express" the verb) are accepted:
+// the refusal asks for a reword, which costs a minute and keeps the check
+// deterministic.
 
 const INTAKE_HEADING = /^(#{2,6})\s+intake\b.*$/im;
 
@@ -181,12 +166,12 @@ export function specIntakeSection(specText: string): string | undefined {
  * because that is exactly where a stripped or user-ratified "how" is
  * legitimately named.
  */
-export function techNounsOutsideIntake(specText: string): string[] {
+export function techNounsOutsideIntake(specText: string, nouns: readonly string[]): string[] {
   let body = specText;
   const intake = specIntakeSection(specText);
   if (intake !== undefined) body = specText.replace(intake, "");
   const found = new Set<string>();
-  for (const noun of TECH_NOUN_DENYLIST) {
+  for (const noun of nouns) {
     const pattern = new RegExp(`(?<![\\w-])${noun.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i");
     if (pattern.test(body)) found.add(noun);
   }
@@ -270,7 +255,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
     );
   }
 
-  const leaked = techNounsOutsideIntake(specText);
+  const leaked = techNounsOutsideIntake(specText, evidence.techNouns ?? []);
   if (leaked.length > 0) {
     return deny(
       `phase-gate: cannot commission the ${target} — spec.md names ${leaked.join(", ")} outside ` +

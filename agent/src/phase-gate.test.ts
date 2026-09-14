@@ -57,6 +57,9 @@ const READY: PhaseEvidence = {
     ev("scaffold", "pass"),
     ev("checksum-gate", "pass", "wrote manifest (1 contract file)"),
   ],
+  // In production these arrive merged from the installed packs' contrib.json
+  // (TN-26-005); evidence carries them so the core check stays content-free.
+  techNouns: ["graphql", "express", "io-ts"],
 };
 
 describe("spawning the test-writer", () => {
@@ -682,6 +685,7 @@ describe("a configured tier the registry cannot resolve refuses the spawn", () =
 // --- intake helpers (ADR 2026-032) ------------------------------------------------
 
 describe("specIntakeSection / techNounsOutsideIntake", () => {
+  const NOUNS = ["graphql", "express", "io-ts"];
   const SPEC =
     "# Thing\n\nIntro.\n\n## Intake\n\nStripped: 'over GraphQL' — typed access is the need.\n\n## Behaviour\n\nRules.\n";
 
@@ -701,19 +705,19 @@ describe("specIntakeSection / techNounsOutsideIntake", () => {
   });
 
   test("nouns inside Intake are exempt; the same noun outside is caught", () => {
-    expect(techNounsOutsideIntake(SPEC)).toEqual([]);
-    expect(techNounsOutsideIntake(SPEC + "\nAlso expose it via graphql.\n")).toEqual(["graphql"]);
+    expect(techNounsOutsideIntake(SPEC, NOUNS)).toEqual([]);
+    expect(techNounsOutsideIntake(SPEC + "\nAlso expose it via graphql.\n", NOUNS)).toEqual(["graphql"]);
   });
 
   test("word boundaries: 'expressed' does not trip 'express'", () => {
     const spec = "## Intake\n\nNothing stripped.\n\n## Rules\nThe invariant is expressed as a law.\n";
-    expect(techNounsOutsideIntake(spec)).toEqual([]);
+    expect(techNounsOutsideIntake(spec, NOUNS)).toEqual([]);
   });
 
   test("hyphenated names match whole, not inside longer tokens", () => {
     const spec = "## Intake\n\nNothing.\n\n## Rules\nUses io-ts somewhere.\n";
-    expect(techNounsOutsideIntake(spec)).toEqual(["io-ts"]);
+    expect(techNounsOutsideIntake(spec, NOUNS)).toEqual(["io-ts"]);
     const notIt = "## Intake\n\nNothing.\n\n## Rules\nThe ratio-ts-factor is fine.\n";
-    expect(techNounsOutsideIntake(notIt)).toEqual([]);
+    expect(techNounsOutsideIntake(notIt, NOUNS)).toEqual([]);
   });
 });

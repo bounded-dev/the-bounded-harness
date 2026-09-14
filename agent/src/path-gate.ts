@@ -18,6 +18,7 @@ import { decide, FORBIDDEN_TOOLS, type Role } from "./path-policy.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
+import { specTechNouns } from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
@@ -429,6 +430,7 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
     specText,
     events,
     models: readDevStageModels(cwd),
+    techNouns: specTechNouns(),
     ...(known !== undefined ? { known } : {}),
   };
 }
