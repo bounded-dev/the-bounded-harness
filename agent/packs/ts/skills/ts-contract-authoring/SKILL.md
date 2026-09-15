@@ -489,7 +489,7 @@ the `__conformance` blob and leaves that re-export exactly where it is.
 
 ## API-service contracts (TN-26-004)
 
-Two more purity rules apply the moment a contract describes a service
+Three more purity rules apply the moment a contract describes a service
 surface:
 
 - **`no-erased-router`** — never declare the surface with a type-erased
@@ -503,6 +503,16 @@ surface:
   import type { serviceRouter } from "./api.js"; // the impl module
   export type ServiceRouter = typeof serviceRouter;
   ```
+
+- **`router-type-reexported`** — and those two lines are *required*, not
+  optional. The moment a contract imports from `./service-runtime.js` it has
+  declared itself a service, and a service with no re-exported router type
+  gives the frontend nothing to type its client against. Omitting it is
+  legal, silent, and costs exactly what erasing it costs: Run 23 delivered
+  two services green with the type simply absent, and no gate objected. Now
+  one does. (Borrowing the name from a sibling `*.contract.js`, or from the
+  runtime module, does not count — the inferred type lives in the
+  implementation module and nowhere else.)
 
 - **`no-schema-on-surface`** — nothing from zod may appear in a contract, as
   an import, a type, or a re-export. The schema is the value object's

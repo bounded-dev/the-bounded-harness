@@ -87,7 +87,10 @@ export interface ServiceCaller {
 export declare function createServiceCaller(ctx: ServiceContext): ServiceCaller;
 
 /** The inferred router type, for typed HTTP clients — re-exported from the
- *  implementation, NEVER hand-declared and never erased (no-erased-router). */
+ *  implementation, NEVER hand-declared and never erased (no-erased-router).
+ *  These two lines are REQUIRED, not decoration: router-type-reexported
+ *  refuses a service contract that leaves them out (r23 shipped two that
+ *  did, and the typed client died silently). */
 import type { serviceRouter } from "./api.js";
 export type ServiceRouter = typeof serviceRouter;
 ```

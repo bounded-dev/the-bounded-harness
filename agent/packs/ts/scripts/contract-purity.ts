@@ -35,6 +35,7 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "pi-harness-ts/value-objects-own-contract",
   "pi-harness-ts/no-cross-contract-type-import",
   "pi-harness-ts/no-erased-router",
+  "pi-harness-ts/router-type-reexported",
   "pi-harness-ts/no-schema-on-surface",
 ];
 
@@ -83,6 +84,14 @@ export function createContractLinter(): ESLint {
           // r22's `ServiceRouter = AnyRouter`); the inferred router type is
           // re-exported from the implementation module instead (ADR 2026-030).
           "pi-harness-ts/no-erased-router": "error",
+          // The other half of the same hole (TN-26-006 A2). no-erased-router
+          // refuses a router type that is PRESENT and erased; Run 23 delivered
+          // two services green with it simply ABSENT — equally legal, equally
+          // fatal to the typed client, and bounced by nothing. A service
+          // contract must re-export the inferred type from its implementation
+          // module. Fires only where a service-runtime import says the file is
+          // a service contract; a domain contract has no router.
+          "pi-harness-ts/router-type-reexported": "error",
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
           "pi-harness-ts/no-schema-on-surface": "error",
