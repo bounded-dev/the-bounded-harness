@@ -477,6 +477,59 @@ describe("materializeShadowProject", () => {
   });
 });
 
+// --- TSX in the shadow (TN-26-006 A1) ---------------------------------------
+//
+// The shadow is only evidence if it is the project the live scaffold step would
+// have produced. Two things had to move for that to stay true once components
+// exist: the skeleton lands at the SAME extension the live sync would choose,
+// and the walk that collects the suite can see a `.tsx` test at all — a test it
+// cannot see is a test the shadow never copies, so the red would be measured
+// over a suite with a hole in it while reporting its own count as complete.
+
+describe("the shadow project handles components", () => {
+  const COMPONENT = `import type { ReactElement } from "react";
+
+export interface BadgeProps {
+  readonly tone: "ok" | "warn";
+}
+
+export declare function Badge(props: BadgeProps): ReactElement;
+`;
+
+  function componentTree(): string {
+    const dir = mkdtempSync(join(tmpdir(), "pi-red-tsx-"));
+    mkdirSync(join(dir, "src", "ui"), { recursive: true });
+    mkdirSync(join(dir, "tests"), { recursive: true });
+    writeFileSync(join(dir, "src", "ui", "badge.contract.ts"), COMPONENT);
+    // The builder, working in parallel, has already finished.
+    writeFileSync(join(dir, "src", "ui", "badge.tsx"), "export function Badge() { return null; }\n");
+    writeFileSync(join(dir, "tests", "badge.test.tsx"), "// component test\n");
+    writeFileSync(join(dir, "package.json"), '{"name":"x"}\n');
+    return dir;
+  }
+
+  const live = componentTree();
+  afterAll(() => rmSync(live, { recursive: true, force: true }));
+
+  test("a .tsx test is collected, and the .tsx implementation is still excluded", () => {
+    const sources = collectRedGateSources(live);
+    expect(sources.testFiles).toEqual(["tests/badge.test.tsx"]);
+    expect(sources.contracts).toEqual(["src/ui/badge.contract.ts"]);
+    expect(sources.implementationFiles).toContain("src/ui/badge.tsx");
+    expect(redGateProjectPlan(sources).copy).not.toContain("src/ui/badge.tsx");
+  });
+
+  test("the regenerated skeleton lands at .tsx, not beside the builder's file", () => {
+    const shadow = materializeShadowProject(live, redGateProjectPlan(collectRedGateSources(live)));
+    const skeleton = readFileSync(join(shadow, "src", "ui", "badge.tsx"), "utf8");
+    expect(skeleton).toContain("GENERATED from badge.contract.ts");
+    expect(skeleton).toContain('throw new NotImplementedError("Badge")');
+    expect(skeleton).not.toContain("return null");
+    expect(existsSync(join(shadow, "src", "ui", "badge.ts"))).toBe(false);
+    expect(readFileSync(join(shadow, "tests", "badge.test.tsx"), "utf8")).toContain("component test");
+  });
+});
+
 // --- Obligations: a valid red that covers nothing ---------------------------------
 //
 // Dogfood Run 7's suite was a right-reason red, type-clean, 32 tests — and it

@@ -215,6 +215,13 @@ describe("barrelFor (pure)", () => {
     expect(out).toContain('export * from "./subscription-billing/subscription-billing.js";');
     expect(out.endsWith("\n")).toBe(true);
   });
+
+  // A NodeNext specifier names the EMITTED file, and TypeScript emits
+  // `badge.js` from `badge.tsx` exactly as it does from `badge.ts`. A barrel
+  // line saying `./ui/badge.tsx` resolves nowhere at runtime.
+  test("a .tsx module is still spelled .js in the specifier", () => {
+    expect(barrelFor(["ui/badge.tsx"])).toContain('export * from "./ui/badge.js";');
+  });
 });
 
 describe("runDeliver", () => {
@@ -380,6 +387,87 @@ void NotImplementedError;
 // red is proven without ever reading the live `src/`. That copy is the run's
 // scaffolding, not the deliverable: left behind, it is a duplicate of the tests
 // sitting beside the real ones, and a reader has no way to tell which is which.
+// --- TSX implementations are paired like any other (TN-26-006 A1) ------------
+//
+// Pairing is how delivery finds the work: a contract whose implementation it
+// cannot see gets no __conformance strip and no barrel line. A component
+// contract is implemented by a `.tsx` sibling, so a pairing rule that only
+// knew `.ts` would ship a frontend whose modules are absent from its own
+// public API and still carry the scaffolder's compile-time blob.
+
+const COMPONENT_CONTRACT_TS = `import type { ReactElement } from "react";
+
+export interface BadgeProps {
+  readonly tone: "ok" | "warn";
+}
+
+export declare function Badge(props: BadgeProps): ReactElement;
+`;
+
+const COMPONENT_IMPL_TSX = `import type { ReactElement } from "react";
+import type { BadgeProps } from "./badge.contract.js";
+import type * as __Contract from "./badge.contract.js";
+
+export type * from "./badge.contract.js";
+
+export function Badge(props: BadgeProps): ReactElement {
+  return <span className={props.tone}>{props.tone}</span>;
+}
+
+// Compile-time conformance: every scaffoldable value export of the contract
+// exists above, with the signature the contract declared.
+const __conformance: Pick<typeof __Contract, "Badge"> = { Badge };
+void __conformance;
+`;
+
+describe("runDeliver pairs a .tsx implementation", () => {
+  test("its conformance blob is stripped and it reaches the barrel as .js", () => {
+    const dir = proj({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT_TS,
+      "src/ui/badge.tsx": COMPONENT_IMPL_TSX,
+    });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+
+    const impl = readFileSync(join(dir, "src/ui/badge.tsx"), "utf8");
+    expect(impl).not.toMatch(/__conformance|__Contract/);
+    // JSX survives the strip intact — it is a text excision, and it must not
+    // have been parsed as a `.ts` file where `<span …>` is a type assertion.
+    expect(impl).toContain("return <span className={props.tone}>{props.tone}</span>;");
+    expect(impl).toContain('export type * from "./badge.contract.js";');
+
+    const barrel = readFileSync(join(dir, "src/index.ts"), "utf8");
+    expect(barrel).toContain('export * from "./ui/badge.js";');
+    expect(barrel).toContain('export * from "./orders/orders.js";');
+    expect(barrel).not.toContain(".tsx");
+
+    const stripped = readGuardLog(dir).find((e) => e.summary?.startsWith("stripped __conformance"));
+    expect(stripped?.summary).toContain("src/ui/badge.tsx");
+  });
+
+  // The r16 defect wears any extension: an export that still throws
+  // NotImplementedError is not delivered, whatever the suite said.
+  test("BLOCK when a .tsx is still a throwing skeleton", () => {
+    const dir = proj({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT_TS,
+      "src/ui/badge.tsx": `import { NotImplementedError } from "../shared/errors.js";
+import type { ReactElement } from "react";
+import type { BadgeProps } from "./badge.contract.js";
+
+export type * from "./badge.contract.js";
+
+export function Badge(props: BadgeProps): ReactElement {
+  throw new NotImplementedError("Badge");
+}
+`,
+    });
+    const r = deliver(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("src/ui/badge.tsx");
+    expect(r.lines.join("\n")).toMatch(/NotImplementedError/);
+  });
+});
+
 describe("runDeliver: the red-phase shadow", () => {
   test("removes .pi/shadow-red/ and says so", () => {
     const dir = proj({

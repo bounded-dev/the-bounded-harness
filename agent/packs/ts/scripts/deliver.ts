@@ -78,7 +78,7 @@ import {
 } from "../../../src/phase-durations.ts";
 import { findContractFiles } from "./checksum-gate.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
-import { skeletonPathFor } from "./scaffold-contract.ts";
+import { skeletonSiblingPaths } from "./scaffold-contract.ts";
 import {
   ERRORS_REL,
   errorsImportsOf,
@@ -226,11 +226,16 @@ export function outputTail(out: CommandOutcome, max = 12): string[] {
     .map((l) => l.slice(0, 200));
 }
 
-/** The barrel: one `export *` per implementation module (src-relative paths). */
+/** The barrel: one `export *` per implementation module (src-relative paths).
+ *
+ *  A `.tsx` module is spelled `.js` in the specifier exactly as a `.ts` one is
+ *  — NodeNext specifiers name the EMITTED file, and TypeScript emits `badge.js`
+ *  whichever of the two extensions the source carried. `badge.tsx` in a barrel
+ *  would be a specifier no runtime can resolve. */
 export function barrelFor(implRelToSrc: readonly string[]): string {
   const lines = [...implRelToSrc]
     .sort()
-    .map((p) => `export * from "./${p.replace(/\.ts$/, ".js")}";`);
+    .map((p) => `export * from "./${p.replace(/\.tsx?$/, ".js")}";`);
   return `${BARREL_MARKER} — one line per module. Generated at delivery.\n${lines.join("\n")}\n`;
 }
 
@@ -326,11 +331,20 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   }
 
   // --- pairs: contract → existing sibling implementation ---
+  //
+  // Both extensions (TN-26-006 A1): a component contract is implemented by a
+  // `.tsx` sibling, and delivery must pair it exactly as it pairs a `.ts` one —
+  // its __conformance blob still has to be stripped and it still belongs in the
+  // barrel. Discovery is by EXISTENCE rather than by re-deciding the extension
+  // from the contract, because by delivery the file on disk is the builder's
+  // answer and the only one that matters; at most one sibling can be there, the
+  // scaffolder having pruned the other.
   const srcAbs = join(cwd, "src");
   const pairs: string[] = []; // impl paths relative to src/, posix
   for (const contract of findContractFiles(srcAbs)) {
-    const impl = skeletonPathFor(contract);
-    if (existsSync(impl)) pairs.push(toPosix(relative(srcAbs, impl)));
+    for (const impl of skeletonSiblingPaths(contract)) {
+      if (existsSync(impl)) pairs.push(toPosix(relative(srcAbs, impl)));
+    }
   }
 
   // --- 3. __conformance blobs ---

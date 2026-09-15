@@ -41,7 +41,13 @@ function toPosix(p: string): string {
   return p.split(sep).join("/");
 }
 
-/** All .ts files under dir, project-relative posix paths, sorted. */
+/** All .ts and .tsx files under dir, project-relative posix paths, sorted.
+ *
+ *  `.tsx` counts because a component skeleton is a `.tsx` file (TN-26-006 A1)
+ *  and r16's defect does not care which extension it wears: an unimplemented
+ *  export whose throw no test ever executes is invisible to the suite, and this
+ *  scan is the only thing that sees it. An extension the walk skips is a whole
+ *  layer of a frontend that green-gate and delivery would wave through. */
 export function tsFilesUnder(root: string, dir: string): string[] {
   const out: string[] = [];
   const walk = (d: string): void => {
@@ -49,7 +55,7 @@ export function tsFilesUnder(root: string, dir: string): string[] {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         if (!["node_modules", ".git", ".pi"].includes(entry.name)) walk(join(d, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      } else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
         out.push(toPosix(relative(root, join(d, entry.name))));
       }
     }

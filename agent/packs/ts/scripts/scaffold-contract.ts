@@ -1,6 +1,12 @@
 // Scaffolder (TN-26-001): contract → throwing skeleton.
 //
 //   src/orders/orders.contract.ts  →  src/orders/orders.ts   (fixed naming rule)
+//   src/ui/badge.contract.ts       →  src/ui/badge.tsx       (declares a component)
+//
+// Contracts are always `.ts` — declaration-only files have no JSX to spell —
+// but a contract whose exported surface returns a React element scaffolds to a
+// `.tsx` sibling, because the builder's replacement for that skeleton will
+// contain JSX and JSX in a `.ts` file does not parse (TN-26-006 A1).
 //
 // Pure core (scaffoldContract: string → string) + thin CLI. Skeletons are
 // machine-generated, never agent-written: nothing to police, and the red
@@ -89,12 +95,91 @@ export function notImplemented(what: string): never {
 }
 `;
 
-/** The fixed naming rule: foo.contract.ts is implemented by sibling foo.ts. */
-export function skeletonPathFor(contractPath: string): string {
+/**
+ * The React types whose presence on a contract's exported surface makes its
+ * skeleton a `.tsx` file (TN-26-006 A1).
+ *
+ * WHY A NAME LIST AND NOT A TYPE CHECK. The generated set must be a pure
+ * function of the CONTRACT set — that is the whole scaffolder invariant (a
+ * skeleton is reproducible in the red gate's shadow project at any moment, from
+ * the frozen contracts and nothing else). A judgement that needed the project's
+ * resolved types would make the extension depend on node_modules, so the rule
+ * reads the contract's own text: these three names are how React's return type
+ * is spelled, and a contract that declares one is declaring a component.
+ */
+const COMPONENT_TYPE_NAMES = new Set(["ReactElement", "ReactNode", "JSX.Element"]);
+
+/**
+ * `.tsx` if this contract declares a React component on its exported surface,
+ * `.ts` otherwise.
+ *
+ * The skeleton's CONTENT never changes — every export throws
+ * NotImplementedError, and a throw contains no JSX. Only the extension does,
+ * and it has to: the builder replaces the skeleton with a real component whose
+ * body is JSX, and JSX in a `.ts` file is a syntax error, so a `.ts` skeleton
+ * would force the builder's first act to be renaming a generated file. That is
+ * a file the builder's zone does not own and the sync would immediately treat
+ * as an orphan.
+ *
+ * Deliberately TOTAL over the file: any exported declaration referencing one of
+ * the component types makes the WHOLE skeleton `.tsx`. A `.tsx` file compiles
+ * every `.ts` construct, so the wider answer is never wrong — only occasionally
+ * generous — whereas splitting one contract across two extensions is not a
+ * thing the fixed naming rule can express.
+ *
+ * Unparseable input answers `.ts`: this is a naming decision taken before
+ * `scaffoldContract` has had its say, and the contract's real defects belong in
+ * that function's loud, specific ScaffoldError — not in a mystery extension.
+ */
+export function skeletonExtensionFor(contractSource: string): ".ts" | ".tsx" {
+  let sf: SourceFile;
+  try {
+    const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
+    sf = project.createSourceFile("__extension_probe__.contract.ts", contractSource, { overwrite: true });
+  } catch {
+    return ".ts";
+  }
+  for (const stmt of sf.getStatements()) {
+    if (!isExportDecl(stmt)) continue;
+    for (const ref of stmt.getDescendantsOfKind(SyntaxKind.TypeReference)) {
+      if (COMPONENT_TYPE_NAMES.has(ref.getTypeName().getText().trim())) return ".tsx";
+    }
+  }
+  return ".ts";
+}
+
+/**
+ * The fixed naming rule: foo.contract.ts is implemented by sibling foo.ts —
+ * or foo.tsx when the contract declares a component and the source is on hand.
+ *
+ * The source stays OPTIONAL because two callers legitimately ask the path
+ * question without it (surface-check pairs by existence; the path-only overload
+ * is what the mapping test pins), and because `.ts` is the answer for every
+ * contract that predates TSX.
+ */
+export function skeletonPathFor(contractPath: string, contractSource?: string): string {
   if (!contractPath.endsWith(CONTRACT_SUFFIX)) {
     throw new ScaffoldError(`scaffold: '${contractPath}' is not a *.contract.ts path`);
   }
-  return contractPath.slice(0, -CONTRACT_SUFFIX.length) + ".ts";
+  const ext = contractSource === undefined ? ".ts" : skeletonExtensionFor(contractSource);
+  return contractPath.slice(0, -CONTRACT_SUFFIX.length) + ext;
+}
+
+/**
+ * BOTH sibling paths a contract's implementation may legally occupy, `.ts`
+ * first.
+ *
+ * The sync's two most destructive decisions — "is this already implemented?"
+ * and "is this an orphan?" — must be asked about the PAIR, never about the one
+ * path this run happens to want. A contract that grows a component would
+ * otherwise write a fresh `.tsx` skeleton straight over the top of a finished
+ * `.ts` implementation (or the reverse), which is r15's overwrite with a new
+ * costume on: the file survives the non-clobber check only because the check
+ * was looking at the other extension.
+ */
+export function skeletonSiblingPaths(contractPath: string): readonly string[] {
+  const stem = skeletonPathFor(contractPath).slice(0, -".ts".length);
+  return [`${stem}.ts`, `${stem}.tsx`];
 }
 
 /**
@@ -167,7 +252,12 @@ function pruneOrphans(
 ): { readonly files: string[]; readonly dirs: string[] } {
   const files: string[] = [];
   const dirs: string[] = [];
-  for (const path of findFilesUnder(cwd, (name) => name.endsWith(".ts"))) {
+  // `.tsx` is swept on exactly the same terms as `.ts` (TN-26-006 A1). A
+  // skeleton the sync can write is a skeleton the sync must be able to take
+  // back: an extension the walk cannot see is a generated file that leaks
+  // forever once its contract goes. The marker still decides — this widens
+  // what is LOOKED at, never what is deleted.
+  for (const path of findFilesUnder(cwd, (name) => name.endsWith(".ts") || name.endsWith(".tsx"))) {
     if (keep.has(resolve(path))) continue;
     let source: string;
     try {
@@ -796,11 +886,16 @@ export function runScaffold(
   const generated = new Set<string>();
 
   for (const contractPath of contracts) {
+    // Read ONCE. Every decision this iteration makes — what to generate, which
+    // extension it lands on, whether it ships a runtime, whether it has laws —
+    // must be taken over the same bytes, or a contract edited mid-run could be
+    // scaffolded as one thing and named as another.
+    const contractText = readFileSync(contractPath, "utf8");
     let skeleton: string;
     try {
       // Generate first: this is the step that rejects a bad contract, and it
       // touches nothing on disk.
-      skeleton = scaffoldContract(readFileSync(contractPath, "utf8"), contractPath);
+      skeleton = scaffoldContract(contractText, contractPath);
     } catch (e) {
       if (!(e instanceof ScaffoldError)) throw e;
       logGuardEvent(cwd, {
@@ -822,7 +917,7 @@ export function runScaffold(
     // checksum-gate all passed on it. A types-only file is legitimate as shared
     // vocabulary, so decide once every contract has been seen rather than
     // blocking per file.
-    const surface = contractSurface(readFileSync(contractPath, "utf8"), contractPath);
+    const surface = contractSurface(contractText, contractPath);
     if (surface.valueExports.length === 0) {
       typesOnly.push(relative(cwd, contractPath).split(sep).join("/"));
       strandedOps.push(...surface.interfaceMethods);
@@ -838,7 +933,10 @@ export function runScaffold(
       createdErrorsModule = true;
       lines.push(`scaffold: created ${errorsPath} (template shared errors module)`);
     }
-    const out = skeletonPathFor(contractPath);
+    // Where this run WOULD write: `.tsx` when the contract declares a component
+    // (TN-26-006 A1), `.ts` otherwise — decided from the contract's own text, so
+    // the generated set stays a pure function of the contract set.
+    const out = skeletonPathFor(contractPath, contractText);
     const outRel = relative(cwd, resolve(cwd, out)).split(sep).join("/");
     // NON-DESTRUCTIVE SYNC (ADR 2026-023). The scaffolder writes a skeleton
     // only where there is nothing to lose: the target is absent, or it is
@@ -849,21 +947,34 @@ export function runScaffold(
     // minutes of work. Nothing about re-running a generator should be able to
     // cost that.
     //
+    // The question is asked of BOTH siblings, never only of `out`. A contract
+    // that gains (or loses) a component changes which extension this run wants,
+    // and an implementation sitting at the other one is still an implementation:
+    // looking only where we intend to write would hand r15's overwrite a second
+    // door, opened by an editing act — adding a `ReactNode` return — that reads
+    // as entirely innocent.
+    //
     // Skipping does not hide contract drift: the kept implementation is checked
     // against the new contract by design_gate's typecheck step and by green's
     // surface check, and both route the resulting errors to the builder — who
     // is the only role that can reconcile them anyway.
-    const existing = existsSync(out) ? readFileSync(out, "utf8") : undefined;
-    if (existing !== undefined && !isGeneratedArtifact(existing)) {
+    const implemented = skeletonSiblingPaths(contractPath).find((sibling) => {
+      const text = existsSync(sibling) ? readFileSync(sibling, "utf8") : undefined;
+      return text !== undefined && !isGeneratedArtifact(text);
+    });
+    if (implemented !== undefined) {
       // Keep it out of the prune's sights too: "keep" is one decision, not two.
-      generated.add(resolve(cwd, out));
-      const kept = `scaffold: kept ${outRel} — implemented; contract drift will surface as type errors routed to the builder`;
+      // Note it is the IMPLEMENTED path that is kept, which may not be the one
+      // this run wanted — the point of asking both.
+      const keptRel = relative(cwd, resolve(cwd, implemented)).split(sep).join("/");
+      generated.add(resolve(cwd, implemented));
+      const kept = `scaffold: kept ${keptRel} — implemented; contract drift will surface as type errors routed to the builder`;
       lines.push(kept);
       logGuardEvent(cwd, {
         guard: "scaffold",
         verdict: "pass",
-        summary: `kept ${outRel} (implemented)`,
-        detail: { contract: contractPath, skeleton: outRel, kept: true, createdErrorsModule },
+        summary: `kept ${keptRel} (implemented)`,
+        detail: { contract: contractPath, skeleton: keptRel, kept: true, createdErrorsModule },
       });
     } else {
       writeFileSync(out, skeleton);
@@ -875,6 +986,10 @@ export function runScaffold(
         summary: `wrote ${outRel}`,
         detail: { contract: contractPath, skeleton: outRel, createdErrorsModule },
       });
+      // A skeleton at the OTHER extension is now stale — the contract changed
+      // its mind about being a component. It carries the marker and is absent
+      // from `generated`, so the prune below removes it and says so; nothing
+      // special-cases it here, which is exactly the point of having one sync.
     }
 
     // --- The API-service runtime (TN-26-004, ADR 2026-029/030) --------------
@@ -889,7 +1004,7 @@ export function runScaffold(
     // A file already at that path WITHOUT the marker is a block, not a keep:
     // unlike a skeleton's sibling, this file is machinery, and a hand-written
     // twin is exactly the fork the one-implementation rule exists to prevent.
-    for (const rtAbs of serviceRuntimeTargets(readFileSync(contractPath, "utf8"), contractPath)) {
+    for (const rtAbs of serviceRuntimeTargets(contractText, contractPath)) {
       const rtRel = relative(cwd, rtAbs).split(sep).join("/");
       const shipped = shippedServiceRuntimeSource();
       const current = existsSync(rtAbs) ? readFileSync(rtAbs, "utf8") : undefined;
@@ -923,17 +1038,16 @@ export function runScaffold(
     // from the tests, exactly like the skeleton. And a contract with no value
     // objects simply has no laws to state, which is not an error.
     const contractRel = relative(cwd, contractPath).split(sep).join("/");
-    const contractSource = readFileSync(contractPath, "utf8");
     // A contract with no value objects simply has no laws to state; anything
     // else that goes wrong here is a real error and must be said out loud. An
     // exception used as control flow would have hidden a genuine failure behind
     // "nothing to generate" — which is how a gate stops being a gate.
-    if (valueObjectsOf(contractSource, contractRel).length > 0) {
+    if (valueObjectsOf(contractText, contractRel).length > 0) {
       const lawsRel = lawsPathFor(contractRel);
       const lawsPath = join(cwd, lawsRel);
       let laws: string;
       try {
-        laws = valueObjectLawsSource(contractSource, contractRel);
+        laws = valueObjectLawsSource(contractText, contractRel);
       } catch (e) {
         if (!(e instanceof ValueObjectLawsError)) throw e;
         logGuardEvent(cwd, {

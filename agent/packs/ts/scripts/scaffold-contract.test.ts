@@ -14,7 +14,9 @@ import {
   isGeneratedArtifact,
   scaffoldContract,
   runScaffold,
+  skeletonExtensionFor,
   skeletonPathFor,
+  skeletonSiblingPaths,
   serviceRuntimeTargets,
   shippedServiceRuntimeSource,
 } from "./scaffold-contract.ts";
@@ -1281,5 +1283,257 @@ export declare function createServiceCaller(deps: { readonly now: () => string }
       ),
     ).toEqual(["/repo/src/api/service-runtime.ts", "/repo/src/other/service-runtime.ts"]);
     expect(serviceRuntimeTargets('import type { Y } from "./values.js";\n', "/r/c.contract.ts")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TSX: a contract that declares a component scaffolds to a .tsx sibling
+// (TN-26-006 A1)
+// ---------------------------------------------------------------------------
+//
+// The skeleton's CONTENT is unchanged — a throw has no JSX — so everything
+// below is about the NAME and the sync bookkeeping that follows from it. Both
+// halves matter equally: the builder's replacement for a component skeleton is
+// full of JSX, which does not parse in a `.ts` file, and the sync must still be
+// able to recognise, keep and prune a file it named with the other extension.
+
+const COMPONENT_CONTRACT = `import type { ReactElement } from "react";
+
+export interface BadgeProps {
+  readonly tone: "ok" | "warn";
+}
+
+export declare function Badge(props: BadgeProps): ReactElement;
+`;
+
+const PLAIN_CONTRACT = `export type Id = string & { readonly __brand: "Id" };
+export declare function get(id: Id): string;
+`;
+
+describe("skeletonExtensionFor (the extension is a function of the contract text)", () => {
+  // All three spellings, because a model picks whichever its training favours
+  // and the extension may not depend on that choice.
+  test.each([
+    ["ReactElement", 'import type { ReactElement } from "react";\nexport declare function A(): ReactElement;\n'],
+    ["JSX.Element", "export declare function A(): JSX.Element;\n"],
+    ["ReactNode", 'import type { ReactNode } from "react";\nexport declare function A(): ReactNode;\n'],
+  ])("a contract returning %s is a component", (_name, source) => {
+    expect(skeletonExtensionFor(source)).toBe(".tsx");
+  });
+
+  test("a component type anywhere on the exported surface counts, not just a return", () => {
+    expect(
+      skeletonExtensionFor(
+        'import type { ReactNode } from "react";\nexport interface Panel { readonly body: ReactNode; }\nexport declare function render(p: Panel): string;\n',
+      ),
+    ).toBe(".tsx");
+  });
+
+  test("an ordinary contract is .ts", () => {
+    expect(skeletonExtensionFor(PLAIN_CONTRACT)).toBe(".ts");
+    expect(skeletonExtensionFor(contractOf("values"))).toBe(".ts");
+    expect(skeletonExtensionFor(contractOf("queue"))).toBe(".ts");
+  });
+
+  // The rule reads the EXPORTED surface. A component type mentioned only in a
+  // local declaration is not something the builder has to spell in JSX.
+  test("an unexported reference does not make the file a component", () => {
+    expect(
+      skeletonExtensionFor(
+        'import type { ReactNode } from "react";\ntype Hidden = ReactNode;\nexport declare function name(): string;\n',
+      ),
+    ).toBe(".ts");
+  });
+
+  // A name that merely CONTAINS one of the three is a different type.
+  test("a look-alike name is not a component type", () => {
+    expect(
+      skeletonExtensionFor('import type { ReactNodeList } from "./x.js";\nexport declare function a(): ReactNodeList;\n'),
+    ).toBe(".ts");
+  });
+
+  // The extension is decided before scaffoldContract has its say, so a contract
+  // it will reject must still get a deterministic answer rather than a throw.
+  test("a contract the scaffolder will reject still yields an extension", () => {
+    expect(skeletonExtensionFor("export enum Level { Low, High }\n")).toBe(".ts");
+  });
+});
+
+describe("skeletonPathFor / skeletonSiblingPaths with the contract text", () => {
+  test("the source decides the extension; without it the answer is .ts", () => {
+    expect(skeletonPathFor("src/ui/badge.contract.ts", COMPONENT_CONTRACT)).toBe("src/ui/badge.tsx");
+    expect(skeletonPathFor("src/ui/badge.contract.ts", PLAIN_CONTRACT)).toBe("src/ui/badge.ts");
+    expect(skeletonPathFor("src/ui/badge.contract.ts")).toBe("src/ui/badge.ts");
+  });
+
+  test("siblings are both legal implementation paths for the same contract", () => {
+    expect(skeletonSiblingPaths("src/ui/badge.contract.ts")).toEqual([
+      "src/ui/badge.ts",
+      "src/ui/badge.tsx",
+    ]);
+  });
+
+  test("it is still the fixed naming rule — a non-contract path is refused", () => {
+    expect(() => skeletonSiblingPaths("src/ui/badge.ts")).toThrowError(/not a \*\.contract\.ts path/);
+  });
+});
+
+describe("runScaffold writes, keeps and prunes .tsx skeletons", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+  const project = (files: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "scaffold-tsx-"));
+    dirs.push(dir);
+    for (const [rel, source] of Object.entries(files)) {
+      const path = join(dir, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, source);
+    }
+    return dir;
+  };
+
+  test("a component contract scaffolds to .tsx, and to nothing else", () => {
+    const dir = project({ "src/ui/badge.contract.ts": COMPONENT_CONTRACT });
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("scaffold: wrote src/ui/badge.tsx");
+    const skeleton = readFileSync(join(dir, "src/ui/badge.tsx"), "utf8");
+    expect(isGeneratedArtifact(skeleton)).toBe(true);
+    expect(skeleton).toContain('throw new NotImplementedError("Badge");');
+    // Content generation is untouched — the bytes are exactly what the pure
+    // core produces for this contract. Only the file's NAME moved.
+    expect(skeleton).toBe(scaffoldContract(COMPONENT_CONTRACT, "src/ui/badge.contract.ts"));
+    expect(existsSync(join(dir, "src/ui/badge.ts"))).toBe(false);
+  });
+
+  test("a non-component contract still scaffolds to .ts", () => {
+    const dir = project({ "src/orders/orders.contract.ts": PLAIN_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+    expect(existsSync(join(dir, "src/orders/orders.tsx"))).toBe(false);
+  });
+
+  const IMPLEMENTED_TSX = `import type { BadgeProps } from "./badge.contract.js";
+
+export type * from "./badge.contract.js";
+
+export function Badge(props: BadgeProps): ReactElement {
+  return <span className={props.tone}>{props.tone}</span>;
+}
+`;
+
+  // The r15 overwrite, in its TSX costume: a finished component must survive a
+  // re-scaffold byte-identical, exactly as a finished module does.
+  test("an implemented .tsx survives a re-scaffold byte-identical", () => {
+    const dir = project({ "src/ui/badge.contract.ts": COMPONENT_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/ui/badge.tsx"), IMPLEMENTED_TSX);
+
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(dir, "src/ui/badge.tsx"), "utf8")).toBe(IMPLEMENTED_TSX);
+    expect(r.lines).toContain(
+      "scaffold: kept src/ui/badge.tsx — implemented; contract drift will surface as type errors routed to the builder",
+    );
+    const kept = readGuardLog(dir).filter((e) => e.summary?.startsWith("kept "));
+    expect(kept.at(-1)?.summary).toBe("kept src/ui/badge.tsx (implemented)");
+  });
+
+  // THE CROSS-EXTENSION CLOBBER. A contract that gains a component changes which
+  // sibling this run wants — and the other one may already hold finished work.
+  // Asking only about the intended path would reopen r15 through an edit that
+  // reads as entirely innocent: adding a ReactNode to a return type.
+  test("a contract that grows a component does not overwrite the implemented .ts", () => {
+    const dir = project({ "src/ui/badge.contract.ts": PLAIN_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    const handWritten = 'export type * from "./badge.contract.js";\nexport function get(): string { return "x"; }\n';
+    writeFileSync(join(dir, "src/ui/badge.ts"), handWritten);
+
+    writeFileSync(join(dir, "src/ui/badge.contract.ts"), COMPONENT_CONTRACT);
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(dir, "src/ui/badge.ts"), "utf8")).toBe(handWritten);
+    expect(existsSync(join(dir, "src/ui/badge.tsx"))).toBe(false);
+    expect(r.lines).toContain(
+      "scaffold: kept src/ui/badge.ts — implemented; contract drift will surface as type errors routed to the builder",
+    );
+  });
+
+  test("and the reverse: a contract that stops being a component keeps the implemented .tsx", () => {
+    const dir = project({ "src/ui/badge.contract.ts": COMPONENT_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/ui/badge.tsx"), IMPLEMENTED_TSX);
+
+    writeFileSync(join(dir, "src/ui/badge.contract.ts"), PLAIN_CONTRACT);
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(dir, "src/ui/badge.tsx"), "utf8")).toBe(IMPLEMENTED_TSX);
+    expect(existsSync(join(dir, "src/ui/badge.ts"))).toBe(false);
+  });
+
+  // The other half of the sync: a SKELETON at the stale extension has nothing
+  // to lose, so the run writes the new one and the prune takes the old one —
+  // no special case, the same marker licence as every other orphan.
+  test("a stale skeleton at the other extension is regenerated and pruned", () => {
+    const dir = project({ "src/ui/badge.contract.ts": PLAIN_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(join(dir, "src/ui/badge.ts"))).toBe(true);
+
+    writeFileSync(join(dir, "src/ui/badge.contract.ts"), COMPONENT_CONTRACT);
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(existsSync(join(dir, "src/ui/badge.tsx"))).toBe(true);
+    expect(existsSync(join(dir, "src/ui/badge.ts"))).toBe(false);
+    expect(r.lines).toContain("scaffold: pruned src/ui/badge.ts — its contract no longer exists");
+  });
+
+  // Deleting the contract is the whole gesture for a component too — an
+  // extension the prune's walk cannot see is a generated file that leaks
+  // forever (r14's ten minutes, one file at a time).
+  test("deleting a component contract prunes its .tsx skeleton", () => {
+    const dir = project({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT,
+      "src/orders/orders.contract.ts": PLAIN_CONTRACT,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    expect(existsSync(join(dir, "src/ui/badge.tsx"))).toBe(true);
+
+    rmSync(join(dir, "src/ui/badge.contract.ts"));
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("scaffold: pruned src/ui/badge.tsx — its contract no longer exists");
+    expect(existsSync(join(dir, "src/ui/badge.tsx"))).toBe(false);
+    expect(existsSync(join(dir, "src/ui"))).toBe(false);
+    expect(existsSync(join(dir, "src/orders/orders.ts"))).toBe(true);
+  });
+
+  // The marker is the whole safety argument, and widening the walk to .tsx must
+  // not have widened the LICENCE: a hand-written component sitting where a
+  // skeleton would sit is somebody's work.
+  test("a marker-less .tsx with a skeleton's exact name survives the prune", () => {
+    const dir = project({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT,
+      "src/orders/orders.contract.ts": PLAIN_CONTRACT,
+    });
+    expect(runScaffold(dir).code).toBe(0);
+    writeFileSync(join(dir, "src/ui/badge.tsx"), IMPLEMENTED_TSX);
+    rmSync(join(dir, "src/ui/badge.contract.ts"));
+
+    const r = runScaffold(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.filter((l) => l.includes("pruned"))).toEqual([]);
+    expect(readFileSync(join(dir, "src/ui/badge.tsx"), "utf8")).toBe(IMPLEMENTED_TSX);
+  });
+
+  test("the sync is idempotent over a component contract", () => {
+    const dir = project({ "src/ui/badge.contract.ts": COMPONENT_CONTRACT });
+    expect(runScaffold(dir).code).toBe(0);
+    const first = readFileSync(join(dir, "src/ui/badge.tsx"), "utf8");
+    const again = runScaffold(dir);
+    expect(again.code).toBe(0);
+    expect(again.lines.filter((l) => l.includes("pruned") || l.includes("removed empty"))).toEqual([]);
+    expect(readFileSync(join(dir, "src/ui/badge.tsx"), "utf8")).toBe(first);
   });
 });

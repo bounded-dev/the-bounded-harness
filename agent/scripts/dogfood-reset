@@ -263,6 +263,13 @@ scaffold() {
 }
 EOF
 
+  # TSX is a first-class implementation extension (TN-26-006 A1): the scaffolder
+  # emits a `.tsx` skeleton for a contract that declares a component, so the arm
+  # must compile one from birth. `react-jsx` is the transform every blessed
+  # frontend uses (no `import React` ceremony), and both halves are inert until
+  # a `.tsx` file exists — an arm that never grows one typechecks exactly as it
+  # did before. Setting it at reset rather than mid-run keeps the arms identical
+  # and keeps tsconfig out of the run's own diff.
   cat > "$dir/tsconfig.json" <<'EOF'
 {
   "compilerOptions": {
@@ -276,9 +283,10 @@ EOF
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "jsx": "react-jsx"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
 }
 EOF
 

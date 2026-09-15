@@ -314,14 +314,23 @@ const CONFIG_CANDIDATES = [
   "vitest.config.mts",
 ] as const;
 
-/** Project-relative paths, POSIX separators, of every *.ts under `dir`. */
+/** Project-relative paths, POSIX separators, of every *.ts / *.tsx under `dir`.
+ *
+ *  `.tsx` is a first-class test and implementation extension (TN-26-006 A1),
+ *  and this walk decides what the shadow project is BUILT FROM. A component
+ *  test the walk cannot see is a test the shadow never copies — so the red
+ *  would be measured over a suite with a hole in it and report the number of
+ *  tests it happened to find as if that were all of them. Contracts stay
+ *  `.contract.ts`, so the filter below is unaffected. */
 function walkTs(root: string, dir: string, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) walkTs(root, full, out);
-    else if (entry.name.endsWith(".ts")) out.push(relative(root, full).split(sep).join("/"));
+    else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+      out.push(relative(root, full).split(sep).join("/"));
+    }
   }
   return out;
 }
@@ -442,7 +451,11 @@ export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan):
 
   for (const rel of plan.regenerate) {
     const source = readFileSync(join(cwd, rel), "utf8");
-    const skeleton = join(dir, skeletonPathFor(rel));
+    // Same source, same extension decision as the live tree's scaffold step:
+    // a component contract's skeleton is a `.tsx` here too (TN-26-006 A1). The
+    // shadow is only evidence if it is the project the live scaffold would have
+    // produced, and a skeleton at a different path is a different project.
+    const skeleton = join(dir, skeletonPathFor(rel, source));
     mkdirSync(dirname(skeleton), { recursive: true });
     writeFileSync(skeleton, scaffoldContract(source, rel), "utf8");
 

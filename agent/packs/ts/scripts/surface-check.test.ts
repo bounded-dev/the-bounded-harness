@@ -385,6 +385,63 @@ describe("checkProjectSurfaces", () => {
     expect(checkProjectSurfaces(root).code).toBe(2);
   });
 
+  // --- TSX (TN-26-006 A1) ----------------------------------------------------
+  //
+  // A contract that declares a component is implemented by a `.tsx` sibling, so
+  // the pairing has to accept either extension. Two ways this could go wrong and
+  // both are silent: calling every component in the tree "missing" (exit 2 on a
+  // correct project), or parsing the component as `.ts`, where `<span …>` is a
+  // type assertion rather than JSX and the wreckage has whatever surface
+  // survived — a pass over a file nobody read.
+
+  const COMPONENT_CONTRACT = `import type { ReactElement } from "react";
+
+export interface BadgeProps {
+  readonly tone: "ok" | "warn";
+}
+
+export declare function Badge(props: BadgeProps): ReactElement;
+`;
+
+  const COMPONENT_IMPL = `import type { ReactElement } from "react";
+import type { BadgeProps } from "./badge.contract.js";
+
+export type * from "./badge.contract.js";
+
+export function Badge(props: BadgeProps): ReactElement {
+  return <span className={props.tone}>{props.tone}</span>;
+}
+`;
+
+  test("a contract paired with a .tsx implementation is a clean pair", () => {
+    const root = projectWith({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT,
+      "src/ui/badge.tsx": COMPONENT_IMPL,
+    });
+    const run = checkProjectSurfaces(root);
+    expect(run.code).toBe(0);
+    expect(run.lines).toEqual(["surface-check: OK (1 contract pair)"]);
+  });
+
+  test("and it is still a real comparison: undeclared public surface in a .tsx is caught", () => {
+    const root = projectWith({
+      "src/ui/badge.contract.ts": COMPONENT_CONTRACT,
+      "src/ui/badge.tsx":
+        COMPONENT_IMPL + "\nexport function Debug(): string {\n  return \"secret\";\n}\n",
+    });
+    const run = checkProjectSurfaces(root);
+    expect(run.code).toBe(1);
+    expect(run.lines.join("\n")).toContain("src/ui/badge.tsx");
+    expect(run.lines.join("\n")).toMatch(/Debug/);
+  });
+
+  test("neither sibling present names both spellings", () => {
+    const root = projectWith({ "src/ui/badge.contract.ts": COMPONENT_CONTRACT });
+    const run = checkProjectSurfaces(root);
+    expect(run.code).toBe(2);
+    expect(run.lines[0]).toContain("src/ui/badge.ts or src/ui/badge.tsx");
+  });
+
   // The architect's scratch zone (Fix 4): surface-check is rooted at src/, so a
   // top-level scratch/*.contract.ts is invisible to it — a probe never counts
   // as a contract pair, and a project whose only contract lives in scratch/ has

@@ -530,7 +530,13 @@ export function compareSurfaces(
 ): SurfaceViolation[] {
   const project = new Project({ useInMemoryFileSystem: true });
   const contract = moduleSurface(project.createSourceFile("/__contract__.ts", contractSource));
-  const impl = moduleSurface(project.createSourceFile("/__impl__.ts", implSource));
+  // The scratch name carries the implementation's REAL extension: ts-morph
+  // decides whether `<Badge />` is JSX or a type assertion from the filename,
+  // and a component parsed as `.ts` is a pile of syntax errors whose surface is
+  // whatever survived the wreck — a silent pass where the gate must be exact.
+  const impl = moduleSurface(
+    project.createSourceFile(implFileName.endsWith(".tsx") ? "/__impl__.tsx" : "/__impl__.ts", implSource),
+  );
   const hasTypeStar = impl.typeStarSpecifiers.some((s) => typeStarMatches(s, contractFileName));
   const out: SurfaceViolation[] = [];
 
@@ -666,11 +672,17 @@ export function checkProjectSurfaces(root: string): SurfaceCheckRun {
   const violations: SurfaceViolation[] = [];
   let misuse = false;
   for (const rel of contracts) {
-    const implRel = rel.slice(0, -CONTRACT_SUFFIX.length) + ".ts";
-    if (!existsSync(join(root, implRel))) {
+    // Either sibling extension is a legal implementation: a contract declaring
+    // a React component scaffolds to `foo.tsx` (TN-26-006 A1), and a gate that
+    // only looked for `foo.ts` would call every component in the tree missing.
+    // `.ts` wins a tie, which the scaffolder's sync makes unreachable anyway —
+    // it writes one and prunes the other.
+    const stem = rel.slice(0, -CONTRACT_SUFFIX.length);
+    const implRel = [`${stem}.ts`, `${stem}.tsx`].find((p) => existsSync(join(root, p)));
+    if (implRel === undefined) {
       misuse = true;
       lines.push(
-        `surface-check: ERROR — ${rel} has no implementation sibling ${implRel} (foo.contract.ts is implemented by foo.ts; run the scaffolder)`,
+        `surface-check: ERROR — ${rel} has no implementation sibling ${stem}.ts or ${stem}.tsx (foo.contract.ts is implemented by foo.ts, or foo.tsx when it declares a component; run the scaffolder)`,
       );
       continue;
     }

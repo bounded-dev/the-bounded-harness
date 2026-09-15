@@ -55,15 +55,26 @@ const GUARD = "lint-src";
 
 const NOTHING_TO_LINT = /No files matching|are ignored/;
 
-/** What the gate walks when no explicit patterns are given. */
-export const DEFAULT_PATTERNS: readonly string[] = ["src/**/*.ts"];
+/** What the gate walks when no explicit patterns are given.
+ *
+ *  `.tsx` IS an implementation extension (TN-26-006 A1). A React component is
+ *  ordinary `src/**` code that happens to be spelled with JSX, and every reason
+ *  the four escape hatches are banned in a `.ts` module applies verbatim in a
+ *  `.tsx` one — `props as any` is the same lie about the same type checker.
+ *  Contracts stay `.ts`-ONLY: a contract is declaration-only by lint, so it has
+ *  no JSX to spell, and `*.contract.tsx` would be a second name for the one
+ *  artifact both blind roles code against. */
+export const DEFAULT_PATTERNS: readonly string[] = ["src/**/*.ts", "src/**/*.tsx"];
 
 /** Test sources get the same escape-hatch ban — Run 10's test helpers used `!`
  *  freely because only src/** was watched, and a suite that silences the type
  *  checker can assert its way past anything. Size ceilings deliberately do NOT
  *  apply here: a thorough suite legitimately runs long, and a describe block
- *  is one "function" to max-lines-per-function. */
-export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts"];
+ *  is one "function" to max-lines-per-function. `.tsx` for the same reason it
+ *  is an implementation extension: a component test that renders JSX inline is
+ *  the normal shape, and it must not be the one file in the tree where `any`
+ *  is free. */
+export const TEST_PATTERNS: readonly string[] = ["tests/**/*.ts", "tests/**/*.tsx"];
 const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines", "max-depth"]);
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
@@ -104,13 +115,26 @@ export function createSrcLinter(cwd?: string): ESLint {
     // so results are identical in every repo.
     overrideConfigFile: true,
     ...(cwd === undefined ? {} : { cwd }),
+    // The gate walks two extensions and most trees hold only one of them, so an
+    // unmatched pattern is the NORMAL case, not a misuse: a service with no
+    // components matches no `src/**/*.tsx` and a frontend-only slice matches no
+    // `src/**/*.ts`. ESLint's default is to throw per unmatched pattern, which
+    // would turn "this project has no components" into a broken-gate error.
+    // "Did this gate match anything?" is answered once, downstream, by the file
+    // count in classify() — one verdict, independent of how many globs it took
+    // to get there.
+    errorOnUnmatchedPattern: false,
     overrideConfig: [
       // Global ignore (a config object with only `ignores`): contract files
       // never enter the results at all, so they cannot inflate the file count
-      // that decides "did this gate match anything?".
+      // that decides "did this gate match anything?". Contracts are `.ts`-only
+      // by design (see DEFAULT_PATTERNS), so one pattern still covers them all.
       { ignores: ["**/*.contract.ts"] },
       {
-        files: ["**/*.ts"],
+        // @typescript-eslint/parser turns JSX parsing on from the FILENAME, so
+        // the same parser instance handles both extensions with no options
+        // (pinned by lint-src.test.ts, which lints a component through it).
+        files: ["**/*.ts", "**/*.tsx"],
         languageOptions: { parser },
         // @typescript-eslint RuleModule and eslint's flat-config Plugin type
         // are structurally incompatible (known upstream friction); runtime fine.

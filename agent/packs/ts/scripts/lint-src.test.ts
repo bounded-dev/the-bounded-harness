@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { createSrcLinter, lintSrc, lintSrcText, formatSrcProblems } from "./lint-src.ts";
+import { createSrcLinter, lintSrc, lintSrcText, lintTests, formatSrcProblems } from "./lint-src.ts";
 import { scaffoldContract } from "./scaffold-contract.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
@@ -117,6 +117,79 @@ describe("scope", () => {
   });
 });
 
+// --- TSX is implementation, and implementation is policed (TN-26-006 A1) -----
+//
+// A React component is ordinary src/** code that happens to be spelled with
+// JSX. If `.tsx` were outside the gate, every escape hatch the harness bans
+// would be legal in the one part of the tree where the type checker is doing
+// the most work — `props as any` is the same lie about the same checker, and a
+// model under pressure takes the cheapest path out wherever it is offered.
+
+const COMPONENT_TSX = `import type { ReactElement } from "react";
+
+export interface BadgeProps {
+  readonly tone: "ok" | "warn";
+}
+
+export function Badge(props: BadgeProps): ReactElement {
+  return <span className={props.tone}>{props.tone === "ok" ? "OK" : "!"}</span>;
+}
+`;
+
+describe("TSX sources", () => {
+  const TSX = "src/ui/badge.tsx";
+
+  // The whole plumbing claim in one assertion: @typescript-eslint/parser turns
+  // JSX parsing on from the FILENAME, so the same parser instance the gate
+  // already configures handles a component with no options and no second
+  // config block. A parse failure here would surface as a phantom problem.
+  test("a component with JSX parses and produces no problems", async () => {
+    expect(await lintSrcText(COMPONENT_TSX, TSX)).toEqual([]);
+  });
+
+  test("the escape hatches are banned inside JSX too", async () => {
+    const source = `import type { ReactElement } from "react";
+export function Badge(props: any): ReactElement {
+  return <span title={(props.tone as string)}>{props.label!}</span>;
+}
+`;
+    expect((await lintSrcText(source, TSX)).map((p) => p.ruleId).sort()).toEqual([
+      "@typescript-eslint/consistent-type-assertions",
+      "@typescript-eslint/no-explicit-any",
+      "@typescript-eslint/no-non-null-assertion",
+    ]);
+  });
+
+  test("a @ts-expect-error above a JSX line is still reported", async () => {
+    expect(
+      await rules(
+        `import type { ReactElement } from "react";
+export function Badge(): ReactElement {
+  // @ts-expect-error the prop types are wrong, honestly
+  return <span aria-hidden={1}>x</span>;
+}
+`,
+        TSX,
+      ),
+    ).toEqual(["@typescript-eslint/ban-ts-comment"]);
+  });
+
+  test("the ban cannot be reopened from inside a .tsx either", async () => {
+    expect(
+      await rules("/* eslint-disable */\nexport const x: any = 1;\n", TSX),
+    ).toEqual(["@typescript-eslint/no-explicit-any"]);
+  });
+
+  // `*.contract.ts` is the ONLY contract spelling (a declaration-only file has
+  // no JSX to write), so the global ignore needs no `.tsx` twin — and a file
+  // named like one must not buy itself an exemption by changing extension.
+  test("a *.contract.tsx is NOT exempt — contracts are .ts, so this is implementation", async () => {
+    expect(await rules("export const x: any = 1;\n", "src/orders/orders.contract.tsx")).toEqual([
+      "@typescript-eslint/no-explicit-any",
+    ]);
+  });
+});
+
 // --- the generated red-phase skeletons must survive the gate ------------------
 
 describe("scaffolder skeletons lint clean", () => {
@@ -212,6 +285,33 @@ describe("lintSrc", () => {
     expect(result.code).toBe(2);
   });
 
+  // The gate now walks two globs, and ESLint's default is to throw the moment
+  // one of them matches nothing. Every tree below matches exactly one — which
+  // is the NORMAL state, not a misuse — so all three must come back with a
+  // verdict about the files that DO exist.
+  test("a src tree of .tsx alone is linted (one glob matching nothing is not an error)", async () => {
+    const dir = project("lint-src-tsx-", { "src/ui/badge.tsx": COMPONENT_TSX });
+    const result = await lintSrc(dir);
+    expect(result.code).toBe(0);
+    expect(result.summary).toBe("OK (1 file)");
+  });
+
+  test("a mixed tree counts both extensions, and blocks on the .tsx", async () => {
+    const dir = project("lint-src-mixed-", {
+      "src/orders/orders.ts": "export const x = 1;\n",
+      "src/ui/badge.tsx": "export const Badge: any = null;\n",
+    });
+    const result = await lintSrc(dir);
+    expect(result.code).toBe(1);
+    expect(result.summary).toBe("1 problem in 2 files");
+    expect(result.lines[0]).toMatch(/^src\/ui\/badge\.tsx:1:21\s+@typescript-eslint\/no-explicit-any\s+/);
+  });
+
+  test("still exit 2 when NEITHER glob matches — silence is not success", async () => {
+    const dir = project("lint-src-neither-", { "README.md": "no src here\n" });
+    expect((await lintSrc(dir)).code).toBe(2);
+  });
+
   test("files outside src/ are not linted", async () => {
     const dir = project("lint-src-outside-", {
       "src/orders/orders.ts": "export const x = 1;\n",
@@ -220,6 +320,44 @@ describe("lintSrc", () => {
     });
     const result = await lintSrc(dir);
     expect(result.code).toBe(0);
+  });
+});
+
+// --- the tests/** variant, run inside the red gate ----------------------------
+
+describe("lintTests", () => {
+  // A component test renders JSX inline — that IS the normal shape — so `.tsx`
+  // has to be in the tests glob or the suite gets one file where `any` is free
+  // and can assert its way past anything (Run 10, with a new extension).
+  test("a .tsx test file is linted and the escape hatches still apply", async () => {
+    const dir = project("lint-tests-tsx-", {
+      "tests/badge.test.tsx": `import type { ReactElement } from "react";
+const el: any = (<span>hi</span>) as ReactElement;
+export const x = el;
+`,
+    });
+    const result = await lintTests(dir);
+    expect(result.code).toBe(1);
+    const problems = result.detail["problems"] as { ruleId: string }[];
+    expect(problems.map((p) => p.ruleId).sort()).toEqual([
+      "@typescript-eslint/consistent-type-assertions",
+      "@typescript-eslint/no-explicit-any",
+    ]);
+  });
+
+  test("a .tsx test may be long and deeply nested — size ceilings are src-only", async () => {
+    const body = Array.from({ length: 80 }, (_, i) => `  void ${i};`).join("\n");
+    const dir = project("lint-tests-size-", {
+      "tests/badge.test.tsx": `export function suite(): void {\n${body}\n}\n`,
+    });
+    expect((await lintTests(dir)).code).toBe(0);
+  });
+
+  test("no test files at all is a legitimate mid-loop state, not a broken gate", async () => {
+    const dir = project("lint-tests-none-", { "src/a.ts": "export const x = 1;\n" });
+    const result = await lintTests(dir);
+    expect(result.code).toBe(0);
+    expect(result.summary).toBe("no test files yet");
   });
 });
 
