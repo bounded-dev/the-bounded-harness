@@ -23,3 +23,4 @@ note, born from a GitHub issue.
 | [TN-26-003](TN-26-003-change-cycle.md) | The change cycle — evolving a delivered component | draft |
 | [TN-26-004](TN-26-004-api-service-reference-set.md) | The API-service reference set — one deterministic way onto the wire | draft |
 | [TN-26-005](TN-26-005-pack-composition.md) | Pack composition — sockets in the core, contributions from packs | draft |
+| [TN-26-006](TN-26-006-web-frontend-reference-set.md) | The web-frontend reference set — FSD layers, shadcn, typed client | draft |
