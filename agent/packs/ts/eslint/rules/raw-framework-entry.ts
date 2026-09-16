@@ -15,8 +15,21 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 const createRule = ESLintUtils.RuleCreator.withoutDocs;
 
+// THE SERVER DOOR, and only the server door (TN-26-006 B1). This used to read
+// `source.startsWith("@trpc/")`, which swept in `@trpc/client` — and the
+// frontend's one door imports `@trpc/client` by design, so the ts pack's
+// server-side rule was refusing the ts-web pack's correct code.
+//
+// The narrowing is not a relaxation, it is the rule saying what it always
+// meant. Every word of its reasoning is about the SERVER: `initTRPC`, the error
+// taxonomy (parse failure → BAD_REQUEST, the named throwers), the shipped
+// `service-runtime.ts` that holds them as code. `@trpc/client` has no taxonomy
+// to re-map — it is a transport — and the frontend's own one-door rule
+// (`client-one-door`, contributed by ts-web) is what confines it to
+// `src/ui/shared/api/`. Two doors, two packs, one rule each; the ts pack does
+// not learn that a frontend exists.
 function isFrameworkModule(source: string): boolean {
-  return source === "@trpc/server" || source.startsWith("@trpc/");
+  return source === "@trpc/server" || source.startsWith("@trpc/server/");
 }
 
 export const rawFrameworkEntry = createRule<[], "rawEntry">({

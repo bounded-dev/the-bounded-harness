@@ -27,6 +27,21 @@ export declare function explain(e: TRPCError): string;`,
 export const t = initTRPC.create();`,
       filename: "src/api/service-runtime.ts",
     },
+    // THE CLIENT IS A DIFFERENT DOOR (TN-26-006 B1). This rule polices the
+    // SERVER framework, because the error taxonomy it exists to protect is
+    // server-side code in the shipped runtime. `@trpc/client` is a transport
+    // with no taxonomy to re-map, and the frontend's one door imports it by
+    // design; confining it to `src/ui/shared/api/` is `client-one-door`'s job,
+    // contributed by the ts-web pack. The ts pack does not learn a frontend
+    // exists.
+    {
+      code: `import { createTRPCClient, httpBatchLink } from "@trpc/client";`,
+      filename: "src/ui/shared/api/client.tsx",
+    },
+    {
+      code: `import { createTRPCClient } from "@trpc/client";`,
+      filename: "src/whatever/anywhere.ts",
+    },
   ],
   invalid: [
     {

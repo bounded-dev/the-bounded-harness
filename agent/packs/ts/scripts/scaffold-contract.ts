@@ -204,16 +204,60 @@ export function skeletonSiblingPaths(contractPath: string): readonly string[] {
  * and the orphan sync below deletes nothing without it. A hand-written file
  * that merely happens to sit where a skeleton would sit — `src/orders/orders.ts`
  * written by someone before the contract existed — has no marker and survives.
- * Both generators (this file and value-object-laws.ts) emit it as line 1; the
- * suite pins that, so the two cannot drift apart into "generated" files the
- * sync no longer recognises and therefore silently leaks.
+ * Every pack generator emits it as line 1; the suite pins that, so they cannot
+ * drift apart into "generated" files the sync no longer recognises and
+ * therefore silently leaks.
+ *
+ * THE PACK SEGMENT IS A WILDCARD (TN-26-006 B1). It used to be the literal
+ * `packs/ts/scripts/`, from the days when one pack owned every generator. The
+ * ts-web pack's `new-web-app.ts` emits an FSD skeleton exactly as this file
+ * emits a contract skeleton, and a marker the sync does not recognise is worse
+ * than no marker at all: the file is undeletable by its own generator AND
+ * indistinguishable from hand-written work. Widening the pack segment makes a
+ * second pack's generator a first-class owner of its output — it may
+ * byte-compare, overwrite and (when pruning arrives for it) delete, on exactly
+ * the terms this one does.
+ *
+ * What stays NARROW is everything that matters: the literal `packs/`,
+ * `/scripts/`, a lowercase pack name, a lowercase script name, and the exact
+ * sentence. A project file cannot acquire the marker by accident, and a
+ * generator outside a pack's scripts directory cannot claim it at all.
  */
-const GENERATED_MARKER = /^\/\/ GENERATED from \S+ by packs\/ts\/scripts\/[a-z-]+\.ts — do not edit\.\s*$/;
+const GENERATED_MARKER =
+  /^\/\/ GENERATED from \S+ by packs\/[a-z][a-z0-9-]*\/scripts\/[a-z-]+\.ts — do not edit\.\s*$/;
 
 /** Was this text written by a pack generator? Line 1 decides, and only line 1. */
 export function isGeneratedArtifact(source: string): boolean {
   const firstNewline = source.indexOf("\n");
   return GENERATED_MARKER.test(firstNewline === -1 ? source : source.slice(0, firstNewline));
+}
+
+/** The generators whose output THIS sync owns, and may therefore delete. */
+const OWN_GENERATORS = new Set([
+  "packs/ts/scripts/scaffold-contract.ts",
+  "packs/ts/scripts/value-object-laws.ts",
+]);
+
+const MARKER_GENERATOR = /^\/\/ GENERATED from \S+ by (\S+) — do not edit\./;
+
+/**
+ * Did one of THIS pack's generators write this file?
+ *
+ * The distinction did not exist while one pack owned every generator, and it
+ * became load-bearing the moment a second one did (TN-26-006 B1): `new-web-app`
+ * emits `src/ui/main.tsx`, which carries a marker, which this sync would
+ * otherwise read as an orphaned skeleton and DELETE on the next design_gate —
+ * a generator eating another pack's output because both spoke the same word.
+ *
+ * The marker names its generator, so the rule is simply that a generator
+ * deletes only what it wrote. Every pack is an owner of its own tree and a
+ * stranger to everyone else's.
+ */
+function isOwnArtifact(source: string): boolean {
+  const firstNewline = source.indexOf("\n");
+  const line = firstNewline === -1 ? source : source.slice(0, firstNewline);
+  const named = MARKER_GENERATOR.exec(line)?.[1];
+  return named !== undefined && OWN_GENERATORS.has(named);
 }
 
 // --- The API-service runtime (TN-26-004) -------------------------------------
@@ -280,7 +324,8 @@ function pruneOrphans(
     } catch {
       continue; // vanished under us (a concurrent delete) — nothing to prune
     }
-    if (!isGeneratedArtifact(source)) continue;
+    // A generator deletes only what IT wrote — see isOwnArtifact.
+    if (!isOwnArtifact(source)) continue;
     rmSync(path);
     files.push(relative(cwd, path).split(sep).join("/"));
     // Walk up while the pruning has emptied a directory, stopping at the
