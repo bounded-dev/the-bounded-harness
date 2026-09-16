@@ -66,6 +66,12 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
     expect(missing).toEqual([]);
   });
 
+  // Guard against the empty-set pass. A check over nothing goes green through a
+  // broken registry, a mis-wired composition, or a socket read that quietly
+  // returned [] — the exact failures the test above exists to notice.
+  test("there are contributed rules to check (the socket is actually wired)", () => {
+    expect(contributedSrcRuleIds().length).toBeGreaterThan(0);
+  });
 });
 
 describe("the obligations and orderings are named too", () => {

@@ -158,6 +158,32 @@ the error taxonomy (parse failure → BAD_REQUEST, the named throwers for
 NOT_FOUND / UNPROCESSABLE_CONTENT / CONFLICT) is code in that one shipped
 file, not a convention for you to re-implement (TN-26-004).
 
+**The UI's layers point one way** — `pi-harness-ts-web/fsd-downward-imports`:
+inside `src/ui/**`, imports flow strictly downward through
+`shared < entities < features < widgets < pages`. A module may import its own
+layer or a lower one, never a higher one — a `shared/ui` component that imports
+a feature is a component nobody can reuse and nobody can test alone, and it
+still compiles, which is why a gate says so instead of a reviewer. If you need
+something from above, take it as a prop. Type-only imports count: a type is a
+dependency. Nothing outside `src/ui` is in scope — importing the domain, a
+contract or a package is ordinary work.
+
+**Each slice has one front door** — `pi-harness-ts-web/fsd-slice-public-api`: a
+cross-slice import targets the slice root (`../building`, or
+`../building/index.js`), never a file inside it (`../building/model/query.js`).
+The index is the list of things the rest of the app may depend on, and
+everything else in the slice stays free to move. Inside your OWN slice, reach
+for whatever you like.
+
+**The frontend has one door to the network** — `pi-harness-ts-web/client-one-door`:
+runtime imports of `@trpc/*` and `@tanstack/*` are legal only under
+`src/ui/shared/api/` (`import type` is fine anywhere). One client, one URL, one
+QueryClient — a second QueryClient splits the cache and nothing fails, so half
+the app just stops seeing the other half's writes. Reach the transport through
+`useServiceClient()` from `shared/api/client.js` and wrap it in your own entity
+or feature hook. This is the client-side twin of `raw-framework-entry`, which
+owns the server door (`@trpc/server`).
+
 **Value objects parse with zod** — `pi-harness-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level
 `const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of

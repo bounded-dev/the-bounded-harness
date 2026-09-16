@@ -165,6 +165,27 @@ describe("contributed rules reach the flat config", () => {
     }
   });
 
+  // End to end: the socket is not wired until a contributed rule actually
+  // BLOCKS through the gate the ts pack owns. Everything above checks the
+  // config; this checks the verdict.
+  test("a contributed rule blocks real source through the src gate", async () => {
+    const problems = await rules(
+      'import { ReportForm } from "../../features/submit-report/index.js";\n' +
+        "export const x = ReportForm;\n",
+      "src/ui/shared/ui/button.tsx",
+    );
+    expect(problems).toContain("pi-harness-ts-web/fsd-downward-imports");
+  });
+
+  test("and a contributed rule is silent on code that obeys it", async () => {
+    const problems = await rules(
+      'import { useServiceClient } from "../../../shared/api/client.js";\n' +
+        "export const x = useServiceClient;\n",
+      "src/ui/entities/building/model/query.ts",
+    );
+    expect(problems).toEqual([]);
+  });
+
   test("the contributed ids are well formed — <plugin>/<rule>, no collisions", () => {
     const ids = contributedSrcRuleIds().map(({ id }) => id);
     for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/);
@@ -408,6 +429,21 @@ export const x = el;
       "tests/badge.test.tsx": `export function suite(): void {\n${body}\n}\n`,
     });
     expect((await lintTests(dir)).code).toBe(0);
+  });
+
+  // A contributed rule declares the brief that must name it, and that brief is
+  // also the tree it polices: all three of ts-web's bind the BUILDER, so the
+  // tests run drops them the way it drops the ts pack's own src-only rules. A
+  // test rendering a component under a real QueryClientProvider is doing its
+  // job, not smuggling in a second transport.
+  test("a builder-bound contributed rule does not fire on tests/**", async () => {
+    const dir = project("lint-tests-contributed-", {
+      "tests/dashboard.test.tsx": `import { QueryClient } from "@tanstack/react-query";
+export const client = new QueryClient();
+`,
+    });
+    const result = await lintTests(dir);
+    expect(result.code).toBe(0);
   });
 
   test("no test files at all is a legitimate mid-loop state, not a broken gate", async () => {

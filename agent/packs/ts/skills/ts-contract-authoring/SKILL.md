@@ -187,6 +187,18 @@ the code belongs):
   exempt from `no-naked-primitives`, because a class is already nominal and
   its `parse` must accept the raw primitive.
 
+  **The one place primitives are legitimate: `src/ui/shared/ui/`.** Contracts
+  under the generic UI layer — and only there — have `no-naked-primitives`,
+  `value-object-shape` and `value-object-documented` switched off, contributed
+  by the ts-web pack (TN-26-006). A Button's `label: string` is a string: that
+  layer holds no domain, which is what makes it reusable, and wrapping a label
+  in a value object would be ceremony with no invariant behind it. Everywhere
+  else — including `src/ui/entities/` and `src/ui/features/` — the rule stands,
+  so domain data arrives at a feature component as a value object and is
+  rendered to a primitive at the leaf. Moving a domain type into `shared/ui` to
+  escape a block inverts the layer rule and `fsd-downward-imports` will refuse
+  the import that made it useful.
+
   **It is also why `src/**` bans every type-system escape hatch.** A branded
   alias could only be built with `return raw as Isbn`, so casts had to be
   tolerated. A class is built with `new Currency(raw)`, and a composite parser

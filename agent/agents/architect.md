@@ -210,6 +210,18 @@ contract — the schema is the value object's internal engine, and the
 contract's whole validation surface is `static parse(raw: unknown)`; ADR
 2026-031).
 
+**One ratified relaxation: the generic UI layer.** Contracts under
+`src/ui/shared/ui/` — and nowhere else — have `no-naked-primitives`,
+`value-object-shape` and `value-object-documented` turned OFF, contributed by
+the ts-web pack (TN-26-006, ratified at the 2026-09-14 grill). A Button's
+`label: string` IS a string: that layer is generic by definition and holds no
+domain at all, which `fsd-downward-imports` enforces from the other side by
+refusing it any import from a layer that knows one. Everywhere else the rules
+stand unchanged, so domain data crosses into entity and feature components as
+value objects and is rendered to primitives at the leaf. Do not read this as
+licence to move a domain type into `shared/ui` to get past a block — that is
+the one move the exemption is shaped to make useless.
+
 `design_gate` runs that check as its first step and then carries the phase
 through: purity → scaffold → project typecheck → design-review → freeze, one
 call, one verdict, stopping at the first failure and naming it. Every failure
