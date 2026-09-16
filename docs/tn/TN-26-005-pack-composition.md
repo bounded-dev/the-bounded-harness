@@ -47,7 +47,11 @@ nouns-outside-Intake refusal, ADR 2026-032) stays core and content-free.
   with its consumer, as core or foundational-pack design work with its own
   ADR. Ordinary packs (ts-web, file-handling, data-table, …) are
   **contribution-only**: they never define sockets, and the registry's owner
-  typing makes that a compile-time fact, not a review convention.
+  typing makes that a compile-time fact, not a review convention. This is
+  today's policy, not a forever-law: the mechanism is deliberately the open
+  one (any pack CAN own sockets, typed identically), so opening the
+  vocabulary later — say for third-party or community packs — is a policy
+  change with zero rework, not a redesign.
 - A pack adds capability **only** through the sockets above; a pack that
   needs a new socket kind proposes it as core work first (its own ADR).
 - Cross-pack references in core guidance (the developer-stage skill naming
