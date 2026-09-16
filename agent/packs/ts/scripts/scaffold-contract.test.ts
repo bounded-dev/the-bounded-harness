@@ -1203,6 +1203,20 @@ export function normalize(currency: Currency): Currency {
 // The API-service runtime (TN-26-004): shipped by the sync, never written
 // ---------------------------------------------------------------------------
 
+describe("skeletonExtensionFor: the names are contributions, not ts-pack content", () => {
+  const COMPONENT_CONTRACT = `import type { ReactElement } from "react";
+export declare function StatusCard(props: { readonly label: string }): ReactElement;
+`;
+
+  test("with no contributed names, nothing ever scaffolds .tsx (no web pack composed)", () => {
+    expect(skeletonExtensionFor(COMPONENT_CONTRACT, new Set())).toBe(".ts");
+  });
+
+  test("with the ts-web pack installed (this repo), the same contract answers .tsx", () => {
+    expect(skeletonExtensionFor(COMPONENT_CONTRACT)).toBe(".tsx");
+  });
+});
+
 describe("runScaffold: the service runtime is shipped where a contract points", () => {
   const dirs: string[] = [];
   const project = (files: Record<string, string>): string => {

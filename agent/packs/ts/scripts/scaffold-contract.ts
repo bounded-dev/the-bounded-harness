@@ -54,6 +54,7 @@ import { CodeBlockWriter, Node, Project, SyntaxKind } from "ts-morph";
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
 import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
+import { mergedContribution } from "../../../src/pack-contrib.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -104,10 +105,20 @@ export function notImplemented(what: string): never {
  * skeleton is reproducible in the red gate's shadow project at any moment, from
  * the frozen contracts and nothing else). A judgement that needed the project's
  * resolved types would make the extension depend on node_modules, so the rule
- * reads the contract's own text: these three names are how React's return type
- * is spelled, and a contract that declares one is declaring a component.
+ * reads the contract's own text against a list of component return-type names.
+ *
+ * THE NAMES ARE NOT TS-PACK CONTENT (TN-26-005). "ReactElement" is web-pack
+ * knowledge; this scaffolder is the socket. The names arrive as pack
+ * contributions (`componentReturnTypes` in packs/ts-web/contrib.json), merged
+ * across installed packs and cached per process — a harness composed without
+ * the web pack never emits a .tsx skeleton, because nothing contributed a
+ * component type to look for.
  */
-const COMPONENT_TYPE_NAMES = new Set(["ReactElement", "ReactNode", "JSX.Element"]);
+let contributedComponentTypes: Set<string> | undefined;
+function componentTypeNames(): ReadonlySet<string> {
+  contributedComponentTypes ??= new Set(mergedContribution("componentReturnTypes"));
+  return contributedComponentTypes;
+}
 
 /**
  * `.tsx` if this contract declares a React component on its exported surface,
@@ -131,7 +142,11 @@ const COMPONENT_TYPE_NAMES = new Set(["ReactElement", "ReactNode", "JSX.Element"
  * `scaffoldContract` has had its say, and the contract's real defects belong in
  * that function's loud, specific ScaffoldError — not in a mystery extension.
  */
-export function skeletonExtensionFor(contractSource: string): ".ts" | ".tsx" {
+export function skeletonExtensionFor(
+  contractSource: string,
+  names: ReadonlySet<string> = componentTypeNames(),
+): ".ts" | ".tsx" {
+  if (names.size === 0) return ".ts"; // no pack contributed component types
   let sf: SourceFile;
   try {
     const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
@@ -142,7 +157,7 @@ export function skeletonExtensionFor(contractSource: string): ".ts" | ".tsx" {
   for (const stmt of sf.getStatements()) {
     if (!isExportDecl(stmt)) continue;
     for (const ref of stmt.getDescendantsOfKind(SyntaxKind.TypeReference)) {
-      if (COMPONENT_TYPE_NAMES.has(ref.getTypeName().getText().trim())) return ".tsx";
+      if (names.has(ref.getTypeName().getText().trim())) return ".tsx";
     }
   }
   return ".ts";
