@@ -39,7 +39,15 @@ import { findContractFiles } from "../../ts/scripts/checksum-gate.ts";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
-import { APP_CSS, clientTsx, INDEX_HTML, LAYER_NOTES, mainTsx, VITE_CONFIG } from "../template.ts";
+import {
+  APP_CSS,
+  clientTsx,
+  COMPONENT_KIT,
+  INDEX_HTML,
+  LAYER_NOTES,
+  mainTsx,
+  VITE_CONFIG,
+} from "../template.ts";
 
 const GUARD = "new-web-app";
 
@@ -136,6 +144,10 @@ export function webAppPlan(inputs: WebAppInputs): readonly EmittedFile[] {
   } else {
     files.push(file("src/ui/shared/api/client.tsx", clientTsx(inputs.routerSpecifier)));
   }
+
+  // The component kit (TN-26-006 B3). It fills `shared/ui` and `shared/lib`, so
+  // neither gets a .gitkeep — a placeholder next to real files is debris.
+  for (const component of COMPONENT_KIT) files.push(file(component.path, component.body));
 
   for (const layer of LAYER_NOTES) files.push(file(`${layer.dir}/.gitkeep`, `${layer.note}\n`));
   return Object.freeze(files.sort((a, b) => (a.path < b.path ? -1 : 1)));

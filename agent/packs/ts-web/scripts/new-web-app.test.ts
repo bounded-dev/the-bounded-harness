@@ -52,7 +52,7 @@ function contentAt(plan: readonly { path: string; content: string }[], path: str
 // --- the plan (pure) ---------------------------------------------------------
 
 describe("the emitted layout", () => {
-  test("is the FSD layers, the Vite entry, and the Tailwind entry", () => {
+  test("is the FSD layers, the component kit, and the two entries", () => {
     expect(pathsOf(PLAN_WITHOUT_API)).toEqual([
       "index.html",
       "src/ui/app.css",
@@ -61,9 +61,21 @@ describe("the emitted layout", () => {
       "src/ui/main.tsx",
       "src/ui/pages/.gitkeep",
       "src/ui/shared/api/.gitkeep",
-      "src/ui/shared/ui/.gitkeep",
+      "src/ui/shared/lib/cn.ts",
+      "src/ui/shared/ui/button.tsx",
+      "src/ui/shared/ui/card.tsx",
+      "src/ui/shared/ui/index.ts",
+      "src/ui/shared/ui/input.tsx",
+      "src/ui/shared/ui/label.tsx",
       "vite.config.ts",
     ]);
+  });
+
+  // shared/ui and shared/lib hold real files, so a placeholder beside them
+  // would be debris the v1 sync never prunes.
+  test("the filled layers get no .gitkeep", () => {
+    expect(pathsOf(PLAN_WITH_API)).not.toContain("src/ui/shared/ui/.gitkeep");
+    expect(pathsOf(PLAN_WITH_API)).not.toContain("src/ui/shared/lib/.gitkeep");
   });
 
   // `widgets` is recognised by the lints (they place it between features and
@@ -140,7 +152,97 @@ describe("the emitted layout", () => {
     expect(contentAt(PLAN_WITH_API, "src/ui/entities/.gitkeep")).toMatch(/READ side/);
     expect(contentAt(PLAN_WITH_API, "src/ui/features/.gitkeep")).toMatch(/WRITE side/);
     expect(contentAt(PLAN_WITH_API, "src/ui/pages/.gitkeep")).toMatch(/Routes/);
-    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/.gitkeep")).toMatch(/generic component kit/i);
+  });
+});
+
+// --- the component kit (B3) --------------------------------------------------
+
+describe("the vendored component kit", () => {
+  test("is button, card, input, label, and the class merger they share", () => {
+    for (const path of [
+      "src/ui/shared/ui/button.tsx",
+      "src/ui/shared/ui/card.tsx",
+      "src/ui/shared/ui/input.tsx",
+      "src/ui/shared/ui/label.tsx",
+      "src/ui/shared/lib/cn.ts",
+    ]) {
+      expect(pathsOf(PLAN_WITH_API), path).toContain(path);
+    }
+  });
+
+  test("every component is exported from the kit's index", () => {
+    const index = contentAt(PLAN_WITH_API, "src/ui/shared/ui/index.ts");
+    for (const name of ["Button", "Card", "CardTitle", "CardContent", "Input", "Label"]) {
+      expect(index, name).toContain(name);
+    }
+  });
+
+  // The whole restyling contract: tokens in app.css, never an edit here
+  // (ratified at the 2026-09-14 grill). A hex code or an `rgb()` in a component
+  // is a colour the token block cannot reach.
+  test("components style through the semantic tokens, never through raw colours", () => {
+    for (const emitted of PLAN_WITH_API) {
+      if (!emitted.path.startsWith("src/ui/shared/ui/")) continue;
+      expect(emitted.content, emitted.path).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+      expect(emitted.content, emitted.path).not.toMatch(/\b(rgb|hsl|oklch)\(/);
+    }
+    const button = contentAt(PLAN_WITH_API, "src/ui/shared/ui/button.tsx");
+    for (const token of ["bg-primary", "text-primary-foreground", "bg-destructive", "ring-ring"]) {
+      expect(button, token).toContain(token);
+    }
+  });
+
+  test("every token a component uses is defined in app.css", () => {
+    const css = contentAt(PLAN_WITH_API, "src/ui/app.css");
+    const used = new Set<string>();
+    for (const emitted of PLAN_WITH_API) {
+      if (!emitted.path.startsWith("src/ui/shared/ui/")) continue;
+      for (const match of emitted.content.matchAll(
+        /\b(?:bg|text|border|ring|rounded)-(primary|primary-foreground|destructive|destructive-foreground|muted|muted-foreground|background|foreground|border|ring|card)\b/g,
+      )) {
+        used.add(match[1]!);
+      }
+    }
+    expect(used.size).toBeGreaterThan(4);
+    const missing = [...used].filter(
+      (name) => !css.includes(`--color-${name}:`) && !css.includes(`--radius-${name}:`),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  // `twMerge` is why a caller's className actually wins: two Tailwind utilities
+  // for the same property have equal specificity, so without de-duplication the
+  // override silently does nothing.
+  test("cn merges rather than concatenating", () => {
+    const cn = contentAt(PLAN_WITH_API, "src/ui/shared/lib/cn.ts");
+    expect(cn).toContain("twMerge");
+    expect(cn).toContain("clsx");
+  });
+
+  // Documented in the generator's own header, and pinned here: a dependency
+  // nothing yet needs is one every project inherits forever.
+  test("the kit takes no dependency it does not need", () => {
+    for (const emitted of PLAN_WITH_API) {
+      if (!emitted.path.startsWith("src/ui/shared/")) continue;
+      expect(emitted.content, emitted.path).not.toContain("class-variance-authority");
+      expect(emitted.content, emitted.path).not.toContain("@radix-ui/");
+    }
+  });
+
+  // Blind UI testing keys on roles, labels and visible text (TN-26-006), and
+  // those come from the elements the kit chooses: a real <label> is what makes
+  // `getByLabelText` work, and a heading is what gives a card a name.
+  test("the kit emits the elements a blind UI test can find", () => {
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/label.tsx")).toContain("<label");
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/card.tsx")).toContain("<h3");
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/button.tsx")).toContain("<button");
+  });
+
+  // The HTML default for a button inside a form is "submit", so a button that
+  // opens a dialog submits the form instead — and the bug reads as "the form
+  // submits twice", three files away.
+  test("Button defaults its type, because HTML's default is a trap", () => {
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/button.tsx")).toContain('type = "button"');
   });
 });
 
@@ -192,7 +294,7 @@ describe("syncWebApp", () => {
       expect(existsSync(join(dir, emitted.path)), emitted.path).toBe(true);
       expect(readFileSync(join(dir, emitted.path), "utf8")).toBe(emitted.content);
     }
-    expect(run.lines.at(-1)).toMatch(/wrote 9 files/);
+    expect(run.lines.at(-1)).toBe(`new-web-app: wrote ${PLAN_WITHOUT_API.length} files`);
   });
 
   test("a second run over an untouched tree writes nothing", () => {

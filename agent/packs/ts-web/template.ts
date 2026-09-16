@@ -238,6 +238,193 @@ export function TrpcProvider(props: TrpcProviderProps): ReactElement {
 `;
 }
 
+// --- The component kit (TN-26-006 B3) ---------------------------------------
+//
+// A minimal shadcn-style set: button, card, input, label. Faithful in SPIRIT —
+// copy-in components you own, styled entirely with Tailwind utilities over
+// semantic tokens, composed rather than configured — and deliberately not a
+// transcription: these are pack-owned, marker-carrying, and never hand-edited,
+// so restyling happens through the `@theme` block in app.css and nowhere else
+// (ratified at the 2026-09-14 grill).
+//
+// DEPENDENCIES CHOSEN, AND WHY:
+//
+//   clsx + tailwind-merge — KEPT, as `cn()`. Not convenience: `twMerge` is what
+//     makes a caller's `className="bg-destructive"` actually beat the
+//     component's own `bg-primary`, because Tailwind classes have no
+//     specificity story of their own and the last one in the string wins only
+//     if something de-duplicates the conflict. Without it, "pass a className to
+//     override" silently does nothing — the single most confusing failure mode
+//     a component kit can have. Roughly 3KB for the pair.
+//
+//   class-variance-authority — DROPPED. It is the idiomatic shadcn choice, and
+//     for four components it buys a dependency, a DSL and an inference story to
+//     replace two `Record<Variant, string>` lookups that any reader can follow
+//     at a glance. The brief's own instruction was to keep dependencies minimal
+//     and take cva only if genuinely needed; with one component having variants,
+//     it is not. Revisit when the kit grows compound variants, which is the
+//     thing a record cannot express.
+//
+//   @radix-ui/* — DROPPED for this set. Real shadcn reaches for Radix the
+//     moment a component needs focus management or a portal (dialog, popover,
+//     select). None of these four do: button, card, input and label are all
+//     native elements with classes on them, and a headless-primitives
+//     dependency that nothing yet needs is a dependency a project inherits
+//     forever. The day the reference set grows a dialog, Radix is the answer
+//     and it comes in pinned, like everything else.
+
+/** `cn` — the class merger every component uses. */
+export const CN_TS = `import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+/**
+ * Join class names, with later Tailwind utilities beating earlier conflicting
+ * ones.
+ *
+ * The merge is the point. \`clsx\` alone would produce "bg-primary
+ * bg-destructive" and leave the winner to CSS source order, which for two
+ * utilities of equal specificity is whichever Tailwind emitted first — not the
+ * one the caller passed. \`twMerge\` understands that those two are the same
+ * property and keeps the last, so "pass a className to override" is true.
+ */
+export function cn(...classes: ClassValue[]): string {
+  return twMerge(clsx(classes));
+}
+`;
+
+/** Button — the one component with variants, and the reason \`cn\` exists. */
+export const BUTTON_TSX = `import type { ComponentProps, ReactElement } from "react";
+import { cn } from "../lib/cn.js";
+
+export type ButtonTone = "primary" | "secondary" | "destructive" | "ghost";
+export type ButtonSize = "sm" | "md" | "lg";
+
+// Plain lookups rather than a variants DSL: two records a reader can follow at
+// a glance, and one fewer dependency in every project that installs this kit.
+const TONE: Record<ButtonTone, string> = {
+  primary: "bg-primary text-primary-foreground hover:opacity-90",
+  secondary: "bg-muted text-foreground hover:bg-muted/80",
+  destructive: "bg-destructive text-destructive-foreground hover:opacity-90",
+  ghost: "bg-transparent text-foreground hover:bg-muted",
+};
+
+const SIZE: Record<ButtonSize, string> = {
+  sm: "h-8 px-3 text-sm",
+  md: "h-10 px-4 text-sm",
+  lg: "h-12 px-6 text-base",
+};
+
+const BASE =
+  "inline-flex items-center justify-center gap-2 rounded-md font-medium transition " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
+  "disabled:pointer-events-none disabled:opacity-50";
+
+export interface ButtonProps extends ComponentProps<"button"> {
+  readonly tone?: ButtonTone;
+  readonly size?: ButtonSize;
+}
+
+/**
+ * A button.
+ *
+ * \`type\` defaults to "button" on purpose: the HTML default is "submit", so a
+ * button placed in a form to open a dialog submits the form instead, and the
+ * bug reads as "the form submits twice".
+ */
+export function Button({ tone = "primary", size = "md", className, type = "button", ...rest }: ButtonProps): ReactElement {
+  return <button type={type} className={cn(BASE, TONE[tone], SIZE[size], className)} {...rest} />;
+}
+`;
+
+/** Card — composition, not configuration: six small parts, no props to learn. */
+export const CARD_TSX = `import type { ComponentProps, ReactElement } from "react";
+import { cn } from "../lib/cn.js";
+
+export function Card({ className, ...rest }: ComponentProps<"div">): ReactElement {
+  return <div className={cn("rounded-card border border-border bg-background shadow-sm", className)} {...rest} />;
+}
+
+export function CardHeader({ className, ...rest }: ComponentProps<"div">): ReactElement {
+  return <div className={cn("flex flex-col gap-1.5 p-6 pb-3", className)} {...rest} />;
+}
+
+/** A heading element, so the card announces itself to a screen reader — and so
+ *  a blind UI test can find it by role and name (TN-26-006). */
+export function CardTitle({ className, ...rest }: ComponentProps<"h3">): ReactElement {
+  return <h3 className={cn("text-lg font-semibold leading-none", className)} {...rest} />;
+}
+
+export function CardDescription({ className, ...rest }: ComponentProps<"p">): ReactElement {
+  return <p className={cn("text-sm text-muted-foreground", className)} {...rest} />;
+}
+
+export function CardContent({ className, ...rest }: ComponentProps<"div">): ReactElement {
+  return <div className={cn("p-6 pt-0", className)} {...rest} />;
+}
+
+export function CardFooter({ className, ...rest }: ComponentProps<"div">): ReactElement {
+  return <div className={cn("flex items-center gap-2 p-6 pt-0", className)} {...rest} />;
+}
+`;
+
+/** Input — a native input with classes, nothing more. */
+export const INPUT_TSX = `import type { ComponentProps, ReactElement } from "react";
+import { cn } from "../lib/cn.js";
+
+const BASE =
+  "flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm " +
+  "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 " +
+  "focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
+export function Input({ className, ...rest }: ComponentProps<"input">): ReactElement {
+  return <input className={cn(BASE, className)} {...rest} />;
+}
+`;
+
+/** Label — a real \`<label>\`, which is what makes \`getByLabelText\` work. */
+export const LABEL_TSX = `import type { ComponentProps, ReactElement } from "react";
+import { cn } from "../lib/cn.js";
+
+/**
+ * A form label.
+ *
+ * Always give it \`htmlFor\` matching the input's \`id\`. That association is not
+ * decoration: it is what lets a click on the text focus the field, what a
+ * screen reader announces, and what a test means when it asks for the field
+ * "Meter reading" — the blind UI testing this reference set is built for
+ * (TN-26-006) keys on exactly that.
+ */
+export function Label({ className, ...rest }: ComponentProps<"label">): ReactElement {
+  return <label className={cn("text-sm font-medium leading-none", className)} {...rest} />;
+}
+`;
+
+/** The kit's public API. `shared/ui` is a segment, not a slice, so this index
+ *  is a convenience rather than a boundary the lints enforce — but importing a
+ *  component through it keeps a component's own file free to move. */
+export const SHARED_UI_INDEX = `export { Button, type ButtonProps, type ButtonSize, type ButtonTone } from "./button.js";
+export {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "./card.js";
+export { Input } from "./input.js";
+export { Label } from "./label.js";
+`;
+
+/** Every file of the component kit, emitted into `src/ui/shared/`. */
+export const COMPONENT_KIT: readonly { readonly path: string; readonly body: string }[] = [
+  { path: "src/ui/shared/lib/cn.ts", body: CN_TS },
+  { path: "src/ui/shared/ui/button.tsx", body: BUTTON_TSX },
+  { path: "src/ui/shared/ui/card.tsx", body: CARD_TSX },
+  { path: "src/ui/shared/ui/index.ts", body: SHARED_UI_INDEX },
+  { path: "src/ui/shared/ui/input.tsx", body: INPUT_TSX },
+  { path: "src/ui/shared/ui/label.tsx", body: LABEL_TSX },
+];
+
 /**
  * The FSD layer directories, in import order — lower layers first.
  *
@@ -249,10 +436,6 @@ export function TrpcProvider(props: TrpcProviderProps): ReactElement {
  * `processes` is dropped — FSD deprecated it itself.
  */
 export const LAYER_NOTES: readonly { readonly dir: string; readonly note: string }[] = [
-  {
-    dir: "src/ui/shared/ui",
-    note: "The generic component kit: dumb, domain-free, reusable. Pack-owned and generated — restyle through the tokens in app.css, never by editing a component here.",
-  },
   {
     dir: "src/ui/entities",
     note: "The READ side (ADR 2026-030). One slice per domain entity: its display components and its query hooks. Each slice exposes a public API through its index; cross-slice imports target the index, never a file inside it.",

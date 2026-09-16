@@ -67,6 +67,27 @@ pack's nouns and pins. B2: the directional lints and the primitives
 relaxation. B3: shadcn vendoring through the generator. B4: the `ts-web-app`
 skill (guidance last) and the ask-shaped routing line.
 
+**B landed (2026-09-16).** The socket registry is `agent/src/socket-registry.ts`
+(see TN-26-005); the ts pack defines `lintSrcRules` and
+`contractPurityOverrides`, ts-web fills both over its declared edge.
+`packs/ts-web/scripts/new-web-app.ts` emits the layout and is keyed on tree
+content: `shared/api/client.tsx` appears only once a contract re-exports
+`ServiceRouter`, so r24 (no API) typechecks and r25's re-run wires the door.
+`src/ui/app.tsx` is deliberately NOT emitted — it is the architect's contract,
+scaffolded like any other. The kit is button/card/input/label + `cn`, with
+clsx+tailwind-merge kept (the merge is what makes a caller's `className`
+actually win) and cva and Radix dropped as dependencies nothing yet needs.
+Three deviations worth recording: the client is `client.tsx`, not `.ts`, because
+it exports a component; `raw-framework-entry` was refusing `@trpc/client` and is
+now the SERVER door only, with `client-one-door` owning the client side; and the
+scaffolder's prune is narrowed to the ts pack's own generators, which was one
+`design_gate` away from deleting `src/ui/main.tsx`.
+
+**Still open after B.** `blessed-stacks-only` does not yet grow its banned-noun
+list from `contrib.json`, so a builder importing `styled-components` is caught
+by the spec-intake denylist but not by the src gate. The rule's own header
+already names this as the plan; it is a data-only contribution, not a socket.
+
 **C — app assembly.** `npm run dev` = Vite + the service's HTTP entry,
 proxy wiring; deliver pins web deps keyed on tree content; dogfood arms
 scaffold them from birth; first genuine use of composition-at-initiation

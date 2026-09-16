@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
 import { composedPacks, INSTALLED_PACKS } from "./installed.ts";
@@ -43,6 +45,31 @@ describe("the harness's own composition", () => {
       expect(socket.description.length, `socket '${socket.id}'`).toBeGreaterThan(20);
     }
   });
+});
+
+// A pack whose skills nothing loads fails exactly the way a malformed
+// frontmatter block does (skill-frontmatter.test.ts): silently. The skill is
+// simply absent from the session, and the agent improvises the workflow from
+// memory — which is how a live dogfood arm once ran its whole way through
+// without its pipeline. Registration is two files that must agree, so a test
+// makes them agree.
+describe("a pack that ships skills is actually loaded", () => {
+  const settings: unknown = JSON.parse(readFileSync(join(import.meta.dirname, "..", "settings.json"), "utf8"));
+  const packages = (settings as { packages?: string[] }).packages ?? [];
+
+  for (const pack of INSTALLED_PACKS) {
+    const dir = join(import.meta.dirname, pack.name);
+    if (!existsSync(join(dir, "skills"))) continue;
+
+    test(`${pack.name} declares its skills directory`, () => {
+      const manifest: unknown = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      expect((manifest as { pi?: { skills?: string[] } }).pi?.skills).toEqual(["./skills"]);
+    });
+
+    test(`${pack.name} is in settings.json's package list`, () => {
+      expect(packages).toContain(`./packs/${pack.name}`);
+    });
+  }
 });
 
 describe("composition-at-initiation is a parameter, not a rewrite", () => {

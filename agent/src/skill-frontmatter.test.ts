@@ -19,7 +19,28 @@ import { describe, expect, test } from "vitest";
 // care. This one validates every skill in the harness, not just that one.
 
 const SKILLS_ROOT = fileURLToPath(new URL("../skills", import.meta.url));
-const PACK_SKILLS_ROOT = fileURLToPath(new URL("../packs/ts/skills", import.meta.url));
+const PACKS_ROOT = fileURLToPath(new URL("../packs", import.meta.url));
+
+/**
+ * Every installed pack's `skills/` directory.
+ *
+ * This used to be the single literal `packs/ts/skills`, which was correct for
+ * exactly as long as one pack existed. A second pack's skill would then have
+ * been validated by nothing — and the failure this whole file exists to catch
+ * is the SILENT one, where a malformed frontmatter block makes a skill vanish
+ * from the session list with no warning anywhere. The walk finds the packs
+ * instead of naming them, so pack number three is covered on the day it lands.
+ */
+function packSkillRoots(): string[] {
+  try {
+    return readdirSync(PACKS_ROOT, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => join(PACKS_ROOT, e.name, "skills"))
+      .sort();
+  } catch {
+    return [];
+  }
+}
 
 function skillFiles(root: string): { name: string; path: string }[] {
   let entries: string[];
@@ -43,7 +64,10 @@ function skillFiles(root: string): { name: string; path: string }[] {
   return out;
 }
 
-const SKILLS = [...skillFiles(SKILLS_ROOT), ...skillFiles(PACK_SKILLS_ROOT)];
+const SKILLS = [
+  ...skillFiles(SKILLS_ROOT),
+  ...packSkillRoots().flatMap((root) => skillFiles(root)),
+];
 
 /** The frontmatter block between the first two `---` fences. */
 function frontmatter(source: string): string {
@@ -91,6 +115,15 @@ function plainScalarIsSafe(value: string): boolean {
 describe("skill frontmatter", () => {
   test("there are skills to check (the walk itself works)", () => {
     expect(SKILLS.length).toBeGreaterThan(5);
+  });
+
+  // The walk finds packs rather than naming them, so it has to be shown
+  // actually reaching past the first one — otherwise a regression to a single
+  // hard-coded root would pass every test above it.
+  test("every pack's skills are in the walk, not just the first pack's", () => {
+    const names = SKILLS.map((s) => s.name);
+    expect(names).toContain("ts-api-service");
+    expect(names).toContain("ts-web-app");
   });
 
   for (const { name, path } of SKILLS) {
