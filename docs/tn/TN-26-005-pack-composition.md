@@ -40,6 +40,14 @@ nouns-outside-Intake refusal, ADR 2026-032) stays core and content-free.
 
 ## Rules going forward
 
+- **The socket vocabulary is closed and curated** — this is where the model
+  deliberately departs from VS Code. There, extensions consume each other's
+  points at runtime, so an open vocabulary pays; here a socket only exists
+  where gate or generator machinery consumes it, so a socket is born together
+  with its consumer, as core or foundational-pack design work with its own
+  ADR. Ordinary packs (ts-web, file-handling, data-table, …) are
+  **contribution-only**: they never define sockets, and the registry's owner
+  typing makes that a compile-time fact, not a review convention.
 - A pack adds capability **only** through the sockets above; a pack that
   needs a new socket kind proposes it as core work first (its own ADR).
 - Cross-pack references in core guidance (the developer-stage skill naming
