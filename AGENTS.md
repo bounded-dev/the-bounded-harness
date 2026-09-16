@@ -47,6 +47,35 @@ rules, not just today's dozens.
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
   product judgment). Don't add roles ad hoc (ADR 2026-003).
 
+## The extension model — binding for ALL harness work
+
+Everything the harness can do lives in one of two places, and every change
+must respect the split (TN-26-005; the socket registry in
+`agent/src/socket-registry.ts` and the data layer in `agent/src/pack-contrib.ts`):
+
+- **The core owns mechanisms (sockets), never content.** A socket exists only
+  where gate/generator machinery consumes it, is born WITH that consumer via
+  an ADR, and no core file may name a technology (no framework names, no
+  package names, no type names from any stack). The two prior violations —
+  stack nouns hard-coded in the phase gate, React type names in the
+  scaffolder — are the pattern to never repeat.
+- **Packs own content (contributions), never mechanisms.** Code-bearing
+  contributions (lint rules, purity overrides) ride the typed registry:
+  sockets carry their owning pack as a phantom type, so contributing across
+  an undeclared `dependsOnPacks` edge does not compile. Data-only
+  contributions (denylist nouns, component type names, dependency pins,
+  project-init scripts) live in the pack's `contrib.json`, readable without
+  executing pack code.
+- **The socket vocabulary is fixed by policy** (core + foundational packs
+  define; ordinary packs contribute only). The mechanism is deliberately the
+  open one, so revisiting that policy later costs zero rework.
+- **Composition is per project**: a harness host reads the composed pack
+  list and merges only those packs' contributions. A pack not composed must
+  leave zero trace of behaviour.
+
+If a change requires the core to learn a technology's name, it is in the
+wrong layer: move the name into a pack manifest and give the core the socket.
+
 ## Working with the user
 
 - **Plain language over internal vocabulary.** The user (and most readers)

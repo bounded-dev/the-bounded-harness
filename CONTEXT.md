@@ -185,6 +185,19 @@ _Avoid_: filtered typecheck, partial typecheck, sanitized (that's `run_tests`)
 
 ### Reference sets
 
+**Socket**:
+An extension point the core (or a foundational pack) defines together with
+the machinery that consumes it — typed, owner-branded, born via ADR. The
+fixed vocabulary packs plug into (TN-26-005).
+_Avoid_: extension point (VS Code's word), hook
+
+**Contribution**:
+What a pack supplies to a socket: code-bearing via the typed registry
+(`pack.ts`), data-only via `contrib.json`. Only legal across a declared
+`dependsOnPacks` edge — the registry makes an undeclared edge a compile
+error.
+_Avoid_: plugin, registration
+
 **Reference set**:
 The fixed, deterministic structure a pack rolls out for one capability —
 file layout, payload shapes, serialization, error taxonomy, gates — identical
