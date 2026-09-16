@@ -157,6 +157,24 @@ Practical rules:
 taste are carried by the reviewer and by sign-off. Do not mistake a green suite
 for a good screen.
 
+## Component tests run under jsdom — by pragma, per file
+
+The suite's default environment is node (the domain's tests need nothing
+else). A test file that RENDERS — anything importing Testing Library — must
+declare its environment as its first line:
+
+```ts
+// @vitest-environment jsdom
+```
+
+jsdom and `@testing-library/react` are pre-installed (pack pins); no config
+file is involved, the pragma travels with the file through the red gate's
+shadow copy, and a render test without it fails loudly on `document is not
+defined` — an environment mistake, not a behaviour finding. **Architect:**
+put this rule in the spec's testing notes verbatim; the test-writer cannot
+otherwise know it, and one missing line turns a whole file's failures into
+noise.
+
 ## What the gates enforce
 
 - **contract-purity**: the full rule set, with ONE ratified exemption —

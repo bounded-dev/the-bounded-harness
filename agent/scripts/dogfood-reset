@@ -70,6 +70,12 @@ REPO="$(cd -P "$HARNESS/.." && pwd)"
 WHICH=both
 DESIGN_MODEL=""
 WORKER_MODEL=""
+# Packs the harnessed arm composes beyond the implicit ts pack (TN-26-005:
+# composition is per project). This script stays content-free: everything a
+# composed pack needs at scaffold time — dependency pins, project-init
+# scripts — is read from the pack's own contrib.json. No pack name or
+# technology appears below; the pack list is the caller's input.
+COMPOSE_PACKS=()
 ARGS=()
 # An index walk rather than `for a in "$@"`: the model flags take a value, and
 # a value-taking flag needs to consume the argument after it.
@@ -84,6 +90,9 @@ while [ $# -gt 0 ]; do
     --worker-model)
       shift; [ $# -gt 0 ] || { echo "dogfood-reset: --worker-model needs a pi model pattern" >&2; exit 2; }
       WORKER_MODEL="$1" ;;
+    --compose)
+      shift; [ $# -gt 0 ] || { echo "dogfood-reset: --compose needs a pack name (a directory under agent/packs/)" >&2; exit 2; }
+      COMPOSE_PACKS+=("$1") ;;
     *)           ARGS+=("$1") ;;
   esac
   shift
@@ -323,8 +332,40 @@ fi
 
 echo "dogfood-reset: rebuilding ${WHICH} from $PROMPT_SRC"
 [ "$WHICH" = "harnessed" ] || scaffold "$BARE" "$BARE_LINE"
+# Compose a pack into an arm: install its pinned dependencies and run its
+# project-init scripts, all read from the pack's own manifest. The mechanism
+# is this loop; the content is the pack's. A pack without a manifest, pins or
+# scripts simply contributes nothing at scaffold time.
+compose_pack() {
+  local dir="$1" pack="$2"
+  local manifest="$AGENT/packs/$pack/contrib.json"
+  [ -f "$manifest" ] || { echo "dogfood-reset: FATAL — no manifest at packs/$pack/contrib.json" >&2; exit 1; }
+  echo "dogfood-reset: composing pack '$pack' into the harnessed arm"
+  local deps devs
+  deps=$(python3 -c "import json,sys; d=json.load(open('$manifest')); p=d.get('pins',{}); print(' '.join(f'{k}@{v}' for k,v in p.get('dependencies',{}).items()))")
+  devs=$(python3 -c "import json,sys; d=json.load(open('$manifest')); p=d.get('pins',{}); print(' '.join(f'{k}@{v}' for k,v in p.get('devDependencies',{}).items()))")
+  if [ -n "$deps" ]; then ( cd "$dir" && npm install --save-exact --no-audit --no-fund $deps >/dev/null 2>&1 ) || { echo "dogfood-reset: FATAL — installing $pack pins failed" >&2; exit 1; }; fi
+  if [ -n "$devs" ]; then ( cd "$dir" && npm install --save-dev --save-exact --no-audit --no-fund $devs >/dev/null 2>&1 ) || { echo "dogfood-reset: FATAL — installing $pack dev pins failed" >&2; exit 1; }; fi
+  local scripts
+  scripts=$(python3 -c "import json; d=json.load(open('$manifest')); print('\n'.join(d.get('projectInitScripts',[])))")
+  local s
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    node --experimental-strip-types "$AGENT/packs/$pack/$s" "$dir"       || { echo "dogfood-reset: FATAL — $pack init script '$s' failed" >&2; exit 1; }
+  done <<< "$scripts"
+}
+
 if [ "$WHICH" != "bare" ]; then
   scaffold "$HARNESSED" "$HARNESSED_LINE"
+  if [ ${#COMPOSE_PACKS[@]} -gt 0 ]; then
+    for PACK in "${COMPOSE_PACKS[@]}"; do compose_pack "$HARNESSED" "$PACK"; done
+    # The composition record (TN-26-005): v1 is a sidecar file; folding it
+    # into pi's settings.json is the recorded direction once pi packages and
+    # harness packs converge.
+    mkdir -p "$HARNESSED/.pi"
+    python3 -c "import json,sys; print(json.dumps({'composedPacks': ['ts'] + sys.argv[1:]}))" "${COMPOSE_PACKS[@]}" > "$HARNESSED/.pi/composed-packs.json"
+    ( cd "$HARNESSED" && git add -A && git commit -q -m "Compose packs: ${COMPOSE_PACKS[*]}" )
+  fi
   # Only the harnessed arm is gated. The role is read from this file at session
   # start, so a plain `pi` in this directory IS the architect — no launcher, no
   # flag, nothing to remember — and the same read strips bash, run_tests and

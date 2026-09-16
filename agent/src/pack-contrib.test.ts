@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -66,6 +66,15 @@ describe("the ts-web pack manifest", () => {
     const names = mergedContribution("componentReturnTypes");
     expect(names).toContain("ReactElement");
     expect(names).toContain("JSX.Element");
+  });
+
+  test("names its project-init script for scaffold-time composition", () => {
+    // Per-pack, path-relative — hosts read each composed pack's manifest
+    // individually (a merged view would lose the pack the path is relative to).
+    const manifest = JSON.parse(
+      readFileSync(join(import.meta.dirname, "..", "packs", "ts-web", "contrib.json"), "utf8"),
+    ) as { projectInitScripts?: string[] };
+    expect(manifest.projectInitScripts).toEqual(["scripts/new-web-app.ts"]);
   });
 
   test("contributes web-framework nouns to the intake denylist", () => {
