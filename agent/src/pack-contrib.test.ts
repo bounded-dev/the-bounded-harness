@@ -60,3 +60,20 @@ describe("the real installed packs", () => {
     expect(nouns).not.toContain("trpc");
   });
 });
+
+describe("the ts-web pack manifest", () => {
+  test("contributes the component return types the scaffolder consumes", () => {
+    const names = mergedContribution("componentReturnTypes");
+    expect(names).toContain("ReactElement");
+    expect(names).toContain("JSX.Element");
+  });
+
+  test("contributes web-framework nouns to the intake denylist", () => {
+    const nouns = specTechNouns();
+    expect(nouns).toContain("vue");
+    expect(nouns).toContain("styled-components");
+    // The blessed web stack is policy, not a leak.
+    expect(nouns).not.toContain("react");
+    expect(nouns).not.toContain("tailwind");
+  });
+});
