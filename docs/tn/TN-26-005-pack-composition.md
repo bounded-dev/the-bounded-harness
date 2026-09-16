@@ -71,6 +71,18 @@ delivery vehicle, per the user's pi.dev pointer):
    invention; contribution merging filters by it. This closes the
    "project-initiation UX" question below.
 
+**The socket layer's implementation shape (2026-09-16).** Phase B1 builds a
+small typed registry, from scratch, in this repo's own style: extension
+points carry their value type and their owning pack as phantom types, so a
+wrong-shaped contribution — or a contribution to a pack not declared in
+`dependsOnPacks` — is a compile error backed by a runtime check;
+contribution surfaces are declared up front; each point may carry a
+validation hook; registration is dependency-ordered with cycle detection.
+Code-bearing contributions (ESLint rules, law generators) ride the
+registry; `contrib.json` remains the data-only layer for contributions that
+must be readable without executing pack code (intake nouns) and the
+composition record's shape.
+
 Deliberately NOT adopted: VS Code's process isolation and API brokering —
 their threat model is untrusted third-party code; ours is first-party packs
 whose discipline is zones and gates.
