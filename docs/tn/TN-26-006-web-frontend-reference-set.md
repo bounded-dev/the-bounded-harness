@@ -105,6 +105,38 @@ scaffold them from birth; first genuine use of composition-at-initiation
   headless, `npm run dev` works; plus an adversarial variant naming a
   banned framework.
 
+## Styling: anatomy enforced, identity free (2026-09-16, from r24's bare screen)
+
+r24 delivered a behaviourally perfect, visually bare screen — the predicted
+gap performing on schedule. The architecture that closes it without
+surrendering flexibility splits style into two surfaces:
+
+- **Anatomy** (kit markup, a11y, states, variants, spacing relationships,
+  and the layout primitives r24 lacked — PageShell, Badge with band
+  variants, list/stat pieces): pack-owned, marker-generated, identical
+  everywhere. The styled path becomes the default path, so a blind builder
+  composing the kit produces a decent screen by construction.
+- **Identity** (colours, radii, fonts, shadows, density): the `@theme`
+  token block moves to `src/ui/theme.css`, the ONE project-owned style file
+  — emitted as a starter, never overwritten, freely edited. A fresh look
+  per project is a fresh token file and nothing else.
+
+Two mechanical guarantees make the freedom safe:
+
+1. **`tokens-only-styling` lint** (ts-web contribution): components and
+   features style only through semantic tokens — no raw palette
+   (`bg-blue-500`), no arbitrary values (`bg-[#…]`). The styling twin of
+   no-naked-primitives; it is what makes a theme swap total.
+2. **A theme gate**: every required token defined, and WCAG contrast
+   computed over the declared fg/bg pairs — any look, never an unreadable
+   or incomplete one.
+
+Taste stays judged, not gated: a brand brief lands with the PM/design pass
+that writes `theme.css`; a screenshot rendered at wrap (the visual twin of
+`mutation_score`, advisory) gives the reviewer and the user pixels to
+judge. A variant tokens cannot express is a kit change through the change
+cycle — deliberate, never ad hoc.
+
 ## Named risks
 
 - **Blind UI testing is the experiment.** The test-writer keys on roles,
