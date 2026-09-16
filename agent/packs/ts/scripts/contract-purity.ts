@@ -19,6 +19,8 @@ import { relative } from "node:path";
 import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
+import { composedPacks } from "../../installed.ts";
+import { contractPurityOverrides, type ContractPurityOverride } from "../pack.ts";
 import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export { formatProblems, type Problem };
 // Harness-core guard log (NOTE: this relative import only resolves when the
@@ -38,6 +40,26 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
   "pi-harness-ts/router-type-reexported",
   "pi-harness-ts/no-schema-on-surface",
 ];
+
+// --- Contributed overrides (TN-26-005, the ts pack's socket) -----------------
+//
+// The ts pack DEFINES `contractPurityOverrides` (packs/ts/pack.ts); this gate
+// READS it. `CONTRACT_RULE_IDS` above stays the ts pack's own base config —
+// composition may narrow or extend it for a pack's own corner of the tree, and
+// may not replace it.
+//
+// ORDER IS THE MECHANISM. ESLint flat config applies matching blocks in array
+// order, last one winning, so contributed blocks go AFTER the base block and a
+// `"off"` in one of them is a real relaxation for the files it names. That is
+// deliberate and it is the only way a ratified exemption can exist at all
+// (TN-26-006: a Button's `label: string` is legitimate). Every block names its
+// own files glob and carries a recorded reason — the socket's validation hook
+// refuses one that does not.
+
+/** Every purity override a composed pack contributes, in pack order. */
+export function contributedPurityOverrides(): readonly ContractPurityOverride[] {
+  return composedPacks().read(contractPurityOverrides);
+}
 
 export function createContractLinter(): ESLint {
   return new ESLint({
@@ -97,6 +119,16 @@ export function createContractLinter(): ESLint {
           "pi-harness-ts/no-schema-on-surface": "error",
         },
       },
+      // Contributed blocks last — see the note above. Each re-registers the
+      // plugin object (the same object, which flat config permits) so a block
+      // naming a `pi-harness-ts/…` rule resolves it without depending on how
+      // ESLint happens to merge plugins across matching blocks.
+      ...contributedPurityOverrides().map((override) => ({
+        files: [...override.files],
+        languageOptions: { parser },
+        plugins: { "pi-harness-ts": plugin as unknown as ESLint.Plugin },
+        rules: { ...override.rules },
+      })),
     ],
   });
 }

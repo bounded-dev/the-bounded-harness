@@ -47,6 +47,8 @@ export type { Problem };
 import parser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import harnessPlugin from "../eslint/index.ts";
+import { composedPacks } from "../../installed.ts";
+import { lintSrcRuleId, lintSrcRules, type LintSrcRuleContribution } from "../pack.ts";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
@@ -109,6 +111,71 @@ export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter(
   (r) => !SIZE_RULES.has(r) && !SRC_ONLY_RULES.has(r),
 );
 
+// --- Contributed rules (TN-26-005, the ts pack's `lintSrcRules` socket) -------
+//
+// The ts pack DEFINES the socket (packs/ts/pack.ts); this gate READS it. The
+// rules above stay hard-wired — gate and plugin are the same pack, and a base
+// config that could be composed away is not a gate — so everything below is
+// strictly additive: other packs' rules, appended after the ts pack's own.
+//
+// A harness composed without ts-web appends nothing and lints exactly as it did
+// before the socket existed. That is the property the whole design is for.
+
+/** Every rule contributed to this gate by a composed pack, in pack order. */
+export function contributedSrcRules(): readonly LintSrcRuleContribution[] {
+  return composedPacks().read(lintSrcRules);
+}
+
+/** Their ids (`<plugin>/<name>`), paired with the brief that must name each —
+ *  read by guard-doc-drift.test.ts, which holds a contributed rule to exactly
+ *  the same bidirectional obligation as a built-in one (ADR 2026-018). */
+export function contributedSrcRuleIds(): readonly { id: string; namedIn: string }[] {
+  return contributedSrcRules().map((c) => ({ id: lintSrcRuleId(c), namedIn: c.namedIn }));
+}
+
+/** Flat-config `plugins` for the contributed rules: one entry per distinct
+ *  namespace, each holding every rule contributed under it. Assembled here
+ *  rather than imported as a ready-made plugin object, so the gate's config is
+ *  a function of what was COMPOSED — a pack left out of the composition leaves
+ *  no namespace behind for a stale rule id to resolve through. */
+function contributedPlugins(): Record<string, ESLint.Plugin> {
+  const namespaces = new Map<string, Record<string, unknown>>();
+  for (const contribution of contributedSrcRules()) {
+    const rules = namespaces.get(contribution.plugin) ?? {};
+    rules[contribution.name] = contribution.rule;
+    namespaces.set(contribution.plugin, rules);
+  }
+  const out: Record<string, ESLint.Plugin> = {};
+  // @typescript-eslint RuleModule and eslint's flat-config Plugin type are
+  // structurally incompatible (the same known upstream friction the two
+  // hard-wired plugins below are cast through); runtime fine.
+  for (const [name, rules] of namespaces) out[name] = { rules } as unknown as ESLint.Plugin;
+  return out;
+}
+
+/** Flat-config `rules` for the contributed rules — every one at "error". A
+ *  contributed rule is a gate rule; "warn" would make it advice, and advice is
+ *  what the deterministic-check principle exists to replace. */
+function contributedRuleSettings(): Record<string, "error"> {
+  const out: Record<string, "error"> = {};
+  for (const contribution of contributedSrcRules()) out[lintSrcRuleId(contribution)] = "error";
+  return out;
+}
+
+/** Contributed ids that do NOT bind the tests tree.
+ *
+ *  A contribution declares the brief that must name it, and that brief is also
+ *  the tree its author is policing: the builder writes `src/**`, the
+ *  test-writer writes `tests/**`. So `namedIn: "builder"` behaves exactly like
+ *  the hard-wired SRC_ONLY_RULES above — registered for the src gate, filtered
+ *  out of the tests run — except that it is DERIVED from the contribution
+ *  rather than listed in a set the contributing pack cannot see. */
+function contributedSrcOnlyIds(): ReadonlySet<string> {
+  return new Set(
+    contributedSrcRules().filter((c) => c.namedIn === "builder").map((c) => lintSrcRuleId(c)),
+  );
+}
+
 export function createSrcLinter(cwd?: string): ESLint {
   return new ESLint({
     // The gate owns the whole config: no project eslint config is consulted,
@@ -141,6 +208,9 @@ export function createSrcLinter(cwd?: string): ESLint {
         plugins: {
           "@typescript-eslint": tsPlugin as unknown as ESLint.Plugin,
           "pi-harness-ts": harnessPlugin as unknown as ESLint.Plugin,
+          // Namespaces of packs that depend on ts (TN-26-005). Empty object
+          // when nothing was composed — spreading it changes nothing.
+          ...contributedPlugins(),
         },
         // The file under inspection does not get a vote on whether it is
         // inspected: no eslint-disable, no inline severity override.
@@ -196,6 +266,11 @@ export function createSrcLinter(cwd?: string): ESLint {
           // Runtime imports of @trpc/* belong to the shipped service-runtime
           // alone — the error taxonomy is code there, not convention here.
           "pi-harness-ts/raw-framework-entry": "error",
+          // --- Contributed rules (the ts pack's lintSrcRules socket) --------
+          // Appended LAST, so a contributed rule can never quietly restate one
+          // of the ts pack's own at a lower severity: everything above is
+          // "error", and everything here is "error" too.
+          ...contributedRuleSettings(),
         },
       },
     ],
@@ -285,9 +360,12 @@ async function classify(cwd: string, patterns: string[], options: { dropSizeRule
   if (fileCount === 0) return noMatch();
 
   if (options.dropSizeRules) {
+    const srcOnly = contributedSrcOnlyIds();
     for (const r of results) {
       r.messages = r.messages.filter(
-        (m) => m.ruleId === null || (!SIZE_RULES.has(m.ruleId) && !SRC_ONLY_RULES.has(m.ruleId)),
+        (m) =>
+          m.ruleId === null ||
+          (!SIZE_RULES.has(m.ruleId) && !SRC_ONLY_RULES.has(m.ruleId) && !srcOnly.has(m.ruleId)),
       );
     }
   }

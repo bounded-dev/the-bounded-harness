@@ -95,6 +95,23 @@ registry; `contrib.json` remains the data-only layer for contributions that
 must be readable without executing pack code (intake nouns) and the
 composition record's shape.
 
+**Landed (Phase B0).** `agent/src/socket-registry.ts` is the registry; it
+contains no word for ESLint, React or tRPC and must never gain one. The ts pack
+defines two sockets in `packs/ts/pack.ts` — `lintSrcRules` (extra rules for the
+src gate, each naming the role brief that must mention it) and
+`contractPurityOverrides` (extra flat-config blocks, additions and ratified
+relaxations alike); `lint-src.ts` and `contract-purity.ts` read them and append.
+`packs/installed.ts` is the composition record: a static list plus a memoized
+`composedPacks()`, so composition-at-initiation is a second argument at one call
+site. A contribution to a socket whose owner is not in `dependsOnPacks` is a
+compile error (phantom owner type) and a runtime refusal naming the missing
+edge; edges are NOT transitive, which the suite pins in both directions. ts-web
+defines nothing — the closed-vocabulary policy above, pinned by a test over the
+installed list rather than left to review.
+`guard-doc-drift.test.ts` holds a contributed rule to the same brief obligation
+as a built-in (ADR 2026-018), reading the target brief out of the contribution
+itself.
+
 Deliberately NOT adopted: VS Code's process isolation and API brokering —
 their threat model is untrusted third-party code; ours is first-party packs
 whose discipline is zones and gates.

@@ -1,0 +1,152 @@
+// The ts pack as a pack DEFINITION (TN-26-005, "two-level sockets").
+//
+// The core owns language-agnostic mechanisms only, so "ESLint rules" is not a
+// core socket and never will be — agent/src/socket-registry.ts contains no word
+// for ESLint. The ts pack owns the TypeScript family's gates, so the ts pack
+// defines the sockets those gates read, and packs that depend on ts (ts-web
+// today) fill them. The core learns that a pack declared a socket and another
+// pack filled it, and nothing more.
+//
+// TWO SOCKETS, ONE EACH FOR THE TWO GATES THAT LINT:
+//
+//   lintSrcRules             extra rules for the src gate (implementation code)
+//   contractPurityOverrides  extra flat-config blocks for the contract gate
+//
+// The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
+// `CONTRACT_RULE_IDS` stay hard-wired in their gates: the gate and the plugin
+// are the same pack, a pack contributing to itself through a registry buys
+// nothing, and a gate whose base config could be composed away is not a gate.
+// The sockets exist for the rules of OTHER packs.
+//
+// The data-only layer is unaffected. Intake nouns and component return-type
+// names stay in `contrib.json` (agent/src/pack-contrib.ts), because the host
+// must be able to read those without executing pack code. These two sockets
+// carry FUNCTIONS — an ESLint rule is code — which is exactly the line
+// TN-26-005 draws between the two halves.
+
+import type { TSESLint } from "@typescript-eslint/utils";
+import { definePack, socketsOwnedBy } from "../../src/socket-registry.ts";
+
+/** This pack's name, as a literal — the registry checks ownership by type, so
+ *  a widened `string` here would quietly switch the compile-time half off. */
+export const TS_PACK = "ts";
+
+const tsSockets = socketsOwnedBy(TS_PACK);
+
+/**
+ * Which role's brief must name a contributed rule.
+ *
+ * ADR 2026-018 (guards and briefs are bidirectional): everything a guard
+ * enforces on a role must also be TOLD to that role, or the agent learns the
+ * rule from a block and every run pays the bounce. A contributed rule is
+ * enforced exactly like a built-in, so it carries the same obligation — and
+ * carries it as DATA, so `guard-doc-drift.test.ts` can check it without the
+ * core knowing which packs exist.
+ *
+ * It doubles as the rule's scope: the builder writes `src/**`, the test-writer
+ * writes `tests/**`, so the brief a rule binds is also the tree it polices.
+ */
+export type RoleBrief = "builder" | "test-writer";
+
+/**
+ * One ESLint rule contributed to the src gate.
+ *
+ * `plugin` is the flat-config namespace the rule is registered under, and it is
+ * the CONTRIBUTING pack's, never `pi-harness-ts`: two packs owning rules in one
+ * namespace is a collision waiting for the first name clash, and the rule id a
+ * block prints should say which pack to go and read.
+ */
+export interface LintSrcRuleContribution {
+  /** Flat-config plugin namespace, e.g. `pi-harness-ts-web`. */
+  readonly plugin: string;
+  /** Rule name within that namespace, e.g. `fsd-downward-imports`. */
+  readonly name: string;
+  /** The rule module itself. */
+  readonly rule: TSESLint.AnyRuleModule;
+  /** The brief that must name it, and the tree it binds. */
+  readonly namedIn: RoleBrief;
+}
+
+/** `pi-harness-ts-web/fsd-downward-imports` — derived, never stored, so the id
+ *  a gate enforces and the id a brief is checked against cannot drift apart. */
+export function lintSrcRuleId(contribution: LintSrcRuleContribution): string {
+  return `${contribution.plugin}/${contribution.name}`;
+}
+
+const RULE_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+export const lintSrcRules = tsSockets.define<LintSrcRuleContribution>({
+  id: "lintSrcRules",
+  description:
+    "Extra ESLint rules for the lint-src gate, contributed by packs that depend on ts. " +
+    "Each names the role brief that must mention it, so a contributed rule carries the same " +
+    "bidirectional obligation as a built-in one (ADR 2026-018).",
+  // Refuse at the seam. A malformed contribution reaching the gate would
+  // surface as an ESLint config crash with no pack name in it — one layer down
+  // from where the mistake was made, and three words shorter than useless.
+  validate: (rule, contributor) => {
+    if (rule.plugin.trim() === "") return `${contributor} contributed a rule with no plugin namespace`;
+    if (!RULE_NAME.test(rule.name)) {
+      return `'${rule.name}' is not a usable rule name (lowercase, dash-separated) — the id a block prints is ${rule.plugin}/${rule.name}`;
+    }
+    if (typeof rule.rule.create !== "function") {
+      return `'${lintSrcRuleId(rule)}' has no create() — that is not an ESLint rule module`;
+    }
+    if (rule.namedIn !== "builder" && rule.namedIn !== "test-writer") {
+      return `'${lintSrcRuleId(rule)}' declares namedIn '${String(rule.namedIn)}' — it must be the brief of a role that writes the tree the rule polices`;
+    }
+    return undefined;
+  },
+});
+
+/**
+ * One extra flat-config block for the contract-purity gate.
+ *
+ * Both directions are legal and both are needed. ADDING a rule for a narrower
+ * set of contracts is how a pack tightens its own corner; DOWNGRADING one to
+ * `"off"` is how a pack states an exemption its own reference set ratified —
+ * TN-26-006's Button `label: string`, where a value object would be ceremony
+ * over a primitive that genuinely is one. Appending a block is the only shape
+ * flat config offers for either, so it is the shape the socket carries.
+ *
+ * `why` is not decoration: a relaxation with no recorded reason is
+ * indistinguishable from a rule someone found inconvenient, and this is the
+ * one socket whose contributions can make a gate weaker.
+ */
+export interface ContractPurityOverride {
+  /** Globs the block applies to — always narrower than `**\/*.contract.ts`. */
+  readonly files: readonly string[];
+  /** Rule id → severity. `"off"` is a relaxation; `"error"` an addition. */
+  readonly rules: Readonly<Record<string, "error" | "off">>;
+  /** Why this block exists, in one sentence, with the note that ratified it. */
+  readonly why: string;
+}
+
+export const contractPurityOverrides = tsSockets.define<ContractPurityOverride>({
+  id: "contractPurityOverrides",
+  description:
+    "Extra flat-config blocks appended to the contract-purity gate by packs that depend on ts: " +
+    "additional rules for a narrower file set, or ratified relaxations of the base rules.",
+  validate: (override, contributor) => {
+    if (override.files.length === 0) {
+      return `${contributor} contributed a purity override with no files glob — a block that matches everything is a rewrite of the gate, not an override`;
+    }
+    if (Object.keys(override.rules).length === 0) {
+      return `${contributor} contributed a purity override for ${override.files.join(", ")} with no rules`;
+    }
+    if (override.why.trim() === "") {
+      return `${contributor} contributed a purity override for ${override.files.join(", ")} with no reason — a relaxation without a recorded reason is a rule someone found inconvenient`;
+    }
+    return undefined;
+  },
+});
+
+/**
+ * The ts pack. Depends on nothing — it is the root of the TypeScript family —
+ * and contributes nothing: its own rules are its gates' base config.
+ */
+export const tsPack = definePack({
+  name: TS_PACK,
+  dependsOnPacks: [],
+  defines: [lintSrcRules, contractPurityOverrides],
+});

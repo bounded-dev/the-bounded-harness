@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { SRC_RULE_IDS, TEST_RULE_IDS } from "../packs/ts/scripts/lint-src.ts";
+import { contributedSrcRuleIds, SRC_RULE_IDS, TEST_RULE_IDS } from "../packs/ts/scripts/lint-src.ts";
 import { CONTRACT_RULE_IDS } from "../packs/ts/scripts/contract-purity.ts";
 import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
 import { GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
@@ -48,6 +48,24 @@ describe("every enforced rule is named in the brief of the role it binds", () =>
     const missing = CONTRACT_RULE_IDS.filter((r) => !names(architect, r));
     expect(missing).toEqual([]);
   });
+
+  // A rule a PACK contributed through the ts pack's `lintSrcRules` socket
+  // (TN-26-005) is enforced by exactly the same gate, in exactly the same flat
+  // config, at exactly the same severity as a built-in one — so it carries
+  // exactly the same obligation (ADR 2026-018). The contribution names the
+  // brief itself, so this check needs no list of packs and no list of rules:
+  // composing a new pack that contributes a rule its brief does not mention
+  // turns this test red on the spot.
+  const briefs: Readonly<Record<string, string>> = { builder, "test-writer": testWriter };
+
+  test("contributed rules → the brief each one names", () => {
+    const missing = contributedSrcRuleIds().filter(({ id, namedIn }) => {
+      const doc = briefs[namedIn];
+      return doc === undefined || !names(doc, id);
+    });
+    expect(missing).toEqual([]);
+  });
+
 });
 
 describe("the obligations and orderings are named too", () => {

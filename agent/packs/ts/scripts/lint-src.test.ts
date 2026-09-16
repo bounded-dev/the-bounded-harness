@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { createSrcLinter, lintSrc, lintSrcText, lintTests, formatSrcProblems } from "./lint-src.ts";
+import {
+  contributedSrcRuleIds,
+  createSrcLinter,
+  formatSrcProblems,
+  lintSrc,
+  lintSrcText,
+  lintTests,
+  SRC_RULE_IDS,
+} from "./lint-src.ts";
 import { scaffoldContract } from "./scaffold-contract.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
@@ -114,6 +122,55 @@ describe("the ban cannot be reopened from inside the file", () => {
 describe("scope", () => {
   test("*.contract.ts is out of scope (the architect's zone, policed elsewhere)", async () => {
     expect(await rules("export declare const x: any;\n", "src/orders/orders.contract.ts")).toEqual([]);
+  });
+});
+
+// --- the contributed-rules socket (TN-26-005) --------------------------------
+//
+// The gate's config is assembled from the ts pack's own rules PLUS whatever the
+// composed packs contributed. `calculateConfigForFile` is what ESLint itself
+// would resolve for a file, so these tests read the gate's real answer rather
+// than a restatement of the code above it — the base rules must survive
+// composition, and every contributed rule must arrive at "error".
+
+describe("contributed rules reach the flat config", () => {
+  async function resolvedRules(file: string): Promise<Record<string, unknown>> {
+    const config = await createSrcLinter().calculateConfigForFile(file);
+    return config.rules ?? {};
+  }
+
+  test("every one of the ts pack's own rules is still enforced", async () => {
+    const resolved = await resolvedRules(SRC);
+    expect(SRC_RULE_IDS.filter((id) => resolved[id] === undefined)).toEqual([]);
+  });
+
+  test("every contributed rule is registered, at error", async () => {
+    const resolved = await resolvedRules(SRC);
+    const missing: string[] = [];
+    for (const { id } of contributedSrcRuleIds()) {
+      const severity = resolved[id];
+      // ESLint normalises "error" to 2 in a calculated config.
+      if (severity !== 2 && severity !== "error" && !(Array.isArray(severity) && (severity[0] === 2 || severity[0] === "error"))) {
+        missing.push(`${id} → ${JSON.stringify(severity)}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test("a contributed rule's namespace is a plugin the config can resolve", async () => {
+    const config = await createSrcLinter().calculateConfigForFile(SRC);
+    const namespaces = new Set(contributedSrcRuleIds().map(({ id }) => id.split("/")[0]));
+    for (const ns of namespaces) {
+      expect(config.plugins?.[ns], `plugin '${ns}' is not registered`).toBeDefined();
+    }
+  });
+
+  test("the contributed ids are well formed — <plugin>/<rule>, no collisions", () => {
+    const ids = contributedSrcRuleIds().map(({ id }) => id);
+    for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/);
+    expect(new Set(ids).size).toBe(ids.length);
+    // A contributed rule may not shadow one of the gate's own.
+    expect(ids.filter((id) => SRC_RULE_IDS.includes(id))).toEqual([]);
   });
 });
 

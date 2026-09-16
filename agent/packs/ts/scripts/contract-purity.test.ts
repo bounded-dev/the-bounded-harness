@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, test } from "vitest";
-import { createContractLinter, formatProblems, lintContractSource } from "./contract-purity.ts";
+import {
+  CONTRACT_RULE_IDS,
+  contributedPurityOverrides,
+  createContractLinter,
+  formatProblems,
+  lintContractSource,
+} from "./contract-purity.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 
 // --- programmatic core --------------------------------------------------------
@@ -79,6 +85,50 @@ describe("lintContractSource", () => {
       "book.contract.ts",
     );
     expect(problems).toEqual([]);
+  });
+});
+
+// --- the contributed-overrides socket (TN-26-005) ----------------------------
+//
+// This is the one socket whose contributions can make a gate WEAKER, so the
+// tests are about what composition may NOT do: it may narrow or extend the base
+// config for a named file set, and it may not touch anything else.
+
+describe("contributed purity overrides", () => {
+  const overrides = contributedPurityOverrides();
+
+  test("every override names a narrower file set than the gate's own", () => {
+    for (const override of overrides) {
+      expect(override.files.length, JSON.stringify(override)).toBeGreaterThan(0);
+      for (const glob of override.files) {
+        expect(glob, "an override matching every contract is a rewrite of the gate").not.toBe(
+          "**/*.contract.ts",
+        );
+      }
+    }
+  });
+
+  test("every override records why it exists", () => {
+    for (const override of overrides) {
+      expect(override.why.trim().length, override.files.join(", ")).toBeGreaterThan(20);
+    }
+  });
+
+  test("an override may only set severities the gate understands", () => {
+    for (const override of overrides) {
+      for (const [rule, severity] of Object.entries(override.rules)) {
+        expect(["error", "off"], `${rule}`).toContain(severity);
+      }
+    }
+  });
+
+  // The base config survives composition: an ordinary contract, matched by no
+  // override, still meets every rule the ts pack enforces.
+  test("a contract outside every override keeps the full rule set", async () => {
+    const config = await createContractLinter().calculateConfigForFile("src/orders/orders.contract.ts");
+    const resolved = config.rules ?? {};
+    expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === undefined)).toEqual([]);
+    expect(CONTRACT_RULE_IDS.filter((id) => resolved[id] === 0 || resolved[id] === "off")).toEqual([]);
   });
 });
 
