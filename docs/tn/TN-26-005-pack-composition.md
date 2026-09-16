@@ -51,6 +51,30 @@ nouns-outside-Intake refusal, ADR 2026-032) stays core and content-free.
   today every installed pack is active. The contribution mechanism is
   designed so that switch is a filter over contributions, not a rewrite.
 
+## Maturation: the VS Code-shaped model (2026-09-16)
+
+VS Code's contribution-point mechanism is the adult form of this design, and
+three of its properties are adopted as the maturation path (pi's own package
+mechanism — `pi install`, pinned, recorded in `settings.json` — is the
+delivery vehicle, per the user's pi.dev pointer):
+
+1. **Typed manifests.** `contrib.json` gains a validated schema the moment
+   Phase B gives ts-web real content — a contribution the host can read and
+   check without executing pack code.
+2. **Two-level sockets.** The core owns only language-agnostic sockets;
+   a pack may define sockets of its own for its family. Concretely: "ESLint
+   rules" becomes a socket the **ts pack** defines, and ts-web contributes
+   its FSD directional lints there — the core never learns ESLint exists.
+   Pack→pack contributions ride the same declared `dependsOnPacks` edge.
+3. **Composition = the project's `.pi/settings.json`.** The record of which
+   packs a project composes is pi's existing package list, not a new
+   invention; contribution merging filters by it. This closes the
+   "project-initiation UX" question below.
+
+Deliberately NOT adopted: VS Code's process isolation and API brokering —
+their threat model is untrusted third-party code; ours is first-party packs
+whose discipline is zones and gates.
+
 ## Open questions
 
 - The contribution manifest's schema and versioning (one `contrib.json` per
