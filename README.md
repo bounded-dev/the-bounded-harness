@@ -1,4 +1,4 @@
-# pi-harness
+# The Bounded Harness
 
 An open-source coding-agent harness, built in the open and used daily. The
 **`agent/` subdirectory** is the live config home — `~/.pi/agent` symlinks to
