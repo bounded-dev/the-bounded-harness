@@ -91,7 +91,13 @@ already names this as the plan; it is a data-only contribution, not a socket.
 **C — app assembly.** `npm run dev` = Vite + the service's HTTP entry,
 proxy wiring; deliver pins web deps keyed on tree content; dogfood arms
 scaffold them from birth; first genuine use of composition-at-initiation
-(TN-26-005).
+(TN-26-005). Plus **the pack-contributed TOOL socket**: the architect has no
+`bash`, so every capability it holds is a named tool wired in the core — and
+the core may not name a technology. `render-screenshot` (below) is the first
+capability that wants to be one and cannot be, so it ships driver-side and
+waits for the socket to be born with it: the core would own "a pack may expose
+a driver tool", ts-web would contribute `render_screenshot`, and the tool would
+appear only in projects composing the pack.
 
 **D — the dogfood ladder.**
 - **r24**: props-driven UI ticket, no API ("a screen that renders building
@@ -136,6 +142,33 @@ that writes `theme.css`; a screenshot rendered at wrap (the visual twin of
 `mutation_score`, advisory) gives the reviewer and the user pixels to
 judge. A variant tokens cannot express is a kit change through the change
 cycle — deliberate, never ad hoc.
+
+**Landed (2026-09-17), in four pieces.** The kit grew `PageShell`, `Badge`,
+`Stat` and `DataList`/`DataListItem` — generic, tone-variant, `children`
+required on a Badge so a colour-only chip is a compile error; a test pins that
+no domain noun reaches the kit's code. `src/ui/theme.css` is the generator's one
+SEED (`webAppSeeds` beside `webAppPlan`): unmarked, written when absent, never
+restored, and `app.css` imports it. The token contract is data —
+`requiredThemeTokens` and `contrastPairs` in `contrib.json`, read by the pack's
+own typed reader, never by the core. The two fences are
+`pi-harness-ts-web/tokens-only-styling` (raw palette and hand-written colours
+refused in `src/ui/**`; `bg-[var(--…)]` and non-colour arbitrary values stay
+legal, which the rule header states as a v1 scope) and `theme-check`, which
+rides a NEW socket the ts pack defines — `deliverChecks`, ADR 2026-033 — and
+measures oklch/hex/rgb against WCAG AA in the base theme and every media
+variant. One deviation worth recording: `--color-muted-foreground` moved 0.55 →
+0.52, because the starter theme contrasted 4.45:1 against `--color-muted` and
+would have blocked on its own gate. `render-screenshot.ts` is the advisory eye,
+driver-side pending the tool socket (Phase C).
+
+**The eye earned itself on its first run.** Two findings no test could have
+produced: the script hung for five minutes because `spawnSync` blocks the event
+loop, so the static server could not answer the browser it had just launched
+(every command is `spawn` now); and the first screenshot showed the Badge as a
+full-width red bar — a flex item in a `flex-col` CardHeader stretches, and
+`inline-flex` says nothing about width. `w-fit`, one line, invisible to 1900
+green tests. That is the gap the pixels exist to close, and it closed on day
+one.
 
 ## Named risks
 

@@ -69,6 +69,55 @@ Two things the generator deliberately does NOT emit:
   contract in the tree re-exports `ServiceRouter`. Build the service first (the
   `ts-api-service` skill), re-run the generator, and the door appears wired.
 
+## Composing the kit IS the styled path
+
+r24 delivered a behaviourally perfect screen that looked like a text file: 77
+green tests over a stack of bare paragraphs. Nothing was wrong with the builder
+— the kit it had was button/card/input/label, the pieces that go *inside* a
+screen, and the screen itself had to be invented. It now ships:
+
+| use | for |
+|---|---|
+| `PageShell` | the page: one `<h1>`, a header row with an actions slot, a measured, centred content stack |
+| `DataList` + `DataListItem` | a titled collection of cards or rows, with an empty state |
+| `Card` (+ `CardHeader/Title/Description/Content/Footer`) | one thing in the collection |
+| `Stat` | a metric: label, value, optional unit |
+| `Badge` | a status chip — `tone="positive" \| "caution" \| "critical" \| "neutral"` |
+| `Button`, `Input`, `Label` | controls |
+
+**A screen built from these needs no `className` at all.** That is the design:
+the styled path is the default path, so a builder who cannot see the result
+still produces a decent one. Say so in the spec's design notes — name the
+components the screen composes, the way you name the behaviours it must show.
+
+```tsx
+<PageShell title="Building status" description="Every building, worst first.">
+  <DataList title="Buildings" empty="No buildings are being monitored.">
+    <DataListItem>
+      <Card>
+        <CardHeader>
+          <CardTitle>North wing</CardTitle>
+          <Badge tone={toneFor(status.band)}>{status.verdict}</Badge>
+        </CardHeader>
+        <CardContent>
+          <Stat label="Flow temperature" value={status.flow.format()} unit="°C" />
+        </CardContent>
+      </Card>
+    </DataListItem>
+  </DataList>
+</PageShell>
+```
+
+**Tones are readings, not domain words.** The kit is `shared`, so it cannot know
+what a heating band or an invoice age is — `toneFor(band)` above lives in the
+**entity slice**, which is where the domain is. One small mapping function per
+entity, tested like any other: band → tone. Never a Badge variant named after
+your domain.
+
+**A Badge must carry words.** `children` is required by its type, because colour
+alone reaches neither a colour-blind reader nor a screen reader. The tone
+decorates the text; it never replaces it.
+
 ## The layers, and the two laws
 
 ```
@@ -180,7 +229,15 @@ Practical rules:
 
 **Visual quality has no gate and never will.** Layout, spacing, hierarchy and
 taste are carried by the reviewer and by sign-off. Do not mistake a green suite
-for a good screen.
+for a good screen — r24's was perfect and the screen was a text file.
+
+What the pipeline gives you instead of a gate is *pixels*: the driver can run
+`node packs/ts-web/scripts/render-screenshot.ts <project>` at wrap, which builds
+the app, photographs it, and leaves `.pi/render/<timestamp>.png` for a human to
+look at. Advisory, always — it exits 0 whatever happens, and on a machine with
+no browser it prints one "unavailable" line and gets out of the way. It is a
+shell command, so it belongs to whoever has a shell, not to the architect's
+toolset.
 
 ## Component tests run under jsdom — by pragma, per file
 
@@ -214,7 +271,17 @@ noise.
   `props as any` is the same lie about the same type checker — plus
   `fsd-downward-imports`, `fsd-slice-public-api`, `client-one-door` and
   `blessed-stacks-only`.
+- **`pi-harness-ts-web/tokens-only-styling`**, inside `src/ui/**`: no raw
+  Tailwind palette (`bg-red-500`, `dark:text-zinc-400`), no hand-written colour
+  in brackets (`bg-[#0ea5e9]`, `[color:red]`). Semantic tokens, or
+  `bg-[var(--color-…)]`. Sizes in brackets (`w-[42ch]`) are fine — the rule is
+  about colour, because colour is what a theme swap has to reach.
 - **The scaffolder** emits a `.tsx` skeleton for any contract whose exported
   surface returns a React element, so a component contract produces a file the
   builder can put JSX in.
-- **`new-web-app`** blocks if the layout has been hand-edited.
+- **`new-web-app`** blocks if the layout has been hand-edited — except
+  `theme.css`, which it never touches.
+- **`deliver` runs the theme gate** (ADR 2026-033): every required token still
+  defined, every declared foreground/background pair at 4.5:1 or better, in the
+  light scheme and the dark one. It blocks with the pair and the ratio. The fix
+  is always an edit to `theme.css`.

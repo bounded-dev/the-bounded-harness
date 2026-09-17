@@ -566,7 +566,14 @@ const TONE: Record<BadgeTone, string> = {
   neutral: "bg-neutral text-neutral-foreground",
 };
 
-const BASE = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium";
+// \`w-fit\` is load-bearing, and the screenshot at TN-26-006's wrap is what
+// found it: a Badge dropped into a \`flex flex-col\` container (CardHeader is
+// one) is a FLEX ITEM, and flex items stretch by default — \`inline-flex\`
+// governs the badge's own children and does nothing about its width. The chip
+// rendered as a full-width red bar, with every test still green, which is the
+// exact defect class the pixels exist to catch.
+const BASE =
+  "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium";
 
 export interface BadgeProps extends ComponentProps<"span"> {
   readonly tone?: BadgeTone;

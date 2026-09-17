@@ -393,6 +393,14 @@ describe("the layout primitives", () => {
     );
   });
 
+  // Found by the FIRST real screenshot (TN-26-006 slice 4), with every test
+  // green: a Badge inside a `flex flex-col` CardHeader is a flex item, and flex
+  // items stretch — the chip rendered as a full-width red bar. `inline-flex`
+  // governs its own children and says nothing about its width.
+  test("Badge shrink-wraps, so a flex parent cannot stretch it into a bar", () => {
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/badge.tsx")).toContain("w-fit");
+  });
+
   test("every tone has a background token and a foreground token, both defined", () => {
     const badge = contentAt(PLAN_WITH_API, "src/ui/shared/ui/badge.tsx");
     const css = contentAt(SEEDS, "src/ui/theme.css");

@@ -385,6 +385,17 @@ rather than saying "fix the typecheck". And when a worker reports "clean in my
 zone", that is the literal truth and it is not "the project compiles"; only
 your own gates speak for the project.
 
+**`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the
+project's own `npm run check` has passed. Today that is the web pack's
+`theme-check`: on a frontend, `src/ui/theme.css` is the one style file the
+project owns, and delivery refuses a theme that has lost a token the generated
+component kit styles through, or whose declared foreground/background pairs fall
+below WCAG AA contrast — the message names the pair and the ratio it measured.
+Neither defect is visible anywhere else in the pipeline: an undefined token
+renders as no colour at all and leaves the suite green. The fix is an edit to
+`theme.css`, never to a component. A project with no `theme.css` is not a web
+target and the check says so and passes.
+
 **Waiting is `sleep`, never a gate.** Use `subagent_wait` to block on a child;
 use `sleep` (1–120s) when you want to let a subagent make progress and then
 look again. What you must never do is call a gate to pass the time: r15 ran
