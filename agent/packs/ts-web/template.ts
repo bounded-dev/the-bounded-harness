@@ -39,13 +39,28 @@ export const APP_CSS = `@import "tailwindcss";
   --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.21 0.02 264);
   --color-muted: oklch(0.97 0.01 264);
-  --color-muted-foreground: oklch(0.55 0.02 264);
+  --color-muted-foreground: oklch(0.52 0.02 264);
   --color-primary: oklch(0.55 0.18 264);
   --color-primary-foreground: oklch(0.99 0 0);
   --color-destructive: oklch(0.58 0.22 27);
   --color-destructive-foreground: oklch(0.99 0 0);
   --color-border: oklch(0.92 0.01 264);
   --color-ring: oklch(0.55 0.18 264);
+
+  /* The TONES (TN-26-006, "Styling: anatomy enforced, identity free"). A tone
+     is a READING of a value — good, watch it, act now, nothing to say — and
+     never a domain word: the kit has no idea what a heating band is, and
+     mapping a band to a tone happens in entities/ or features/. Four is
+     deliberate: a fifth invites "which orange did we mean?" in review. */
+  --color-positive: oklch(0.52 0.13 155);
+  --color-positive-foreground: oklch(0.99 0 0);
+  --color-caution: oklch(0.54 0.14 75);
+  --color-caution-foreground: oklch(0.99 0 0);
+  --color-critical: oklch(0.51 0.2 27);
+  --color-critical-foreground: oklch(0.99 0 0);
+  --color-neutral: oklch(0.54 0.02 264);
+  --color-neutral-foreground: oklch(0.99 0 0);
+
   --radius-card: 0.75rem;
 }
 
@@ -240,7 +255,9 @@ export function TrpcProvider(props: TrpcProviderProps): ReactElement {
 
 // --- The component kit (TN-26-006 B3) ---------------------------------------
 //
-// A minimal shadcn-style set: button, card, input, label. Faithful in SPIRIT —
+// A minimal shadcn-style set: button, card, input, label — joined below by the
+// four LAYOUT primitives r24 proved were missing (page-shell, badge, stat,
+// data-list). Faithful in SPIRIT —
 // copy-in components you own, styled entirely with Tailwind utilities over
 // semantic tokens, composed rather than configured — and deliberately not a
 // transcription: these are pack-owned, marker-carrying, and never hand-edited,
@@ -399,10 +416,231 @@ export function Label({ className, ...rest }: ComponentProps<"label">): ReactEle
 }
 `;
 
+// --- The layout primitives (TN-26-006, "Styling: anatomy enforced, identity
+// free") -----------------------------------------------------------------------
+//
+// WHY THESE FOUR EXIST. Dogfood r24 delivered a behaviourally perfect,
+// visually bare screen: 77 green tests over a page that was a stack of
+// unstyled `<p>` elements. The builder was not lazy and not blind to the kit —
+// it wrote ZERO className, because nothing in the kit it composed produced a
+// page, a heading row, a metric or a list. Button/Card/Input/Label are the
+// pieces INSIDE a screen; a screen is what the run had to invent, and inventing
+// was exactly what the reference set exists to stop.
+//
+// So the fix is structural rather than instructional: make the styled path the
+// DEFAULT path. A builder that composes PageShell → DataList → Card → Stat →
+// Badge gets rhythm, measure, hierarchy and tone for free, and writes no
+// className at all — which is also what makes the `tokens-only-styling` rule a
+// small ask rather than a straitjacket.
+//
+// EVERYTHING HERE IS GENERIC — the kit is `shared`, and Law 1 (downward-only
+// imports) means it can never learn a domain. That is why the Badge's variants
+// are TONES ("positive", "caution", "critical", "neutral") and not bands,
+// grades, severities or statuses: a tone is a reading of a value that any
+// domain can map onto, and the mapping lives in `entities/` where the domain
+// actually is. A `<Badge tone="critical">` in a kit that knew about heating
+// bands would be a kit no second project could use.
+
+/** PageShell — the page container r24 had to invent: measure, centring, and
+ *  the vertical rhythm between a header and the content stack. */
+export const PAGE_SHELL_TSX = `import type { ComponentProps, ReactElement, ReactNode } from "react";
+import { cn } from "../lib/cn.js";
+
+export interface PageShellProps extends ComponentProps<"main"> {
+  /** The page's one \`<h1>\`. Required, because a page without a top-level
+   *  heading is a page a screen reader cannot summarise and a blind test
+   *  cannot name (TN-26-006). */
+  readonly title: string;
+  /** One line under the title saying what the screen is for. */
+  readonly description?: string;
+  /** Header-right slot: the page's primary actions, if it has any. */
+  readonly actions?: ReactNode;
+}
+
+/**
+ * The page.
+ *
+ * \`max-w-5xl\` is not decoration: unbounded text on a wide monitor runs to 200
+ * characters a line, which is the single most common way a correct screen
+ * reads as broken. The padding scale and the \`gap-6\` content stack are the
+ * rest of the rhythm — spacing RELATIONSHIPS are anatomy, so they are
+ * pack-owned, while every colour underneath them is a token the project owns.
+ */
+export function PageShell({
+  title,
+  description,
+  actions,
+  className,
+  children,
+  ...rest
+}: PageShellProps): ReactElement {
+  return (
+    <main className={cn("mx-auto w-full max-w-5xl px-6 py-10", className)} {...rest}>
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          {description === undefined ? null : (
+            <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {actions === undefined ? null : <div className="flex items-center gap-2">{actions}</div>}
+      </header>
+      <div className="flex flex-col gap-6">{children}</div>
+    </main>
+  );
+}
+`;
+
+/** Badge — the tone chip. Four tones, each a reading rather than a domain word. */
+export const BADGE_TSX = `import type { ComponentProps, ReactElement, ReactNode } from "react";
+import { cn } from "../lib/cn.js";
+
+/**
+ * How a value READS, not what it is.
+ *
+ * The kit is generic by law (shared may not import a domain), so a Badge knows
+ * "this is fine" / "watch it" / "act now" / "nothing to say" and nothing else.
+ * Mapping a heating band, an invoice age or a build result onto one of these
+ * belongs in the entity or feature slice that owns the domain.
+ */
+export type BadgeTone = "positive" | "caution" | "critical" | "neutral";
+
+const TONE: Record<BadgeTone, string> = {
+  positive: "bg-positive text-positive-foreground",
+  caution: "bg-caution text-caution-foreground",
+  critical: "bg-critical text-critical-foreground",
+  neutral: "bg-neutral text-neutral-foreground",
+};
+
+const BASE = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium";
+
+export interface BadgeProps extends ComponentProps<"span"> {
+  readonly tone?: BadgeTone;
+  /**
+   * REQUIRED, and that is the whole accessibility design of this component.
+   *
+   * Colour alone is not a signal: a colour-blind reader, a greyscale print and
+   * a screen reader all get nothing from a green pill. Typing \`children\` as
+   * required makes a wordless Badge a COMPILE error rather than a review
+   * finding — the tone decorates the text, it never replaces it.
+   */
+  readonly children: ReactNode;
+}
+
+export function Badge({ tone = "neutral", className, ...rest }: BadgeProps): ReactElement {
+  return <span className={cn(BASE, TONE[tone], className)} {...rest} />;
+}
+`;
+
+/** Stat — the metric reading r24 rendered as a bare paragraph. */
+export const STAT_TSX = `import type { ComponentProps, ReactElement } from "react";
+import { cn } from "../lib/cn.js";
+
+export interface StatProps extends Omit<ComponentProps<"div">, "children"> {
+  /** What the number is, in the user's words — "Flow temperature". */
+  readonly label: string;
+  /** The number, already formatted. Formatting is a domain decision (how many
+   *  decimals a reading carries is not the kit's business), so the value
+   *  arrives as text the caller rendered from its value object. */
+  readonly value: string;
+  /** "°C", "kWh", "days". Optional, because not every metric has one. */
+  readonly unit?: string;
+}
+
+/**
+ * A labelled metric.
+ *
+ * The unit is its OWN element rather than glued into the value string, for two
+ * reasons: it can be typeset quieter than the number, and a blind test can
+ * assert the number and the unit independently — \`getByText("21.5")\` does not
+ * become \`getByText("21.5 °C")\` the day someone changes the spacing.
+ *
+ * \`tabular-nums\` makes a column of readings line up digit for digit, which is
+ * the difference between a table of numbers and a ransom note.
+ */
+export function Stat({ label, value, unit, className, ...rest }: StatProps): ReactElement {
+  return (
+    <div className={cn("flex flex-col gap-1", className)} {...rest}>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="flex items-baseline gap-1">
+        <span className="text-2xl font-semibold tabular-nums">{value}</span>
+        {unit === undefined ? null : <span className="text-sm text-muted-foreground">{unit}</span>}
+      </span>
+    </div>
+  );
+}
+`;
+
+/** DataList — a titled, spaced collection. The wrapper r24's card stack lacked. */
+export const DATA_LIST_TSX = `import { useId, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { cn } from "../lib/cn.js";
+
+export interface DataListProps extends ComponentProps<"section"> {
+  /** The collection's heading — "Buildings", "Recent reports". */
+  readonly title: string;
+  /** Optional one-liner under the heading. */
+  readonly description?: string;
+  /** What to show when the collection is empty. A list with no items and no
+   *  message is the screen state specs forget and users meet first. */
+  readonly empty?: ReactNode;
+  readonly children?: ReactNode;
+}
+
+/**
+ * A titled list of things.
+ *
+ * It is a real \`<ul>\` with \`role="list"\` restated. Tailwind's preflight
+ * removes the list marker, and a marker-less list loses its list semantics in
+ * Safari's accessibility tree — so the role is written back explicitly, and
+ * \`getAllByRole("listitem")\` keeps working for the test-writer who cannot see
+ * the screen.
+ *
+ * \`aria-labelledby\` ties the section to its own heading, so a screen reader
+ * announces "Buildings, list, 3 items" instead of "list, 3 items" — which on a
+ * dashboard of four lists is the whole difference.
+ */
+export function DataList({
+  title,
+  description,
+  empty,
+  className,
+  children,
+  ...rest
+}: DataListProps): ReactElement {
+  const headingId = useId();
+  const isEmpty = children === undefined || children === null || children === false;
+  return (
+    <section aria-labelledby={headingId} className={cn("flex flex-col gap-3", className)} {...rest}>
+      <div className="flex flex-col gap-1">
+        <h2 id={headingId} className="text-base font-semibold">
+          {title}
+        </h2>
+        {description === undefined ? null : (
+          <p className="text-sm text-muted-foreground">{description}</p>
+        )}
+      </div>
+      {isEmpty && empty !== undefined ? (
+        <p className="text-sm text-muted-foreground">{empty}</p>
+      ) : (
+        <ul role="list" className="flex flex-col gap-4">
+          {children}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** One row of a DataList. A real \`<li>\`, so the list has items to count. */
+export function DataListItem({ className, ...rest }: ComponentProps<"li">): ReactElement {
+  return <li className={cn("list-none", className)} {...rest} />;
+}
+`;
+
 /** The kit's public API. `shared/ui` is a segment, not a slice, so this index
  *  is a convenience rather than a boundary the lints enforce — but importing a
  *  component through it keeps a component's own file free to move. */
-export const SHARED_UI_INDEX = `export { Button, type ButtonProps, type ButtonSize, type ButtonTone } from "./button.js";
+export const SHARED_UI_INDEX = `export { Badge, type BadgeProps, type BadgeTone } from "./badge.js";
+export { Button, type ButtonProps, type ButtonSize, type ButtonTone } from "./button.js";
 export {
   Card,
   CardContent,
@@ -411,18 +649,25 @@ export {
   CardHeader,
   CardTitle,
 } from "./card.js";
+export { DataList, DataListItem, type DataListProps } from "./data-list.js";
 export { Input } from "./input.js";
 export { Label } from "./label.js";
+export { PageShell, type PageShellProps } from "./page-shell.js";
+export { Stat, type StatProps } from "./stat.js";
 `;
 
 /** Every file of the component kit, emitted into `src/ui/shared/`. */
 export const COMPONENT_KIT: readonly { readonly path: string; readonly body: string }[] = [
   { path: "src/ui/shared/lib/cn.ts", body: CN_TS },
+  { path: "src/ui/shared/ui/badge.tsx", body: BADGE_TSX },
   { path: "src/ui/shared/ui/button.tsx", body: BUTTON_TSX },
   { path: "src/ui/shared/ui/card.tsx", body: CARD_TSX },
+  { path: "src/ui/shared/ui/data-list.tsx", body: DATA_LIST_TSX },
   { path: "src/ui/shared/ui/index.ts", body: SHARED_UI_INDEX },
   { path: "src/ui/shared/ui/input.tsx", body: INPUT_TSX },
   { path: "src/ui/shared/ui/label.tsx", body: LABEL_TSX },
+  { path: "src/ui/shared/ui/page-shell.tsx", body: PAGE_SHELL_TSX },
+  { path: "src/ui/shared/ui/stat.tsx", body: STAT_TSX },
 ];
 
 /**

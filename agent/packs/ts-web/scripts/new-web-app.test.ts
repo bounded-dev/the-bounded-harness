@@ -62,11 +62,15 @@ describe("the emitted layout", () => {
       "src/ui/pages/.gitkeep",
       "src/ui/shared/api/.gitkeep",
       "src/ui/shared/lib/cn.ts",
+      "src/ui/shared/ui/badge.tsx",
       "src/ui/shared/ui/button.tsx",
       "src/ui/shared/ui/card.tsx",
+      "src/ui/shared/ui/data-list.tsx",
       "src/ui/shared/ui/index.ts",
       "src/ui/shared/ui/input.tsx",
       "src/ui/shared/ui/label.tsx",
+      "src/ui/shared/ui/page-shell.tsx",
+      "src/ui/shared/ui/stat.tsx",
       "vite.config.ts",
     ]);
   });
@@ -172,7 +176,19 @@ describe("the vendored component kit", () => {
 
   test("every component is exported from the kit's index", () => {
     const index = contentAt(PLAN_WITH_API, "src/ui/shared/ui/index.ts");
-    for (const name of ["Button", "Card", "CardTitle", "CardContent", "Input", "Label"]) {
+    for (const name of [
+      "Badge",
+      "Button",
+      "Card",
+      "CardTitle",
+      "CardContent",
+      "DataList",
+      "DataListItem",
+      "Input",
+      "Label",
+      "PageShell",
+      "Stat",
+    ]) {
       expect(index, name).toContain(name);
     }
   });
@@ -198,7 +214,7 @@ describe("the vendored component kit", () => {
     for (const emitted of PLAN_WITH_API) {
       if (!emitted.path.startsWith("src/ui/shared/ui/")) continue;
       for (const match of emitted.content.matchAll(
-        /\b(?:bg|text|border|ring|rounded)-(primary|primary-foreground|destructive|destructive-foreground|muted|muted-foreground|background|foreground|border|ring|card)\b/g,
+        /\b(?:bg|text|border|ring|rounded)-(primary|primary-foreground|destructive|destructive-foreground|muted|muted-foreground|background|foreground|border|ring|card|positive|positive-foreground|caution|caution-foreground|critical|critical-foreground|neutral|neutral-foreground)\b/g,
       )) {
         used.add(match[1]!);
       }
@@ -243,6 +259,124 @@ describe("the vendored component kit", () => {
   // submits twice", three files away.
   test("Button defaults its type, because HTML's default is a trap", () => {
     expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/button.tsx")).toContain('type = "button"');
+  });
+});
+
+// --- the layout primitives (TN-26-006, "anatomy enforced, identity free") ----
+//
+// r24 shipped 77 green tests over a page of bare paragraphs, because the kit it
+// composed had no page, no heading row, no metric and no list — only the pieces
+// that go INSIDE one. These four make the styled path the default path, and the
+// assertions below are the two halves of that promise: the anatomy is really
+// there, and it carries no domain and no raw colour with it.
+
+describe("the layout primitives", () => {
+  const primitives = [
+    "src/ui/shared/ui/page-shell.tsx",
+    "src/ui/shared/ui/badge.tsx",
+    "src/ui/shared/ui/stat.tsx",
+    "src/ui/shared/ui/data-list.tsx",
+  ];
+
+  test("are all four of them", () => {
+    for (const path of primitives) expect(pathsOf(PLAN_WITH_API), path).toContain(path);
+  });
+
+  // The page container r24 had to invent. A measure is not decoration:
+  // unbounded text on a wide monitor runs to 200 characters a line, which is
+  // the commonest way a correct screen reads as broken.
+  test("PageShell is a centred, measured page with one h1", () => {
+    const shell = contentAt(PLAN_WITH_API, "src/ui/shared/ui/page-shell.tsx");
+    expect(shell).toContain("<main");
+    expect(shell).toContain("<h1");
+    expect(shell).toContain("mx-auto");
+    expect(shell).toMatch(/max-w-\w+/);
+    // Exactly one, counted by the closing tag (the prop's doc comment names
+    // `<h1>` too, and a comment is not a heading).
+    expect(shell.match(/<\/h1>/g)).toHaveLength(1);
+  });
+
+  // THE KIT IS `shared`, AND SHARED HAS NO DOMAIN (Law 1, enforced by
+  // fsd-downward-imports from the other side). So the Badge's variants are
+  // readings — "how does this value read?" — that any domain can map onto, and
+  // the mapping lives in the entity slice that knows what a band is.
+  test("Badge's variants are tones, never domain words", () => {
+    const badge = contentAt(PLAN_WITH_API, "src/ui/shared/ui/badge.tsx");
+    expect(badge).toContain(
+      'export type BadgeTone = "positive" | "caution" | "critical" | "neutral";',
+    );
+    for (const domainWord of ["band", "grade", "severity", "status", "rating", "level"]) {
+      expect(badge.toLowerCase(), domainWord).not.toContain(`"${domainWord}"`);
+    }
+  });
+
+  // Colour alone is not a signal: a colour-blind reader, a greyscale print and
+  // a screen reader all get nothing from a green pill. `children` is typed
+  // REQUIRED, so a wordless Badge is a compile error rather than a review
+  // finding — and the tsc test below compiles a Badge that has words.
+  test("Badge requires visible text, by type", () => {
+    expect(contentAt(PLAN_WITH_API, "src/ui/shared/ui/badge.tsx")).toContain(
+      "readonly children: ReactNode;",
+    );
+  });
+
+  test("every tone has a background token and a foreground token, both defined", () => {
+    const badge = contentAt(PLAN_WITH_API, "src/ui/shared/ui/badge.tsx");
+    const css = contentAt(PLAN_WITH_API, "src/ui/app.css");
+    for (const tone of ["positive", "caution", "critical", "neutral"]) {
+      expect(badge, tone).toContain(`bg-${tone} text-${tone}-foreground`);
+      expect(css, tone).toContain(`--color-${tone}:`);
+      expect(css, tone).toContain(`--color-${tone}-foreground:`);
+    }
+  });
+
+  // The unit is its own element rather than glued into the value string, so a
+  // blind test can assert the number and the unit independently — and so the
+  // unit can be typeset quieter than the number it belongs to.
+  test("Stat is label + value + optional unit, each its own element", () => {
+    const stat = contentAt(PLAN_WITH_API, "src/ui/shared/ui/stat.tsx");
+    expect(stat).toContain("readonly label: string;");
+    expect(stat).toContain("readonly value: string;");
+    expect(stat).toContain("readonly unit?: string;");
+    expect(stat).toContain("{label}");
+    expect(stat).toContain("{value}");
+    expect(stat).toContain("{unit}");
+    // a column of readings must line up digit for digit
+    expect(stat).toContain("tabular-nums");
+  });
+
+  // Tailwind's preflight removes the list marker, and a marker-less list loses
+  // its list semantics in Safari's accessibility tree — so the role is written
+  // back, and `getAllByRole("listitem")` keeps working for a test-writer who
+  // cannot see the screen.
+  test("DataList is a titled, real list with an empty state", () => {
+    const list = contentAt(PLAN_WITH_API, "src/ui/shared/ui/data-list.tsx");
+    expect(list).toContain("<h2");
+    expect(list).toContain('<ul role="list"');
+    expect(list).toContain("<li");
+    expect(list).toContain("aria-labelledby");
+    expect(list).toContain("readonly empty?: ReactNode;");
+  });
+
+  // The identity-free half of the promise, over the WHOLE kit: a domain noun in
+  // `shared/ui` is a kit no second project can use, and it is the exact defect
+  // Law 1 cannot catch (naming is not importing).
+  //
+  // CODE, not prose: `Label`'s doc comment names "Meter reading" as an EXAMPLE
+  // of an accessible name, which teaches the reader something and couples
+  // nothing. A domain noun in an identifier, a type or a class string is the
+  // defect; one in a sentence is a sentence.
+  test("nothing in the kit knows a domain", () => {
+    const DOMAIN_NOUNS = ["building", "heating", "meter", "invoice", "report", "tenant"];
+    const stripComments = (source: string): string =>
+      source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    for (const emitted of PLAN_WITH_API) {
+      if (!emitted.path.startsWith("src/ui/shared/ui/")) continue;
+      const code = stripComments(emitted.content).toLowerCase();
+      for (const noun of DOMAIN_NOUNS) {
+        expect(code, `${emitted.path} names '${noun}'`).not.toContain(noun);
+      }
+    }
   });
 });
 
@@ -416,11 +550,48 @@ const WEB_TSCONFIG = JSON.stringify(
 );
 
 /** What the architect's own `src/ui/app.contract.ts` eventually produces —
- *  the generator deliberately does not emit it (see template.ts). */
+ *  the generator deliberately does not emit it (see template.ts).
+ *
+ *  It COMPOSES THE KIT rather than returning a bare element, and that is the
+ *  point of the fixture: structural assertions can say a Badge exists, but only
+ *  the compiler can say that `<Badge tone="critical">` accepts that tone, that
+ *  a wordless Badge would not have compiled, that `Stat`'s unit is genuinely
+ *  optional, and that `PageShell`'s `actions` slot takes a Button. This is the
+ *  shape the SKILL tells a builder to write, typechecked. */
 const APP_TSX = `import type { ReactElement } from "react";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardTitle,
+  DataList,
+  DataListItem,
+  PageShell,
+  Stat,
+} from "./shared/ui/index.js";
 
 export function App(): ReactElement {
-  return <main>ready</main>;
+  return (
+    <PageShell
+      title="Overview"
+      description="Everything at a glance."
+      actions={<Button tone="secondary">Refresh</Button>}
+    >
+      <DataList title="Readings" empty="Nothing to show yet.">
+        <DataListItem>
+          <Card>
+            <CardTitle>North wing</CardTitle>
+            <CardContent>
+              <Stat label="Flow temperature" value="21.5" unit="°C" />
+              <Stat label="Open actions" value="3" />
+              <Badge tone="critical">Act now</Badge>
+            </CardContent>
+          </Card>
+        </DataListItem>
+      </DataList>
+    </PageShell>
+  );
 }
 `;
 
