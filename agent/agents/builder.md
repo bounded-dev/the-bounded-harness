@@ -184,6 +184,21 @@ the app just stops seeing the other half's writes. Reach the transport through
 or feature hook. This is the client-side twin of `raw-framework-entry`, which
 owns the server door (`@trpc/server`).
 
+**Colour comes from tokens, never from your fingers** —
+`pi-harness-ts-web/tokens-only-styling`: inside `src/ui/**`, a class string may
+not name Tailwind's raw palette (`bg-red-500`, `text-slate-300`,
+`hover:border-zinc-200`) or carry a hand-written colour in brackets
+(`bg-[#0ea5e9]`, `[color:red]`). Style through the semantic tokens the project's
+`src/ui/theme.css` defines — `bg-primary`, `text-muted-foreground`,
+`bg-positive` / `caution` / `critical` / `neutral`, `border-border`, `ring-ring`
+— or through `bg-[var(--color-…)]`, which is a token reference. Sizes in
+brackets (`w-[42ch]`) stay legal; this rule is about colour. The reason is the
+whole styling design: a fresh look for a project is a fresh `theme.css` and
+nothing else, and one hand-picked colour means every other surface changes while
+that one element keeps yesterday's brand — with nothing failing. Composing the
+generated kit (PageShell, Card, Stat, Badge, DataList) is the path that needs no
+className at all.
+
 **Value objects parse with zod** — `pi-harness-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level
 `const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of

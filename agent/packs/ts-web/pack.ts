@@ -15,10 +15,12 @@
 // config blocks, which JSON cannot hold.
 
 import { contribute, definePack } from "../../src/socket-registry.ts";
-import { contractPurityOverrides, lintSrcRules, TS_PACK } from "../ts/pack.ts";
+import { contractPurityOverrides, deliverChecks, lintSrcRules, TS_PACK } from "../ts/pack.ts";
+import { runThemeCheck, THEME_RELATIVE } from "./scripts/theme-check.ts";
 import { clientOneDoor } from "./eslint/rules/client-one-door.ts";
 import { fsdDownwardImports } from "./eslint/rules/fsd-downward-imports.ts";
 import { fsdSlicePublicApi } from "./eslint/rules/fsd-slice-public-api.ts";
+import { tokensOnlyStyling } from "./eslint/rules/tokens-only-styling.ts";
 
 /** This pack's name, as a literal — see the note on `TS_PACK`. */
 export const TS_WEB_PACK = "ts-web";
@@ -71,6 +73,17 @@ export const tsWebPack = definePack({
         namedIn: "builder",
       },
       { plugin: TS_WEB_PLUGIN, name: "client-one-door", rule: clientOneDoor, namedIn: "builder" },
+      // The styling twin of `no-naked-primitives` (TN-26-006, "anatomy
+      // enforced, identity free"). It is what makes the project's ownership of
+      // theme.css worth anything: a theme swap is total only if every colour on
+      // screen came through a token name, and one `bg-blue-600` breaks that
+      // with nothing failing anywhere.
+      {
+        plugin: TS_WEB_PLUGIN,
+        name: "tokens-only-styling",
+        rule: tokensOnlyStyling,
+        namedIn: "builder",
+      },
     ]),
 
     // --- the ratified primitives relaxation (TN-26-006) -----------------
@@ -104,6 +117,30 @@ export const tsWebPack = definePack({
           "stringly-typed domain value (TN-26-006, ratified at the 2026-09-14 grill). Everywhere " +
           "else the rule stands, so domain data crosses into feature components as value objects " +
           "and is rendered to primitives at the leaf.",
+      },
+    ]),
+
+    // --- the theme gate (TN-26-006, ADR 2026-033) -----------------------
+    //
+    // The second fence around the project's styling freedom. The first is a
+    // lint — every colour on screen came through a token name — and this is
+    // what makes that worth having: the names are all still defined, and the
+    // colours behind them are readable.
+    //
+    // It runs at DELIVERY rather than at a gate because it is about a file the
+    // PROJECT owns, which no red/green gate has any business failing over
+    // mid-run: an unreadable theme is not a broken build, it is a repo not
+    // ready to hand over. Keyed on the tree like everything else this pack
+    // emits — a service with no `src/ui/theme.css` is not a web target, and
+    // the check says so and passes.
+    contribute(deliverChecks, [
+      {
+        name: "theme-check",
+        description:
+          `every token the generated kit styles through is still defined in ${THEME_RELATIVE}, ` +
+          "and every declared foreground/background pair reaches WCAG AA contrast — in the base " +
+          "theme and in each colour-scheme variant",
+        run: runThemeCheck,
       },
     ]),
   ],

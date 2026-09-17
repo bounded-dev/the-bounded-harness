@@ -7,10 +7,12 @@
 // today) fill them. The core learns that a pack declared a socket and another
 // pack filled it, and nothing more.
 //
-// TWO SOCKETS, ONE EACH FOR THE TWO GATES THAT LINT:
+// THREE SOCKETS — two for the gates that lint, one for the delivery pass:
 //
 //   lintSrcRules             extra rules for the src gate (implementation code)
 //   contractPurityOverrides  extra flat-config blocks for the contract gate
+//   deliverChecks            read-only checks run at the end of delivery
+//                            (ADR 2026-033)
 //
 // The ts pack's OWN rules are not contributions. `SRC_RULE_IDS` and
 // `CONTRACT_RULE_IDS` stay hard-wired in their gates: the gate and the plugin
@@ -141,6 +143,72 @@ export const contractPurityOverrides = tsSockets.define<ContractPurityOverride>(
   },
 });
 
+// --- deliverChecks (ADR 2026-033) --------------------------------------------
+//
+// The third socket, and the first one that is not about lint. `deliver` is the
+// ts pack's script and the last thing that runs on a finished run — the one
+// moment the whole tree exists, every gate has passed, and somebody is reading
+// the output. A pack that ships a reference set into that tree has claims about
+// it that no lint rule can check, because they are about FILES the project owns
+// rather than code a rule can parse: ts-web's claim is that `src/ui/theme.css`
+// still defines every token its kit styles through, and that the colours in it
+// are readable.
+//
+// Born WITH its consumer, which is the socket policy (TN-26-005): the step in
+// `deliver.ts` and this declaration land in the same change, and neither exists
+// without the other.
+
+/** What a contributed check reports. One verdict, one summary line, and as much
+ *  detail as the reader needs to act — the numbers, not the transcript. */
+export interface DeliverCheckResult {
+  readonly verdict: "pass" | "block";
+  /** One line, printed beside the check's name. */
+  readonly summary: string;
+  /** Extra lines, printed indented under it. Empty is normal. */
+  readonly detail?: readonly string[];
+}
+
+/**
+ * One check a pack contributes to the delivery pass.
+ *
+ * READ-ONLY, and that is a contract rather than a convention: every mutating
+ * step in `deliver` is deliver's own, so a contributed check that wrote to the
+ * tree would be changing a repo AFTER the repo's own `npm run check` passed
+ * over it — the one thing delivery must never do. A check answers a question
+ * about the tree it was handed.
+ */
+export interface DeliverCheck {
+  /** Step name, printed in deliver's line and logged as the guard step. */
+  readonly name: string;
+  /** What it verifies, in one sentence — read by nobody at runtime, and by
+   *  everybody trying to work out why a delivery blocked. */
+  readonly description: string;
+  /** Run it against a target project root. Must not write. */
+  readonly run: (cwd: string) => DeliverCheckResult;
+}
+
+const CHECK_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+export const deliverChecks = tsSockets.define<DeliverCheck>({
+  id: "deliverChecks",
+  description:
+    "Read-only checks contributed by packs that depend on ts, run as the last step of the " +
+    "delivery pass. Each returns pass or block with the lines a reader needs; a block stops " +
+    "delivery exactly as deliver's own steps do.",
+  validate: (check, contributor) => {
+    if (!CHECK_NAME.test(check.name)) {
+      return `${contributor} contributed a delivery check named '${check.name}' — the name is printed as a step, so it must be lowercase and dash-separated`;
+    }
+    if (check.description.trim() === "") {
+      return `${contributor}'s '${check.name}' check has no description — a step that can block delivery has to say what it verifies`;
+    }
+    if (typeof check.run !== "function") {
+      return `${contributor}'s '${check.name}' check has no run() — there is nothing to call`;
+    }
+    return undefined;
+  },
+});
+
 /**
  * The ts pack. Depends on nothing — it is the root of the TypeScript family —
  * and contributes nothing: its own rules are its gates' base config.
@@ -148,5 +216,5 @@ export const contractPurityOverrides = tsSockets.define<ContractPurityOverride>(
 export const tsPack = definePack({
   name: TS_PACK,
   dependsOnPacks: [],
-  defines: [lintSrcRules, contractPurityOverrides],
+  defines: [lintSrcRules, contractPurityOverrides, deliverChecks],
 });

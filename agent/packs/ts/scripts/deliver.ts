@@ -39,17 +39,26 @@
 //                     project's own guard log (issue #13). Measure before
 //                     optimizing further — and the run that just finished is
 //                     the only one whose numbers nobody has to remember.
-//   9. check          READ-ONLY, and LAST: run the project's OWN canonical
-//                     `npm run check` and BLOCK if it is red. Every other step
-//                     is deliver's opinion of a finished repo; this one asks
-//                     the repo whether it satisfies its own definition of
-//                     done. r15 handed over two repos whose check was red on
-//                     arrival, because nothing in the pipeline had ever run it
-//                     (green_gate runs its own tsc and vitest — not the
-//                     command a colleague types).
+//   9. check          READ-ONLY, and last of deliver's own steps: run the
+//                     project's OWN canonical `npm run check` and BLOCK if it
+//                     is red. Every other step is deliver's opinion of a
+//                     finished repo; this one asks the repo whether it
+//                     satisfies its own definition of done. r15 handed over two
+//                     repos whose check was red on arrival, because nothing in
+//                     the pipeline had ever run it (green_gate runs its own tsc
+//                     and vitest — not the command a colleague types).
+//  10. pack checks    READ-ONLY, and LAST: every check contributed to this
+//                     pack's `deliverChecks` socket (ADR 2026-033), in
+//                     composition order. A pack that ships a reference set into
+//                     a tree has claims about the delivered repo that no lint
+//                     rule can check, because they are about files the PROJECT
+//                     owns — ts-web's theme gate is the first. A block stops
+//                     delivery like any other step; a check that throws is a
+//                     block naming the check, because a check that crashed
+//                     verified nothing.
 //
 // Idempotent: every step checks before acting; a second run applies 0 steps
-// (steps 8 and 9 only read, so they never count as applied).
+// (steps 8, 9 and 10 only read, so they never count as applied).
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
 // source). The checker source is injectable for tests via options or
 // PI_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts);
@@ -76,6 +85,8 @@ import {
   phaseDurations,
   type PhaseDurations,
 } from "../../../src/phase-durations.ts";
+import { composedPacks } from "../../installed.ts";
+import { deliverChecks, type DeliverCheckResult } from "../pack.ts";
 import { findContractFiles } from "./checksum-gate.ts";
 import { SHADOW_RELATIVE } from "./red-gate.ts";
 import { skeletonSiblingPaths } from "./scaffold-contract.ts";
@@ -622,6 +633,49 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
       summaryLine === undefined ? "npm run check passed" : `npm run check passed — ${summaryLine}`,
       { exitCode: 0, summary: summaryLine },
     );
+  }
+
+  // --- 10. pack-contributed checks (ADR 2026-033) ---
+  //
+  // The socket exists because the alternative is worse in both directions:
+  // hard-wiring "theme" — and eventually "colour", "route", "component" — into
+  // this file for a pack it must not know about, or leaving the claim
+  // unchecked. Read here, exactly as `lint-src` reads its rules: a harness
+  // composed without the contributing pack runs zero of them and delivers as it
+  // always did.
+  //
+  // LAST, because a check must judge the tree that actually ships — after the
+  // barrel, the stripped blobs, the wiring this pass added, and after the repo
+  // has satisfied its own definition of done. The consequence is accepted: a
+  // red `npm run check` returns above, so these verdicts appear once the repo
+  // is green.
+  {
+    const checks = composedPacks().read(deliverChecks);
+    for (const check of checks) {
+      let outcome: DeliverCheckResult;
+      try {
+        outcome = check.run(cwd);
+      } catch (e) {
+        // A check that crashed verified nothing, and "nothing verified" is not
+        // a pass. The pack's name is in the step, so the fix has an owner.
+        outcome = {
+          verdict: "block",
+          summary: `the check threw — ${e instanceof Error ? e.message : String(e)}`,
+        };
+      }
+      const detail = outcome.detail ?? [];
+      if (outcome.verdict === "block") {
+        const result = block(check.name, `${check.name}: ${outcome.summary}`, {
+          check: check.name,
+          problems: detail,
+        });
+        lines.push(...detail.map((d) => `  ${check.name}: ${d}`));
+        return { ...result, lines };
+      }
+      pass(check.name, false, outcome.summary, { check: check.name });
+      lines.push(...detail.map((d) => `  ${check.name}: ${d}`));
+    }
+    if (checks.length === 0) pass("pack-checks", false, "no composed pack contributes one");
   }
 
   const summary = `deliver: OK — ${applied} steps applied`;

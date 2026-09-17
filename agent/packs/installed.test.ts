@@ -29,9 +29,14 @@ describe("the harness's own composition", () => {
   // contribution-only. ts is the foundational pack, so ts owns every socket
   // there is; a new socket appearing here without an ADR behind it is the
   // drift this test exists to make visible.
-  test("the ts pack owns both lint sockets, and nothing else defines one", () => {
+  test("the ts pack owns every socket, and nothing else defines one", () => {
     const sockets = composedPacks().sockets;
-    expect(sockets.map((s) => s.id)).toEqual(["contractPurityOverrides", "lintSrcRules"]);
+    expect(sockets.map((s) => s.id)).toEqual([
+      "contractPurityOverrides",
+      // ADR 2026-033: born with its consumer, deliver's last step.
+      "deliverChecks",
+      "lintSrcRules",
+    ]);
     expect(sockets.every((s) => s.owner === TS_PACK)).toBe(true);
   });
 

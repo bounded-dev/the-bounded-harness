@@ -674,7 +674,7 @@ describe("runDeliver: the project's own check (final step)", () => {
     expect(check!.cwd).toBe(dir);
   });
 
-  test("it is LAST: the check sees the delivered tree, and the timing block is already out", () => {
+  test("it is last of deliver's OWN steps: it sees the delivered tree, after the timing block", () => {
     const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
     const npm = fakeNpm();
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
@@ -684,7 +684,13 @@ describe("runDeliver: the project's own check (final step)", () => {
     const checkAt = r.lines.findIndex((l) => l.startsWith("deliver: check —"));
     expect(timingAt).toBeGreaterThanOrEqual(0);
     expect(checkAt).toBeGreaterThan(timingAt);
-    expect(checkAt).toBe(r.lines.length - 2); // only the OK summary follows
+    // Only the pack-contributed checks (ADR 2026-033) and the OK summary
+    // follow — every step that MUTATES the tree ran before it.
+    const after = r.lines.slice(checkAt + 1);
+    expect(after.at(-1)).toMatch(/^deliver: OK —/);
+    expect(after.slice(0, -1).every((l) => l.startsWith("deliver: ") || l.startsWith("  "))).toBe(
+      true,
+    );
   });
 
   test("BLOCK when the project's own check is red, with the failing tail", () => {
@@ -828,5 +834,53 @@ describe("blessed stack pins", () => {
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
     expect(r.code).toBe(1);
     expect(r.lines.join("\n")).toMatch(/could not install zod@/);
+  });
+});
+
+// --- step 10: the checks other packs contribute (ADR 2026-033) ---------------
+//
+// The socket is read through the real composition, so these tests exercise the
+// wiring end to end: ts-web's `theme-check` is the one contribution installed
+// today, and it is keyed on the tree — a service fixture has no theme, and a
+// web fixture with a broken one stops the handover.
+
+describe("runDeliver: pack-contributed checks", () => {
+  test("a contributed check runs, is named in its own line, and is never an applied step", () => {
+    const dir = proj();
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).toContain("deliver: theme-check —");
+    // read-only: a second delivery still reports zero steps applied
+    expect(deliver(dir).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+  });
+
+  // Keyed on the tree, like everything the web pack emits. A harness with
+  // ts-web composed still delivers pure services.
+  test("a project that is not a web target passes with nothing to check", () => {
+    const r = deliver(proj());
+    expect(r.lines.join("\n")).toMatch(/theme-check — no src\/ui\/theme\.css/);
+  });
+
+  // The whole point of the socket: a claim about a file the PROJECT owns, which
+  // no lint rule and no gate in the pipeline can see. An incomplete theme
+  // renders elements with no colour at all and leaves every test green.
+  test("a contributed check that blocks stops the delivery, with its detail lines", () => {
+    const dir = proj({ "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
+    const r = deliver(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — theme-check:");
+    expect(r.lines.join("\n")).toContain("is not defined");
+    expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  // It runs AFTER the project's own check, so a red repo never reaches it —
+  // the remedy is the same either way (fix it and re-run deliver), and the
+  // block that matters is printed first.
+  test("a red `npm run check` short-circuits it", () => {
+    const dir = proj({ "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
+    const r = deliver(dir, { check: { code: 1, stdout: "1 failed", stderr: "" } });
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("npm run check` is RED");
+    expect(r.lines.join("\n")).not.toContain("theme-check");
   });
 });
