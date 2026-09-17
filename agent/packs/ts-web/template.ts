@@ -21,20 +21,81 @@
 // new-web-app.ts prepends the marker in the comment syntax the extension
 // demands, so the marker sentence has exactly one source.
 
-/** The CSS-first Tailwind v4 entry, plus the token block everything restyles
- *  through (TN-26-006: shadcn components are pack-owned and never hand-edited,
- *  so tokens are the whole restyling surface).
+/**
+ * The CSS-first Tailwind v4 entry: STRUCTURE only.
  *
- *  `@theme` is Tailwind v4's CSS-first configuration — these custom properties
- *  BECOME utilities (`--color-primary` gives `bg-primary`, `text-primary`), so
- *  the component kit can name semantic colours and a project can repaint the
- *  whole app by editing this one block. No `tailwind.config.js` exists in v4
- *  and none should be added. */
+ * Generated, marker-carrying, pack-owned, restored on every sync — and it holds
+ * no colour of its own. Identity lives one import away in `theme.css`, which
+ * this file pulls in and which the PROJECT owns outright (TN-26-006, "Styling:
+ * anatomy enforced, identity free").
+ *
+ * The split is the whole point. Before it, restyling meant editing a generated
+ * file, which the generator would then restore — so "the tokens are the
+ * restyling surface" was true in prose and false on disk. Now: structure
+ * generated, identity owned, and a fresh look is a fresh `theme.css` and
+ * nothing else.
+ *
+ * `@import "./theme.css"` sits AFTER `@import "tailwindcss"` because Tailwind
+ * v4 inlines imports itself and builds its utilities from whatever `@theme`
+ * blocks the bundle contains; the theme has to be in the bundle by then.
+ */
 export const APP_CSS = `@import "tailwindcss";
+@import "./theme.css";
 
-/* The design tokens. Restyling this app means editing THIS block: the
-   component kit under shared/ui is generated and pack-owned, so a variant
-   these tokens cannot express is a pack change, not a local edit. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+`;
+
+/**
+ * `src/ui/theme.css` — the ONE project-owned style file.
+ *
+ * Emitted as a STARTER, only when absent, never marker'd and never
+ * overwritten: the generator writes it once and then treats it as somebody
+ * else's file forever, which is precisely what makes it safe to edit. Everything
+ * else the generator touches it restores.
+ *
+ * `@theme` is Tailwind v4's CSS-first configuration — these custom properties
+ * BECOME utilities (`--color-primary` gives `bg-primary`, `text-primary`), so
+ * the kit names semantic colours and a project repaints the whole app from
+ * here. No `tailwind.config.js` exists in v4 and none should be added.
+ *
+ * Two fences keep the freedom safe, and both are mechanical: the
+ * `tokens-only-styling` lint means every colour on screen came through one of
+ * these names, and the theme gate at delivery refuses a theme that is missing a
+ * required token or whose declared foreground/background pairs are unreadable
+ * (contrib.json's `requiredThemeTokens` and `contrastPairs`). Any look;
+ * never an unreadable or incomplete one.
+ */
+export const THEME_CSS = `/* THIS FILE IS YOURS. It is the project's visual identity — colours, radii,
+   fonts, density — and the generator will never overwrite it: it is written
+   once, when absent, and left alone from then on. Edit it freely.
+
+   A fresh look for this project is a fresh version of THIS FILE and nothing
+   else. Every other style surface is pack-owned and generated: the component
+   kit under src/ui/shared/ui/ and the structure in app.css are restored on
+   every generator run, and components may style ONLY through the token names
+   below (the tokens-only-styling lint enforces it), so a token you change here
+   changes every screen that uses it.
+
+   Two rules the delivery gate checks, so that "any look" never becomes an
+   unreadable one:
+
+     1. every token named here must stay defined — the kit styles through them,
+        and an undefined token is an invisible element, not an error;
+     2. each foreground/background pair must reach WCAG AA contrast (4.5:1 for
+        normal text). The gate prints the pair and the ratio it measured.
+
+   Adding tokens of your own is free. A component VARIANT the tokens cannot
+   express is a pack change through the change cycle, not a local edit. */
+
 @theme {
   --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.21 0.02 264);
@@ -64,6 +125,10 @@ export const APP_CSS = `@import "tailwindcss";
   --radius-card: 0.75rem;
 }
 
+/* Dark mode overrides only what changes. Every token left out keeps its value
+   above — including the four tones, whose foreground/background relationship
+   is the same in both schemes. The gate checks this variant too: it overlays
+   this block on the one above and re-measures every declared pair. */
 @media (prefers-color-scheme: dark) {
   @theme {
     --color-background: oklch(0.21 0.02 264);
@@ -72,17 +137,6 @@ export const APP_CSS = `@import "tailwindcss";
     --color-muted-foreground: oklch(0.71 0.02 264);
     --color-border: oklch(0.32 0.02 264);
   }
-}
-
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  background-color: var(--color-background);
-  color: var(--color-foreground);
 }
 `;
 

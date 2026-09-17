@@ -23,6 +23,13 @@
 //     the layout, which only ever grows. When pruning arrives it will have the
 //     same licence the scaffolder has — the marker, and only the marker.
 //
+// AND ONE FILE UNDER THE OPPOSITE RULE. `src/ui/theme.css` is a SEED
+// (`webAppSeeds`): the project's visual identity, written once when absent,
+// never marker'd, never compared, never restored (TN-26-006, "anatomy
+// enforced, identity free"). Everything else here is structure the generator
+// owns; that one file is identity the project owns, and the sync's job is to
+// keep its hands off it.
+//
 // KEYED ON TREE CONTENT. `src/ui/shared/api/client.tsx` is emitted only once
 // the tree holds a service contract re-exporting `ServiceRouter`, because the
 // typed client is the router type and nothing else. TN-26-006's dogfood ladder
@@ -46,6 +53,7 @@ import {
   INDEX_HTML,
   LAYER_NOTES,
   mainTsx,
+  THEME_CSS,
   VITE_CONFIG,
 } from "../template.ts";
 
@@ -153,6 +161,29 @@ export function webAppPlan(inputs: WebAppInputs): readonly EmittedFile[] {
   return Object.freeze(files.sort((a, b) => (a.path < b.path ? -1 : 1)));
 }
 
+/**
+ * The SEEDS: files the generator writes once and then never touches again.
+ *
+ * Exactly one today — `src/ui/theme.css`, the project's visual identity
+ * (TN-26-006, "anatomy enforced, identity free"). It is the inverse of
+ * everything in `webAppPlan`: no marker, no byte comparison, no restore, and a
+ * hand-edited copy is the DESIRED state rather than drift to be repaired.
+ *
+ * WHY THE DISTINCTION IS A SEPARATE FUNCTION AND NOT A FLAG ON EmittedFile. The
+ * two kinds obey opposite rules at every step of the sync — ownership check,
+ * write condition, block condition, "already in sync" — so a boolean would have
+ * meant four `if (emitted.once)` branches through a function whose whole value
+ * is being short enough to read. Two lists, two loops, and no path can
+ * accidentally belong to both.
+ *
+ * WHY IT IS NOT MARKER'D. The marker means "this generator will restore this
+ * file". Putting one on a file a project is invited to edit would be a lie the
+ * next sync tells the truth about, by deleting the project's work.
+ */
+export function webAppSeeds(): readonly EmittedFile[] {
+  return Object.freeze([{ path: "src/ui/theme.css", content: THEME_CSS }]);
+}
+
 // --- reading the target tree -------------------------------------------------
 
 /** A service contract is one that re-exports the router's inferred type —
@@ -258,6 +289,22 @@ export function syncWebApp(cwd: string): WebAppRun {
     writeFileSync(target, emitted.content);
     wrote += 1;
     lines.push(`${GUARD}: wrote ${emitted.path}`);
+  }
+
+  // The seeds, under the opposite rule: written when ABSENT, left alone in
+  // every other case. No byte comparison and no marker check — a theme.css
+  // that differs from the starter is the project having a visual identity,
+  // which is what the file is for.
+  for (const seed of webAppSeeds()) {
+    const target = join(cwd, seed.path);
+    if (existsSync(target)) {
+      lines.push(`${GUARD}: kept ${seed.path} — yours, never overwritten (this app's visual identity)`);
+      continue;
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, seed.content);
+    wrote += 1;
+    lines.push(`${GUARD}: wrote ${seed.path} — a STARTER theme, yours to edit; nothing will restore it`);
   }
 
   if (routerSpecifier === undefined) {

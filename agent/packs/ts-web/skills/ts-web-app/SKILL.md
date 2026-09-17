@@ -31,9 +31,34 @@ only what differs, and **blocks without writing anything** if a pack-owned path
 holds a file it did not write.
 
 Do not hand-write any of those files, and do not restyle a component: the kit
-is generated, and the whole restyling surface is the `@theme` token block in
-`app.css`. A variant the tokens cannot express is a pack change, not a local
-edit.
+is generated, and a variant the tokens cannot express is a pack change through
+the change cycle, not a local edit.
+
+## `src/ui/theme.css` is yours — and it is the only style file that is
+
+The generator emits **one unmarked file**: `src/ui/theme.css`, the project's
+visual identity. Written once when absent, never overwritten, never restored.
+Everything else it touches it puts back.
+
+```
+src/ui/theme.css   ← identity: colours, radii, fonts, density. YOURS.
+src/ui/app.css     ← structure: imports theme.css, sets the page. Generated.
+src/ui/shared/ui/  ← anatomy: markup, a11y, states, spacing. Generated.
+```
+
+**A fresh look for a project is a fresh `theme.css` and nothing else.** That is
+the deal the whole styling design exists to make true: components style only
+through the semantic token names this file defines (the
+`pi-harness-ts-web/tokens-only-styling` rule refuses anything else), so every
+colour on screen came through a name you control here.
+
+Two things the delivery gate checks, so "any look" never becomes an unreadable
+one: every token named in the pack's `requiredThemeTokens` stays defined, and
+every declared foreground/background pair reaches WCAG AA contrast (4.5:1). The
+gate prints the pair and the ratio it measured, in both the light and the dark
+scheme.
+
+Adding tokens of your own is free. Deleting a required one is a block.
 
 Two things the generator deliberately does NOT emit:
 
