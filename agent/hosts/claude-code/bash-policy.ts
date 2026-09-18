@@ -1,0 +1,369 @@
+// Bash policy for the Claude Code host (ADR 2026-029).
+//
+// In pi no role holds a shell: the gates, git and sleep are NAMED tools, and
+// `bash` is in every role's FORBIDDEN_TOOLS. Claude Code has no way to add a
+// named tool to a subagent, so the gates are reached the one way they can be —
+// `pi-gates <gate>` through Bash — and Bash becomes the thing this file
+// narrows: a role may run exactly the commands that stand in for the pi tools
+// its ROLE_TOOLS entry names, and nothing else. One list, derived, never a
+// second: the set of gates a role may invoke here IS its ROLE_TOOLS minus the
+// tools that have a Claude Code tool or a bash carrier of their own.
+//
+// The narrowing is deliberately stricter than "is the first word allowed".
+// A shell string is a program, and `pi-gates typecheck; cat tests/x.test.ts`
+// starts with an allowed word. So the command is first read the way a POSIX
+// shell would, quote by quote, and refused the moment it uses anything that
+// would make it more than one plain argv: separators, pipes, redirects,
+// substitutions, globs, brace and tilde expansion, backslash escapes, an env
+// assignment prefix. What survives is a single argv the shell will pass
+// verbatim, and THAT is judged. A refusal says which construct and which
+// commands this role may run instead, because a refused command costs a turn
+// and a vague refusal costs several.
+//
+// An allowed `pi-gates` call is also where the bound role crosses into the
+// CLI process: the hook rewrites the command with a `PI_DEV_STAGE_ROLE=<role>`
+// prefix (`updatedInput`), which `sessionRole()` reads before the role file,
+// so a role-scoped gate view (typecheck) sees the role the definition bound
+// rather than whatever file the project holds. This module only refuses the
+// model's own attempts at the same thing — an env prefix it typed, a `--role`
+// it passed — and reports the carrier, so the hook knows which allow to
+// decorate. Pure: no fs, no process, no logging. The hook logs.
+
+import { PIPELINE_ROLES } from "../../src/path-gate.ts";
+import {
+  decide,
+  forbiddenWhy,
+  ROLE_TOOLS,
+  type Ctx,
+  type Decision,
+  type Role,
+} from "../../src/path-policy.ts";
+
+/** Which sanctioned carrier an allowed command is. The hook needs to know:
+ *  a `pi-gates` call is handed the bound role through `updatedInput`, the
+ *  other carriers are let through untouched. */
+export type Carrier = "pi-gates" | "git" | "sleep" | "rm";
+
+/** A Decision that, when it allows, also says which carrier it allowed. */
+export type BashDecision =
+  | { readonly allow: true; readonly carrier: Carrier }
+  | { readonly allow: false; readonly reason: string };
+
+const allow = (carrier: Carrier): BashDecision => ({ allow: true, carrier });
+const block = (reason: string): BashDecision => ({ allow: false, reason });
+
+/**
+ * pi tools that are NOT reached through `pi-gates`: the file tools have a
+ * Claude Code tool of their own (see render-agents.ts), and `remove`, `git`
+ * and `sleep` have their own bash carriers below. Everything else in a role's
+ * ROLE_TOOLS is a gate command.
+ */
+const NOT_A_GATE: ReadonlySet<string> = new Set([
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "write",
+  "edit",
+  "remove",
+  "subagent",
+  "git",
+  "sleep",
+  "bash",
+]);
+
+/** The pi tool names a role reaches through `pi-gates <gate>`. */
+export function cliGates(role: Role): readonly string[] {
+  return ROLE_TOOLS[role].filter((tool) => !NOT_A_GATE.has(tool));
+}
+
+/** Every gate any role holds — the CLI's vocabulary, for "no such gate". */
+const ALL_GATES: ReadonlySet<string> = new Set(PIPELINE_ROLES.flatMap((role) => cliGates(role)));
+
+/** The CLI spelling of a pi tool: `red_gate` → `red-gate`. */
+export function gateCommand(tool: string): string {
+  return tool.replace(/_/g, "-");
+}
+
+/** The pi tool a CLI argument names: `red-gate` → `red_gate`. Both spellings
+ *  are accepted on the way in so a model that read the pi brief and one that
+ *  read `pi-gates --list` are both right. */
+function gateTool(arg: string): string {
+  return arg.replace(/-/g, "_");
+}
+
+/** Bounds of the pi `sleep` tool (extensions/architect-tools.ts), restated
+ *  rather than imported: this module must stay free of pi imports. */
+const SLEEP_MIN_SECONDS = 1;
+const SLEEP_MAX_SECONDS = 120;
+
+/** What this role may put through Bash — the tail of every refusal. */
+export function carriers(role: Role): string {
+  const tools = ROLE_TOOLS[role];
+  const out = ["pi-gates <gate>"];
+  if (tools.includes("git")) out.push("git …");
+  if (tools.includes("sleep")) out.push(`sleep <${SLEEP_MIN_SECONDS}-${SLEEP_MAX_SECONDS}>`);
+  if (tools.includes("remove")) out.push("rm <path>");
+  return out.join(", ");
+}
+
+// --- Reading the command the way the shell will -----------------------------
+
+type Words = { readonly ok: true; readonly argv: readonly string[] } | { readonly ok: false; readonly reason: string };
+
+/** Constructs refused outside quotes, with the name a refusal uses. */
+const UNQUOTED_META: ReadonlyMap<string, string> = new Map([
+  [";", "a command separator (';')"],
+  ["&", "a background/and operator ('&')"],
+  ["|", "a pipe ('|')"],
+  ["(", "a subshell ('(')"],
+  [")", "a subshell (')')"],
+  ["<", "a redirect ('<')"],
+  [">", "a redirect ('>')"],
+  ["\n", "a newline"],
+  ["\r", "a newline"],
+  ["$", "a substitution ('$')"],
+  ["`", "a substitution ('`')"],
+  ["\\", "a backslash escape"],
+  ["*", "a glob ('*')"],
+  ["?", "a glob ('?')"],
+  ["[", "a glob ('[')"],
+  ["{", "a brace expansion ('{')"],
+  ["!", "history expansion ('!')"],
+]);
+
+/** Refused only at the start of a word: `~/x` expands, `HEAD~3` is a ref. */
+const TILDE = "a tilde expansion ('~')";
+
+/** Inside double quotes the shell still expands these. */
+const DOUBLE_QUOTED_META: ReadonlyMap<string, string> = new Map([
+  ["$", "a substitution ('$') inside double quotes"],
+  ["`", "a substitution ('`') inside double quotes"],
+  ["\\", "a backslash escape inside double quotes"],
+]);
+
+/**
+ * Split a command into the argv a POSIX shell would pass, or say why it
+ * cannot be read as one plain command. Single quotes are literal throughout;
+ * double quotes are literal except for the three expansions above, which are
+ * refused rather than modelled.
+ */
+export function shellWords(command: string): Words {
+  const argv: string[] = [];
+  let word = "";
+  let inWord = false;
+  let quote: "'" | '"' | undefined;
+  for (const ch of command) {
+    if (quote === "'") {
+      if (ch === "'") quote = undefined;
+      else word += ch;
+      continue;
+    }
+    if (quote === '"') {
+      const why = DOUBLE_QUOTED_META.get(ch);
+      if (why !== undefined) return { ok: false, reason: why };
+      if (ch === '"') quote = undefined;
+      else word += ch;
+      continue;
+    }
+    const why = UNQUOTED_META.get(ch);
+    if (why !== undefined) return { ok: false, reason: why };
+    if (ch === "#" && !inWord) return { ok: false, reason: "a comment ('#')" };
+    if (ch === "~" && !inWord) return { ok: false, reason: TILDE };
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      inWord = true;
+      continue;
+    }
+    if (ch === " " || ch === "\t") {
+      if (inWord) argv.push(word);
+      word = "";
+      inWord = false;
+      continue;
+    }
+    word += ch;
+    inWord = true;
+  }
+  if (quote !== undefined) return { ok: false, reason: "an unterminated quote" };
+  if (inWord) argv.push(word);
+  return { ok: true, argv };
+}
+
+// --- The carriers -------------------------------------------------------------
+
+/** git subcommands whose job is to run another program. */
+const GIT_RUNS_PROGRAMS: ReadonlySet<string> = new Set([
+  "filter-branch",
+  "difftool",
+  "mergetool",
+  "instaweb",
+  "citool",
+  "gui",
+  "web--browse",
+]);
+
+/** `git config` reads that are only reads. */
+const GIT_CONFIG_READS: ReadonlySet<string> = new Set([
+  "--get",
+  "--get-all",
+  "--get-regexp",
+  "--list",
+  "-l",
+  "--show-origin",
+  "--show-scope",
+]);
+
+/**
+ * The known ways git runs a program of the caller's choosing, refused because
+ * the shell is present here and pi's git tool — unrestricted by design, for
+ * archaeology — spawns git without one: `-c alias.x='!cmd'` and `--exec-path`
+ * on any call; `!` alias bodies; `bisect run`, `rebase --exec`, `submodule
+ * foreach` and the tool-launching subcommands; and any `git config` WRITE,
+ * because `core.hooksPath` pointed at a writable directory turns the next
+ * `git commit` into a shell. A denylist, so incomplete by nature; the README
+ * says so.
+ */
+function gitEscape(argv: readonly string[]): string | undefined {
+  const args = argv.slice(1);
+  const sub = args.find((a) => !a.startsWith("-"));
+  for (const arg of args) {
+    if (arg === "-c" || arg.startsWith("--config-env")) {
+      return `git '${arg}' sets configuration for one call, which can alias a command to a shell`;
+    }
+    if (arg.startsWith("--exec-path")) return "git '--exec-path' chooses which programs git runs";
+    if (arg.startsWith("!")) return "a '!' alias body is a shell command";
+  }
+  if (sub !== undefined && GIT_RUNS_PROGRAMS.has(sub)) return `git ${sub} runs another program`;
+  if (sub === "bisect" && args.includes("run")) return "git bisect run runs a command per step";
+  if (sub === "rebase" && args.some((a) => a === "-x" || a === "--exec" || a.startsWith("--exec="))) {
+    return "git rebase --exec runs a command per commit";
+  }
+  if (sub === "submodule" && args.includes("foreach")) return "git submodule foreach runs a command";
+  if (sub === "config" && !args.some((a) => GIT_CONFIG_READS.has(a))) {
+    return "git config may only read here (--get, --list): a written core.hooksPath or alias is a shell";
+  }
+  return undefined;
+}
+
+/**
+ * Decide one Bash command for a role. `ctx.cwd` is the project root, which
+ * `rm <path>` needs: it is judged by the same decide() a pi `remove` is, and
+ * Claude Code names files by absolute path.
+ */
+export function decideBash(role: Role, command: string, ctx: Ctx): BashDecision {
+  const shown = summarize(command);
+  const words = shellWords(command);
+  if (!words.ok) {
+    return block(
+      `path-gate: ${role} may not run '${shown}': ${words.reason} — Bash here carries only ${carriers(role)}, one plain command at a time`,
+    );
+  }
+  const argv = words.argv;
+  const head = argv[0];
+  if (head === undefined) {
+    return block(`path-gate: ${role} may not run an empty command — Bash here carries only ${carriers(role)}`);
+  }
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head)) {
+    return block(
+      `path-gate: ${role} may not run '${shown}': an env assignment prefix — Bash here carries only ${carriers(role)}`,
+    );
+  }
+
+  const tools = ROLE_TOOLS[role];
+  switch (head) {
+    case "pi-gates":
+      return decideGate(role, argv);
+    case "git":
+      if (!tools.includes("git")) {
+        return block(`path-gate: ${role} may not run 'git': ${forbiddenWhy(role, "git")}`);
+      }
+      return decideGit(role, argv, shown);
+    case "sleep":
+      if (!tools.includes("sleep")) {
+        return block(`path-gate: ${role} may not run 'sleep': ${forbiddenWhy(role, "sleep")}`);
+      }
+      return decideSleep(role, argv, shown);
+    // No ROLE_TOOLS check here: a role without `remove` (the reviewer) has no
+    // write zone, and decide() already says so in the reviewer's own words.
+    case "rm":
+      return decideRm(role, argv, shown, ctx);
+    default:
+      return block(
+        `path-gate: ${role} may not run '${head}': ${forbiddenWhy(role, "bash")} — in Claude Code, Bash carries only ${carriers(role)}`,
+      );
+  }
+}
+
+/** Flags the HOST supplies, never the model. The role reaches the CLI as
+ *  `PI_DEV_STAGE_ROLE` in the env prefix the hook adds (path-gate-hook.ts),
+ *  so a `--role` in the argv is a role claim — and a claim is refused, not
+ *  compared. A findings file would be a way to hand a gate bytes the hook
+ *  never judged; findings are passed inline. */
+const HOST_ONLY_FLAGS = ["--role", "--findings-file"] as const;
+
+function decideGate(role: Role, argv: readonly string[]): BashDecision {
+  const claimed = argv.find((a) => HOST_ONLY_FLAGS.some((f) => a === f || a.startsWith(`${f}=`)));
+  if (claimed !== undefined) {
+    return block(
+      `path-gate: ${role} may not pass '${claimed}' to pi-gates: the host supplies the role and findings are passed inline`,
+    );
+  }
+  const arg = argv[1];
+  if (arg === undefined) {
+    return block(`path-gate: ${role} may not run 'pi-gates' with no gate — 'pi-gates --list' shows them`);
+  }
+  if (arg === "--list" || arg === "--help" || arg === "-h") return allow("pi-gates");
+  const tool = gateTool(arg);
+  const mine = cliGates(role);
+  if (mine.includes(tool)) return allow("pi-gates");
+  // A gate some other role holds: pi's own sentence for it. The GATE_TOOLS are
+  // not in FORBIDDEN_TOOLS (pi's frontmatter strip keeps them from the
+  // workers), but forbiddenWhy still names their owner correctly.
+  if (ALL_GATES.has(tool)) {
+    return block(`path-gate: ${role} may not run 'pi-gates ${arg}': ${forbiddenWhy(role, tool)}`);
+  }
+  return block(
+    `path-gate: ${role} may not run 'pi-gates ${arg}': no such gate for this role — ${role}'s gates are ${mine.map(gateCommand).join(", ")}`,
+  );
+}
+
+function decideGit(role: Role, argv: readonly string[], shown: string): BashDecision {
+  const why = gitEscape(argv);
+  if (why !== undefined) return block(`path-gate: ${role} may not run '${shown}': ${why}`);
+  return allow("git");
+}
+
+function decideSleep(role: Role, argv: readonly string[], shown: string): BashDecision {
+  const arg = argv[1];
+  if (argv.length !== 2 || arg === undefined || !/^\d+$/.test(arg)) {
+    return block(`path-gate: ${role} may not run '${shown}': sleep takes one whole number of seconds`);
+  }
+  const n = Number(arg);
+  if (n < SLEEP_MIN_SECONDS || n > SLEEP_MAX_SECONDS) {
+    return block(
+      `path-gate: ${role} may not run '${shown}': sleep is bounded to ${SLEEP_MIN_SECONDS}-${SLEEP_MAX_SECONDS} seconds`,
+    );
+  }
+  return allow("sleep");
+}
+
+/** `rm <one path>` — no flags, no globs even quoted, one file — judged as a
+ *  pi `remove` so the write zones apply. Directories, `-r`, `-f` and lists
+ *  are refused: the pi tool removes one file, and so does this. */
+function decideRm(role: Role, argv: readonly string[], shown: string, ctx: Ctx): BashDecision {
+  const path = argv[1];
+  if (argv.length !== 2 || path === undefined || path.startsWith("-")) {
+    return block(`path-gate: ${role} may not run '${shown}': rm takes exactly one path and no flags`);
+  }
+  if (/[*?[\]]|^~/.test(path)) {
+    return block(`path-gate: ${role} may not run '${shown}': rm takes one literal path, not a pattern`);
+  }
+  const zone: Decision = decide(role, "remove", { path }, ctx);
+  return zone.allow ? allow("rm") : zone;
+}
+
+/** The command as a refusal quotes it: one line, bounded. */
+function summarize(command: string): string {
+  const oneLine = command.replace(/\s+/g, " ").trim();
+  return oneLine.length > 80 ? `${oneLine.slice(0, 77)}...` : oneLine;
+}
