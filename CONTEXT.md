@@ -143,6 +143,22 @@ _Avoid_: flaky pass, soft green
 The single `route → <role>` line a failing gate prints, naming the furthest-upstream role whose write zone owns the failure. The bounce target is derived from the path gate's own zones, so the named role can always actually make the fix. `route → architect` and `route → orchestrator` both land on the driving session; the latter means no pipeline zone owns the file at all (config, build files).
 _Avoid_: assignee, owner (unqualified)
 
+**Host**:
+The agent runtime that loads the harness and runs a session in it — pi today, Claude Code as the second. The harness's logic never depends on which; only the host adapter does.
+_Avoid_: platform, runtime (unqualified), IDE
+
+**Host adapter**:
+The thin, per-host layer that binds the harness's capability constraints to that host's own mechanisms — pi's extensions (`pi.setActiveTools`, the `tool_call` hook, `subagentOnlyExtensions`) or Claude Code's `hosts/claude-code/` (a `PreToolUse` hook, generated agent definitions with `tools:` allowlists and per-agent `hooks:`). Wires the same pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`); holds no policy of its own (ADR 2026-029).
+_Avoid_: plugin, integration, port
+
+**Artifact gate**:
+A mechanism that inspects what exists in the tree — purity, design, drift, red, green, sign-off, deliver, mutation score, typecheck, the test run, the recorded review, surface check, scaffold — and so is host-independent by construction. Exposed once, as `pi-gates <gate> [cwd] [--json]`, over one result contract; the pi gate tools read the same registry. A CLI does not enforce who may run a gate: that is a capability constraint.
+_Avoid_: check script, Tier A (the tier name is for the ADR, not the prose)
+
+**Capability constraint**:
+A mechanism that shapes what a role *can do* rather than what the tree contains — the tool strip, the path gate, the phase gate on spawns, the sanitized worker views. Needs host cooperation, so it can never be a shell command and is exposed per host through the host adapter. A host that cannot enforce one says so in the guard log at run start; gates alone are never reported as blindness.
+_Avoid_: guard (that is the log's word for any mechanism), Tier B
+
 **Guard log**:
 The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `PI_GUARD_LOG=off` opts out.
 _Avoid_: audit log, telemetry (unqualified)
