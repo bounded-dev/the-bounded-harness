@@ -23,6 +23,22 @@ export interface FlagSpec {
   /** May be given more than once; the parsed value is then a list. */
   readonly repeatable?: boolean;
   readonly description: string;
+  /** The tool-parameter name when it differs from the flag name: the
+   *  repeatable `--pattern` is the tool's `patterns`, `--max-mutants` its
+   *  `maxMutants`. Absent, the parameter is named after the flag. */
+  readonly param?: string;
+  /** A flag no host exposes as a tool parameter, only the command line
+   *  accepts: a model passes findings inline, never by file; a role never
+   *  chooses its own scoping. */
+  readonly cliOnly?: true;
+  /** The tool parameter is required. The CLI cannot say so (an alternative
+   *  flag may stand in — `--findings-file` for `--findings`), so `run`
+   *  enforces it there and reports misuse. */
+  readonly required?: true;
+  /** For a `json` flag: the plain JSON Schema the model should see, complete
+   *  with its descriptions. Host-agnostic — a host converts it to whatever
+   *  schema type its tool API takes. */
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
 }
 
 /** Parsed flags, by name. A boolean is `true` when given; a repeatable flag is
@@ -40,6 +56,8 @@ export interface GateCommand {
   /** The tool description — verbatim what the model reads. */
   readonly description: string;
   readonly flags: readonly FlagSpec[];
+  /** One line for a host's tool roster — pi's "Available tools" section. */
+  readonly promptSnippet?: string;
   /** Prompt guidance a host may fold into the role's brief. */
   readonly promptGuidelines?: readonly string[];
   run(cwd: string, args: GateArgs): Promise<GateResult>;
@@ -54,7 +72,11 @@ function isFlagSpec(x: unknown): x is FlagSpec {
     typeof f["name"] === "string" &&
     (f["kind"] === "boolean" || f["kind"] === "string" || f["kind"] === "number" || f["kind"] === "json") &&
     (f["repeatable"] === undefined || typeof f["repeatable"] === "boolean") &&
-    typeof f["description"] === "string"
+    typeof f["description"] === "string" &&
+    (f["param"] === undefined || typeof f["param"] === "string") &&
+    (f["cliOnly"] === undefined || f["cliOnly"] === true) &&
+    (f["required"] === undefined || f["required"] === true) &&
+    (f["jsonSchema"] === undefined || (typeof f["jsonSchema"] === "object" && f["jsonSchema"] !== null))
   );
 }
 
@@ -67,6 +89,7 @@ export function isGateCommand(x: unknown): x is GateCommand {
     typeof c["description"] === "string" &&
     Array.isArray(c["flags"]) &&
     c["flags"].every(isFlagSpec) &&
+    (c["promptSnippet"] === undefined || typeof c["promptSnippet"] === "string") &&
     (c["promptGuidelines"] === undefined ||
       (Array.isArray(c["promptGuidelines"]) && c["promptGuidelines"].every((g) => typeof g === "string"))) &&
     typeof c["run"] === "function"

@@ -21,7 +21,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  argBoolean,
   argJson,
   argNumber,
   argString,
@@ -32,6 +31,7 @@ import {
 } from "../../src/gate-command.ts";
 import { guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
+import { sessionRole } from "../../src/path-gate.ts";
 
 // --- shared pieces ----------------------------------------------------------------
 
@@ -39,22 +39,54 @@ const PATTERN_FLAG: FlagSpec = {
   name: "pattern",
   kind: "string",
   repeatable: true,
+  param: "patterns",
   description:
     "Glob patterns for the contract files. Defaults to src/**/*.contract.ts — you rarely need to pass this.",
 };
 
-const FINDINGS_FLAGS: readonly FlagSpec[] = [
-  {
-    name: "findings",
-    kind: "json",
-    description: "The findings as a JSON array. Pass [] to record that you found nothing.",
-  },
-  {
-    name: "findings-file",
-    kind: "string",
-    description: "A file holding the findings as a JSON array — for a payload too long for a shell line.",
-  },
-];
+/** The findings flags of the two recording gates. The tool parameter carries
+ *  the full item schema — what the model reads — while the CLI takes any JSON
+ *  and lets the gate's own validation say what is wrong with it. */
+function findingsFlags(schema: {
+  readonly description: string;
+  readonly evidence: string;
+}): readonly FlagSpec[] {
+  return [
+    {
+      name: "findings",
+      kind: "json",
+      param: "findings",
+      required: true,
+      description: "The findings as a JSON array. Pass [] to record that you found nothing.",
+      jsonSchema: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["severity", "summary"],
+          properties: {
+            severity: {
+              anyOf: [
+                { type: "string", const: "blocker" },
+                { type: "string", const: "concern" },
+                { type: "string", const: "note" },
+              ],
+              description: "blocker | concern | note",
+            },
+            summary: { type: "string", description: "One line: what is wrong." },
+            evidence: { type: "string", description: schema.evidence },
+          },
+        },
+        description: schema.description,
+      },
+    },
+    {
+      name: "findings-file",
+      kind: "string",
+      cliOnly: true,
+      description: "A file holding the findings as a JSON array — for a payload too long for a shell line.",
+    },
+  ];
+}
 
 /** A gate that could not run because of how it was called. Logged like any
  *  other error verdict: a misused gate is still a gate that did not pass. */
@@ -122,6 +154,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "contract-purity",
     tool: "contract_purity",
+    promptSnippet: "Gate the contracts: declaration-only, no naked primitives.",
     description:
       "Run the contract-purity gate over the project's *.contract.ts files: contracts must be declaration-only AND free of naked primitives on their public surface. The cheap single check while you are still iterating on a contract; when the design is settled, run design_gate instead — it starts with this and carries the phase through freeze.",
     flags: [PATTERN_FLAG],
@@ -133,6 +166,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "design-gate",
     tool: "design_gate",
+    promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     description:
       "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order. On a RE-freeze (a manifest already exists) the review is checked first, and the typecheck step lets worker-owned drift through, printed and attributed — a contract revision over existing code freezes first and the workers repair after; a diagnostic in a contract, config, or generated skeleton still blocks.",
     flags: [PATTERN_FLAG],
@@ -151,23 +185,23 @@ export const gates: readonly GateCommand[] = [
   {
     name: "check-drift",
     tool: "check_drift",
+    promptSnippet: "Check whether any contract has moved since it was frozen.",
     description:
       "Verify the contracts are byte-for-byte unchanged since design_gate froze them. A contract that moves mid-loop drifts the tests and the implementation apart underneath you. Run any time you suspect the contract has moved.",
-    flags: [
-      {
-        name: "write",
-        kind: "boolean",
-        description: "Record the manifest instead of verifying it — the freeze step. design_gate does this for you.",
-      },
-    ],
-    async run(cwd, args) {
+    // Verify only. Recording the manifest is the freeze, and the freeze is a
+    // step of design_gate (ADR 2026-019): a flag here would be a second way to
+    // freeze, offered to every role that may run this. A person wanting a raw
+    // freeze has `node packs/ts/scripts/checksum-gate.ts --write`.
+    flags: [],
+    async run(cwd) {
       const { runChecksumGate } = await import("./scripts/checksum-gate.ts");
-      return toGateResult("check-drift", runChecksumGate(cwd, argBoolean(args, "write")));
+      return toGateResult("check-drift", runChecksumGate(cwd, false));
     },
   },
   {
     name: "red-gate",
     tool: "red_gate",
+    promptSnippet: "Gate the tests: is this a red for the right reason?",
     description:
       "Run the red gate after the test-writer finishes. A VALID red means the project typechecks, the suite runs, and every failure is NotImplementedError. Wrong-reason red — import/type/config errors, ordinary assertion failures, or a fully green suite — is rejected. The gate prints one `route → <role>` line naming who must fix what it found.",
     flags: [],
@@ -179,6 +213,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "green-gate",
     tool: "green_gate",
+    promptSnippet: "Gate the build: tests pass AND the project compiles.",
     description:
       "Run the green gate after the builder finishes. GREEN means every test passes AND the project typechecks — a passing suite on a project that does not compile is a false green, not a pass. The gate prints one `route → <role>` line naming who must fix what it found.",
     flags: [],
@@ -201,9 +236,13 @@ export const gates: readonly GateCommand[] = [
   {
     name: "sign-off",
     tool: "sign_off",
+    promptSnippet: "Sign off on the green: what did you see?",
     description:
       "End the loop. After a passing green gate, record what you saw reading the implementation and the tests — you are the only role that can read both. An EMPTY findings list is a valid and expected answer; recording it explicitly is the point, because a silence cannot be audited later. This gate never judges a finding, it records the claim. Refuses if no green gate has passed.",
-    flags: FINDINGS_FLAGS,
+    flags: findingsFlags({
+      description: "What you saw. Pass [] to record that you found nothing.",
+      evidence: "Where to look — a path, a symbol, a test name.",
+    }),
     promptGuidelines: [
       "Call this after green_gate passes and before telling the user the work is done.",
       "Record anything the gates could not see: a type-system escape hatch, an untested export, behaviour the spec left unstated, an ordering two roles agreed on only by luck.",
@@ -219,6 +258,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "deliver",
     tool: "deliver",
+    promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
     description:
       "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script (installing the ts-morph it needs), gitignore .pi/, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `npm run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError, if the surface checker's dependency cannot be installed, or if the project's own check is red.",
     flags: [],
@@ -230,18 +270,21 @@ export const gates: readonly GateCommand[] = [
   {
     name: "mutation-score",
     tool: "mutation_score",
+    promptSnippet: "Measure the suite's mutation score: which edits to src/ does nobody notice?",
     description:
       "Measure how much of the delivered logic the suite actually holds down: mutate src/ one site at a time (comparison flips, &&/|| swaps, if-negation, dropped early-return guards), run the suite against each mutant, and report which were KILLED and which SURVIVED. ADVISORY — it never blocks: exit 0 means the measurement ran, whatever the score. Each surviving mutant names a file, a line and an edit the suite did not notice, which is where an untested rule lives. Run it after green_gate and before sign_off, and put what survived in your findings.",
     flags: [
       {
         name: "max-mutants",
         kind: "number",
+        param: "maxMutants",
         description:
           "Cap on mutants run (default 40). Each one costs a full suite run, so raise it only on a fast suite.",
       },
       {
         name: "timeout-ms",
         kind: "number",
+        param: "timeoutMs",
         description: "Per-mutant suite timeout in milliseconds; a mutant that outlives it counts as timed out.",
       },
     ],
@@ -272,12 +315,14 @@ export const gates: readonly GateCommand[] = [
   {
     name: "typecheck",
     tool: "typecheck",
+    promptSnippet: "Type-check the project with tsc --noEmit (scoped to your zone).",
     description:
       "Run `tsc --noEmit` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted. Diagnostics are SCOPED TO YOUR ROLE: errors in your own zone and in the shared interface (contracts, spec, config) are shown in full; errors in another role's zone are reported as a count and an owner only — no paths, no messages, no symbol names.",
     flags: [
       {
         name: "role",
         kind: "string",
+        cliOnly: true,
         description:
           "Scope the diagnostics to this pipeline role (architect | test-writer | builder | reviewer). Unscoped when absent.",
       },
@@ -289,9 +334,13 @@ export const gates: readonly GateCommand[] = [
     ],
     async run(cwd, args) {
       const { parseRole, typecheckGate } = await import("./scripts/typecheck-gate.ts");
+      // The scoped view comes from the session's own binding — the same one
+      // the path gate acts on — never from a caller's claim: a tool exposes
+      // no `role`, and only a shell may name one.
       const raw = argString(args, "role");
+      if (raw === undefined) return await typecheckGate(cwd, sessionRole(cwd));
       const role = parseRole(raw);
-      if (raw !== undefined && role === undefined) {
+      if (role === undefined) {
         return misuse("typecheck", cwd, `--role must be one of architect | test-writer | builder | reviewer (got '${raw}')`);
       }
       return await typecheckGate(cwd, role);
@@ -300,6 +349,7 @@ export const gates: readonly GateCommand[] = [
   {
     name: "run-tests",
     tool: "run_tests",
+    promptSnippet: "Run the test suite and see sanitized pass/fail results (no test source).",
     description:
       "Run the project's vitest suite and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
     flags: [],
@@ -314,9 +364,13 @@ export const gates: readonly GateCommand[] = [
   {
     name: "record-design-review",
     tool: "record_design_review",
+    promptSnippet: "Record the challenges you raise reading the spec and the contracts.",
     description:
       "Record the challenges you raise reading spec + contracts. Findings are claims for the architect to weigh, not verdicts — a blocker included — and an empty list is a valid review. You review the whole design once; the architect may revise a file in answer and it stays covered, so only a contract file added or removed later re-requires a review.",
-    flags: FINDINGS_FLAGS,
+    flags: findingsFlags({
+      description: "What you found. Pass [] to record that you found nothing.",
+      evidence: "Where to look — a path, a symbol, an exported operation.",
+    }),
     promptGuidelines: [
       "Call this once, at the end of the review, with everything you found — it is the only output of the role, and you are not re-run to re-check.",
       "severity: 'blocker' is the challenge you would stake most on — the pipeline looks set to jam (an operation nobody can call, a type nobody can construct, two requirements that contradict) — still advisory, the architect may freeze over it; 'concern' means two careful implementers could read it differently; 'note' is everything else.",

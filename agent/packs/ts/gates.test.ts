@@ -1,18 +1,21 @@
 import { describe, expect, test } from "vitest";
 import installArchitectTools from "../../extensions/architect-tools.ts";
 import installDevTools from "../../extensions/dev-tools.ts";
+import { paramName, toolFlags, toolParams } from "../../extensions/lib/gate-tools.ts";
 import { isGateCommand } from "../../src/gate-command.ts";
 import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "../../src/path-policy.ts";
 import { gates } from "./gates.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-029):
-// `pi-gates` reads it for its command line and the pi extensions will read it
-// for their tool roster. Until the extensions do, the two must agree by test,
-// or Stage 2's switch-over would change what a model reads mid-run.
+// `pi-gates` reads it for its command line and the pi extensions read it for
+// their tool roster. The agreement tests below are therefore tautological by
+// construction — and kept, because they are what fails the day someone
+// hand-wires a tool again.
 
 interface RegisteredTool {
   readonly name: string;
   readonly description: string;
+  readonly promptSnippet?: string;
   readonly promptGuidelines?: readonly string[];
 }
 
@@ -73,6 +76,55 @@ describe("the registry is well-formed", () => {
       for (const reserved of ["json", "help", "list"]) expect(names, gate.name).not.toContain(reserved);
     }
   });
+
+  // A tool parameter is a JavaScript-friendly name; the CLI flag is kebab-case.
+  test("a tool parameter name is camelCase and unique per gate", () => {
+    for (const gate of gates) {
+      const params = toolFlags(gate).map(paramName);
+      expect(new Set(params).size, gate.name).toBe(params.length);
+      for (const param of params) expect(param, gate.name).toMatch(/^[a-z][A-Za-z]*$/);
+      expect(params, gate.name).not.toContain("cwd");
+    }
+  });
+
+  // The model reads the schema, not the flag: a json flag a tool exposes must
+  // carry one, or the model would be handed `unknown` where it used to read
+  // the findings' shape.
+  test("every json flag a tool exposes carries its JSON Schema", () => {
+    for (const gate of gates) {
+      for (const flag of toolFlags(gate)) {
+        if (flag.kind === "json") expect(flag.jsonSchema, `${gate.name} --${flag.name}`).toBeDefined();
+      }
+    }
+  });
+});
+
+describe("what the command line takes and a tool does not", () => {
+  // `--findings-file` exists for a shell line too short for the payload; a
+  // model passes findings inline. `--role` lets a person at a shell scope a
+  // typecheck; a role's tool scopes by the session binding and offers no way
+  // to claim another. Neither may ever surface as a tool parameter.
+  test("every cliOnly flag is absent from the tool-parameter view", () => {
+    const cliOnly = gates.flatMap((g) => g.flags.filter((f) => f.cliOnly === true).map((f) => [g, f] as const));
+    expect(cliOnly.map(([g, f]) => `${g.name} --${f.name}`).sort()).toEqual([
+      "record-design-review --findings-file",
+      "sign-off --findings-file",
+      "typecheck --role",
+    ]);
+    for (const [gate, flag] of cliOnly) {
+      const params = Object.keys(toolParams(gate).properties);
+      expect(params, `${gate.name} --${flag.name}`).not.toContain(flag.name);
+      expect(params, `${gate.name} --${flag.name}`).not.toContain(paramName(flag));
+    }
+  });
+
+  // Freezing is design_gate's step (ADR 2026-019). A `--write` here would be a
+  // second way to freeze, and a registry entry is exactly "what a role may
+  // run" — so check-drift verifies and nothing else, from a shell too.
+  test("check-drift has no flags: it verifies, it never freezes", () => {
+    const drift = gates.find((g) => g.name === "check-drift");
+    expect(drift?.flags).toEqual([]);
+  });
 });
 
 describe("the registry and the path policy agree", () => {
@@ -110,11 +162,12 @@ describe("the registry and the extensions say the same thing", () => {
 
   // Verbatim, because the description IS the interface of a role with no
   // shell, and the drift tests pin phrases in it.
-  test("description and prompt guidelines are verbatim the extension's", () => {
+  test("description, snippet and prompt guidelines are verbatim the extension's", () => {
     for (const tool of registered) {
       if (NOT_GATES.has(tool.name)) continue;
       const gate = gates.find((g) => g.tool === tool.name);
       expect(gate?.description, tool.name).toBe(tool.description);
+      expect(gate?.promptSnippet, tool.name).toBe(tool.promptSnippet);
       expect(gate?.promptGuidelines, tool.name).toEqual(tool.promptGuidelines);
     }
   });
