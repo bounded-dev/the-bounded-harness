@@ -72,6 +72,7 @@ import { logGuardEvent } from "../src/guard-log.ts";
 import { GATE_TOOLS } from "../src/path-policy.ts";
 import { targetCwd } from "../src/target-cwd.ts";
 import { cwdParam, registerGateTools } from "./lib/gate-tools.ts";
+import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS, clampSleepSeconds } from "../src/sleep-bounds.ts";
 
 export default function (pi: ExtensionAPI): void {
   registerGateTools(pi, gates, new Set([...GATE_TOOLS, "mutation_score"]));
@@ -165,14 +166,11 @@ function runGit(
 
 /** The `sleep` tool's bounds, applied rather than refused: a wait that is a
  *  little too long is not worth costing the architect a turn to re-issue. */
-export const SLEEP_MIN_SECONDS = 1;
-export const SLEEP_MAX_SECONDS = 120;
-
-/** Clamp to [1, 120]; a non-finite request becomes the minimum. */
-export function clampSleepSeconds(requested: number): number {
-  if (!Number.isFinite(requested)) return SLEEP_MIN_SECONDS;
-  return Math.min(SLEEP_MAX_SECONDS, Math.max(SLEEP_MIN_SECONDS, Math.round(requested)));
-}
+export {
+  SLEEP_MAX_SECONDS,
+  SLEEP_MIN_SECONDS,
+  clampSleepSeconds,
+} from "../src/sleep-bounds.ts";
 
 /** Wait `seconds`, returning early (and reporting the truth) if aborted. */
 function sleepSeconds(seconds: number, signal?: AbortSignal): Promise<number> {

@@ -41,6 +41,16 @@ export interface HostDeclaration {
 /** The guard name the declaration is logged under. */
 export const HOST_GUARD = "host";
 
+/** Env a host adapter sets on a gate process it launches, naming itself —
+ *  the CLI records `none` unless this names a host. A person exporting
+ *  `PI_DEV_STAGE_ROLE` alone to see a role's view is not a host. */
+export const HOST_ENV = "PI_HOST";
+
+/** Parse the env value; anything but a known host is no host. */
+export function hostFromEnv(value: string | undefined): HostName | undefined {
+  return value === "pi" || value === "claude-code" ? value : undefined;
+}
+
 /** Build a declaration; `unenforced` is derived so the two lists can never disagree. */
 export function declareHost(host: HostName, enforced: readonly Constraint[]): HostDeclaration {
   const held = new Set(enforced);

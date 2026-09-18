@@ -124,3 +124,18 @@ export function gateEnvelope(name: string, result: GateResult): GateEnvelope {
     route: typeof route === "string" ? route : null,
   };
 }
+
+/**
+ * A gate that could not run — bad invocation, a thrown runner — as a result
+ * in the same shape as any other, so a `--json` consumer never parses a
+ * stack trace. `reason` is the machine-readable cause in `detail`.
+ */
+export function gateError(name: string, message: string, reason: string): GateResult {
+  return {
+    code: 2,
+    verdict: "error",
+    summary: message,
+    lines: [`${name}: ERROR — ${message}`],
+    detail: { reason },
+  };
+}
