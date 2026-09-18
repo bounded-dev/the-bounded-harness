@@ -1,4 +1,4 @@
-// Bash policy for the Claude Code host (ADR 2026-029).
+// Bash policy for the Claude Code host (ADR 2026-034).
 //
 // In pi no role holds a shell: the gates, git and sleep are NAMED tools, and
 // `bash` is in every role's FORBIDDEN_TOOLS. Claude Code has no way to add a

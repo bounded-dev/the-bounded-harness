@@ -1,4 +1,4 @@
-// pi-gates — every artifact gate, from any shell (ADR 2026-029).
+// pi-gates — every artifact gate, from any shell (ADR 2026-034).
 //
 //   pi-gates <gate> [cwd] [--json] [flags]
 //   pi-gates <gate> --help
@@ -246,7 +246,7 @@ export async function main(
   const cwd = targetCwd(sessionCwd, parsed.positionals[0]);
 
   // A bare shell enforces no capability constraint, and the log must say so
-  // (ADR 2026-029) — unless a host adapter NAMED itself to this process, in
+  // (ADR 2026-034) — unless a host adapter NAMED itself to this process, in
   // which case it declared itself before the call reached here. A role alone
   // is not a host: a person exports PI_DEV_STAGE_ROLE to see a role's view.
   if (hostFromEnv(process.env[HOST_ENV]) === undefined) recordHostDeclaration(cwd, NO_HOST);

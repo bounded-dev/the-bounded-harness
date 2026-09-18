@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pi-gates — run one artifact gate from any shell (ADR 2026-029).
+# pi-gates — run one artifact gate from any shell (ADR 2026-034).
 #
 #   pi-gates                          # list the gates
 #   pi-gates red-gate                 # run a gate in the current project

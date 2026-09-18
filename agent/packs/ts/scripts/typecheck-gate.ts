@@ -1,5 +1,5 @@
 // typecheck gate — the worker `typecheck` tool and `pi-gates typecheck` as one
-// call (ADR 2026-029).
+// call (ADR 2026-034).
 //
 // typecheck.ts runs tsc and redacts machine paths; typecheck-scope.ts narrows
 // the diagnostics to what a role may see. Both are pure. What was missing was

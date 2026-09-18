@@ -6,7 +6,7 @@ import { readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
 import { HOST_ENV } from "../../src/host.ts";
 import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
 
-// ADR 2026-029: the adapter is verified by fixture until the first live run.
+// ADR 2026-034: the adapter is verified by fixture until the first live run.
 // Each case spawns the hook exactly as Claude Code would — a fresh process,
 // the call as JSON on stdin — in a temp project, and asserts the decision it
 // prints and the guard-log lines it leaves.
@@ -82,7 +82,7 @@ function payload(dir: string, tool_name: string, tool_input: unknown, extra: Rea
 const prefix = (role: string): string => `${HOST_ENV}=claude-code PI_DEV_STAGE_ROLE=${role}`;
 
 /** The log minus the host declaration the hook writes as the role binds
- *  (ADR 2026-029) — these tests are about the gate's own lines. */
+ *  (ADR 2026-034) — these tests are about the gate's own lines. */
 function gateEvents(dir: string) {
   return readGuardLog(dir).filter((e) => e.guard !== "host");
 }
@@ -398,7 +398,7 @@ describe("path-gate-hook — run start", () => {
   });
 });
 
-describe("host declaration (ADR 2026-029)", () => {
+describe("host declaration (ADR 2026-034)", () => {
   test("a bound role declares claude-code with every constraint — the definition's tools: is the strip", () => {
     const dir = makeTempProject({});
     run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);

@@ -1,5 +1,5 @@
 // Rendered Claude Code subagent definitions for the four pipeline roles
-// (ADR 2026-029): the tool strip and the role binding on the second host.
+// (ADR 2026-034): the tool strip and the role binding on the second host.
 //
 // pi binds a role with two frontmatter fields: `tools:` (the allowlist — the
 // only layer that PREVENTS rather than detects) and `subagentOnlyExtensions`

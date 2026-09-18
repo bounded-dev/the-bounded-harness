@@ -1,4 +1,4 @@
-// The TypeScript pack's gate registry (ADR 2026-029).
+// The TypeScript pack's gate registry (ADR 2026-034).
 //
 // Every artifact gate this pack contributes, as one list the root discovers by
 // convention (`packs/*/gates.ts`) and never by name. `pi-gates` reads it for

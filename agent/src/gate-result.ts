@@ -1,4 +1,4 @@
-// Gate result — the one contract every artifact gate answers in (ADR 2026-029).
+// Gate result — the one contract every artifact gate answers in (ADR 2026-034).
 //
 // A gate inspects the tree and says one of three things: PASS (code 0), BLOCK
 // (code 1, the gate ran and said no), or ERROR (code 2, the gate itself could

@@ -1,4 +1,4 @@
-// Claude Code → pi tool vocabulary (ADR 2026-029, Tier B: capability
+// Claude Code → pi tool vocabulary (ADR 2026-034, Tier B: capability
 // constraints per host).
 //
 // The path gate's pure core, decide() in src/path-policy.ts, speaks pi's tool

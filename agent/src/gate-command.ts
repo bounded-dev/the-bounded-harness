@@ -1,4 +1,4 @@
-// Gate command — how a pack declares a gate to the root (ADR 2026-029).
+// Gate command — how a pack declares a gate to the root (ADR 2026-034).
 //
 // The root names no technology: it discovers `packs/<lang>/gates.ts` by
 // convention and reads a list of these. One entry carries everything BOTH

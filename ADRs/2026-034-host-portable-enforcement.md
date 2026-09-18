@@ -1,4 +1,4 @@
-# 2026-029: Enforcement is host-portable — artifact gates as a CLI, capability constraints per host
+# 2026-034: Enforcement is host-portable — artifact gates as a CLI, capability constraints per host
 
 **Status:** accepted
 

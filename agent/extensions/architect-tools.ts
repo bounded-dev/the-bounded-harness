@@ -8,7 +8,7 @@
  * here, or it cannot do its job.
  *
  * The gate tools are not written here. They come from the gate registry
- * (`packs/ts/gates.ts`, ADR 2026-029) through `lib/gate-tools.ts`: one entry
+ * (`packs/ts/gates.ts`, ADR 2026-034) through `lib/gate-tools.ts`: one entry
  * per gate carries the name, description, flags and prompt guidance, and this
  * extension only says WHICH entries the architect holds — `GATE_TOOLS` from
  * the path policy, plus `mutation_score`. `pi-gates` reads the same entries

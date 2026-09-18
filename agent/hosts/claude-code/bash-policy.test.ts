@@ -4,7 +4,7 @@ import { ARTIFACT_GATE_TOOLS, GATE_TOOLS, ROLE_TOOLS, type Role } from "../../sr
 import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-policy.ts";
 
-// ADR 2026-029: in Claude Code, Bash is the carrier for `pi-gates`, and the
+// ADR 2026-034: in Claude Code, Bash is the carrier for `pi-gates`, and the
 // hook narrows it to exactly the gates in the role's ROLE_TOOLS. Anything else
 // — compound commands, redirects, substitutions — is refused with the role's
 // forbiddenWhy reason. Table-driven over all four roles so a change to

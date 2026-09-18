@@ -15,7 +15,7 @@ import {
   renderAllAgents,
 } from "./render-agents.ts";
 
-// ADR 2026-029: "Drift tests extend to the rendered Claude Code agent
+// ADR 2026-034: "Drift tests extend to the rendered Claude Code agent
 // definitions: `tools:` allowlists are pinned to ROLE_TOOLS." This is
 // agent-config-drift.test.ts for the second host — the same pins, through the
 // one mapping, so the two hosts cannot grant a role two different toolsets.

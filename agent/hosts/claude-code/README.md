@@ -1,6 +1,6 @@
 # Claude Code host adapter
 
-The developer stage's **capability constraints** (ADR 2026-029, Tier B) for
+The developer stage's **capability constraints** (ADR 2026-034, Tier B) for
 Claude Code: the path gate and the phase gate as a `PreToolUse` hook, the tool
 strip as generated `.claude/agents/*.md` `tools:` allowlists, and the role
 binding through each agent definition's own `hooks:`. The **artifact gates**

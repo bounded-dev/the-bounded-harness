@@ -9,7 +9,7 @@ import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
 import { gates } from "./gates.ts";
 
-// The registry is the one place a gate's public face lives (ADR 2026-029):
+// The registry is the one place a gate's public face lives (ADR 2026-034):
 // `pi-gates` reads it for its command line and the pi extensions read it for
 // their tool roster. The agreement tests below are therefore tautological by
 // construction — and kept, because they are what fails the day someone
@@ -120,7 +120,7 @@ describe("what the command line takes and a tool does not", () => {
 
 describe("the registry and the path policy agree", () => {
   // ARTIFACT_GATE_TOOLS is the path policy's list of every pi tool that is an
-  // artifact gate (ADR 2026-029); `sleep` is a WAIT, not a gate, and is not in
+  // artifact gate (ADR 2026-034); `sleep` is a WAIT, not a gate, and is not in
   // it. The registry's tool-bearing entries must be that list exactly.
   test("the tool-bearing entries are exactly ARTIFACT_GATE_TOOLS", () => {
     const tools = gates.flatMap((g) => (g.tool === undefined ? [] : [g.tool])).sort();
@@ -149,7 +149,7 @@ describe("the registry and the extensions say the same thing", () => {
   });
 });
 
-// The host supplies the role (ADR 2026-029). The typecheck entry used to
+// The host supplies the role (ADR 2026-034). The typecheck entry used to
 // resolve it itself with `sessionRole(cwd)` — against the TARGET, so a
 // `typecheck src` in a bound session found no role file and answered
 // unscoped (Run 15). It now reads `args.role` and nothing else.

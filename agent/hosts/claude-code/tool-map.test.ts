@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { BASH_TOOL, mapToolCall } from "./tool-map.ts";
 
-// ADR 2026-029: the Claude Code hook judges the SAME pi-shaped call the pi
+// ADR 2026-034: the Claude Code hook judges the SAME pi-shaped call the pi
 // extension would. These fixtures are the tool_input shapes the Claude Code
 // docs give, one per tool, and the pi call each must become.
 

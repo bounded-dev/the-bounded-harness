@@ -126,7 +126,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
 
     // Say which host this is and what it holds, before the first tool call:
     // a `pi-gates` transcript from a bare shell otherwise reads exactly like
-    // a blind run (ADR 2026-029). pi enforces every constraint the stage has.
+    // a blind run (ADR 2026-034). pi enforces every constraint the stage has.
     recordHostDeclaration(ctx.cwd, PI_HOST);
 
     // Defence in depth over a gate that already refuses these calls: if the

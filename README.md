@@ -40,7 +40,7 @@ the part you own.
   script the developer stage runs.
 
 - **Hosts.** The harness's logic never depends on which agent runtime loads
-  it; only a thin **host adapter** does (ADR 2026-029). Every *artifact gate*
+  it; only a thin **host adapter** does (ADR 2026-034). Every *artifact gate*
   — purity, design, drift, red, green, sign-off, deliver, mutation score,
   typecheck, the test run — is one CLI, `pi-gates <gate> [dir] [--json]`,
   callable from any agent, from CI, or by hand; the pi gate tools read the

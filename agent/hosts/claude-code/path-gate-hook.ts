@@ -1,5 +1,5 @@
 // Claude Code PreToolUse hook: the path gate and the phase gate for one role
-// (ADR 2026-029, Tier B on the second host).
+// (ADR 2026-034, Tier B on the second host).
 //
 //   node path-gate-hook.ts [--role <role>] [--harness-root <dir>]  < payload.json
 //
@@ -273,7 +273,7 @@ function resolveRole(flags: Flags, cwd: string): RoleSource {
 
 /** The decision proper: stdout to print ("" ⇒ allow). */
 function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string): string {
-  // Say which host this is and what it holds (ADR 2026-029). The strip is the
+  // Say which host this is and what it holds (ADR 2026-034). The strip is the
   // agent definition's `tools:` allowlist, so only a BOUND role has it; an
   // ambient session keeps every Claude Code tool and the hook judges what it
   // maps. Recorded on change, so the line appears once per stretch of a run.

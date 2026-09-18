@@ -1,4 +1,4 @@
-// Install the Claude Code host adapter into a project (ADR 2026-029).
+// Install the Claude Code host adapter into a project (ADR 2026-034).
 //
 //   node install.ts <targetDir> [--harness-root <dir>]
 //

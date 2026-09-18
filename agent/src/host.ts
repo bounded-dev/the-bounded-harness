@@ -1,5 +1,5 @@
 // Host declaration — which capability constraints the running host enforces
-// (ADR 2026-029).
+// (ADR 2026-034).
 //
 // Artifact gates answer the same whatever runs them; capability constraints
 // (the tool strip, the path gate, the phase gate on spawns, the role-scoped

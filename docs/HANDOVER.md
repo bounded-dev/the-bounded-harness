@@ -1,6 +1,6 @@
 # Handover — pi-harness developer stage
 
-2026-09-18 addendum (#16, ADR 2026-029 — read after the 09-11 one): enforcement
+2026-09-18 addendum (#16, ADR 2026-034 — read after the 09-11 one): enforcement
 is now host-portable. Every artifact gate is one CLI, `pi-gates <gate>`
 (`agent/src/gates-cli.ts` over the registry `agent/packs/ts/gates.ts`), and the
 pi tools read the same registry; capability constraints live per host —

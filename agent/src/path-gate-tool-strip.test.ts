@@ -247,7 +247,7 @@ describe("the strip at session start", () => {
     expect(events[0]!.detail).toMatchObject({ role: "architect" });
   });
 
-  test("a bound session declares its host — pi enforces all four constraints (ADR 2026-029)", () => {
+  test("a bound session declares its host — pi enforces all four constraints (ADR 2026-034)", () => {
     const cwd = project();
     const fake = fakePi(FULL_TOOLSET);
     installArchitectPathGate(fake.pi as never);

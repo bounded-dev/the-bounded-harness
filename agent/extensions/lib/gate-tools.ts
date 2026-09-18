@@ -1,5 +1,5 @@
 /**
- * Gate tools — the pi face of the gate registry (ADR 2026-029).
+ * Gate tools — the pi face of the gate registry (ADR 2026-034).
  *
  * A gate's name, description, flags and prompt guidance live in one registry
  * entry (`packs/<lang>/gates.ts`), and `pi-gates` reads that entry for its
