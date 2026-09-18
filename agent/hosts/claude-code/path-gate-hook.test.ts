@@ -76,6 +76,12 @@ function payload(dir: string, tool_name: string, tool_input: unknown): string {
   });
 }
 
+/** The log minus the host declaration the hook writes as the role binds
+ *  (ADR 2026-029) — these tests are about the gate's own lines. */
+function gateEvents(dir: string) {
+  return readGuardLog(dir).filter((e) => e.guard !== "host");
+}
+
 describe("path-gate-hook — the path gate, by role file", () => {
   test("test-writer reading src/x.ts → deny JSON, exit 0, and a path-gate block in the log", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "test-writer\n" });
@@ -84,7 +90,7 @@ describe("path-gate-hook — the path gate, by role file", () => {
     expect(r.decision).toBe("deny");
     expect(r.reason).toBe("path-gate: test-writer may not read 'src/x.ts': denied zone 'src/**'");
     expect(r.stderr).toBe("");
-    const log = readGuardLog(dir);
+    const log = gateEvents(dir);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "block", detail: { role: "test-writer", tool: "read" } });
   });
@@ -95,7 +101,7 @@ describe("path-gate-hook — the path gate, by role file", () => {
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
-    expect(readGuardLog(dir)).toEqual([]);
+    expect(gateEvents(dir)).toEqual([]);
   });
 
   test("builder reading tests/a.test.ts → deny", () => {
@@ -129,7 +135,7 @@ describe("path-gate-hook — Bash, by role", () => {
     const r = run(dir, payload(dir, "Bash", { command: "npm test" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain(`path-gate: ${role} may not run 'npm': no role holds a shell`);
-    const block = readGuardLog(dir).find((e) => e.guard === "path-gate" && e.verdict === "block");
+    const block = gateEvents(dir).find((e) => e.guard === "path-gate" && e.verdict === "block");
     expect(block).toMatchObject({ summary: r.reason, detail: { role, tool: "bash", command: "npm test" } });
   });
 
@@ -150,7 +156,7 @@ describe("path-gate-hook — Bash, by role", () => {
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
     expect(r.updatedInput).toEqual({ command: "PI_DEV_STAGE_ROLE=builder pi-gates typecheck", description: "typecheck", timeout: 60000 });
-    expect(readGuardLog(dir)).toEqual([]);
+    expect(gateEvents(dir)).toEqual([]);
   });
 
   test("the env prefix carries the BOUND role, not the file's", () => {
@@ -193,7 +199,7 @@ describe("path-gate-hook — the phase gate on Agent", () => {
     const r = run(dir, payload(dir, "Agent", { subagent_type: "builder", prompt: "implement it" }), ["--role", "architect"]);
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("phase-gate: cannot commission the builder — no *.contract.ts exists yet");
-    const block = readGuardLog(dir).find((e) => e.guard === "phase-gate");
+    const block = gateEvents(dir).find((e) => e.guard === "phase-gate");
     expect(block).toMatchObject({ verdict: "block", detail: { kind: "spawn-refused", role: "architect", target: "builder" } });
   });
 
@@ -218,7 +224,7 @@ describe("path-gate-hook — role source", () => {
     const r = run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
-    expect(readGuardLog(dir)).toEqual([]);
+    expect(gateEvents(dir)).toEqual([]);
   });
 
   test("a --role that is not a pipeline role fails open, loudly", () => {
@@ -227,7 +233,7 @@ describe("path-gate-hook — role source", () => {
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
     expect(r.stderr).toContain("--role 'wizard' is not a pipeline role");
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "path-gate", verdict: "error" });
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "path-gate", verdict: "error" });
   });
 
   test("a tool the gate has no opinion on passes through", () => {
@@ -250,7 +256,7 @@ describe("path-gate-hook — failure mode is open", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr.split("\n").filter((l) => l !== "")).toHaveLength(1);
     expect(r.stderr).toContain("path-gate-hook: error, allowing the call");
-    const log = readGuardLog(dir);
+    const log = gateEvents(dir);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "error", detail: { host: "claude-code", kind: "hook-error" } });
   });
@@ -278,5 +284,37 @@ describe("path-gate-hook — run start", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
     run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
     expect(readGuardLog(dir).filter((e) => e.guard === RUN_START_GUARD)).toEqual([]);
+  });
+});
+
+describe("host declaration (ADR 2026-029)", () => {
+  test("a bound role declares claude-code with every constraint — the definition's tools: is the strip", () => {
+    const dir = makeTempProject({});
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.summary).toBe(
+      "host claude-code: enforces tool-strip, path-gate, phase-gate, scoped-views",
+    );
+    // Declared before the run starts, so the host line explains what follows.
+    const order = readGuardLog(dir).map((e) => e.guard);
+    expect(order.indexOf("host")).toBeLessThan(order.indexOf(RUN_START_GUARD));
+  });
+
+  test("an ambient role (from the role file) declares claude-code WITHOUT the strip", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    run(dir, payload(dir, "Read", { file_path: join(dir, "src", "x.ts") }));
+    const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.summary).toBe(
+      "host claude-code: enforces path-gate, phase-gate, scoped-views; unenforced: tool-strip",
+    );
+  });
+
+  test("recorded on change: two calls under the same binding leave one line", () => {
+    const dir = makeTempProject({});
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(1);
   });
 });

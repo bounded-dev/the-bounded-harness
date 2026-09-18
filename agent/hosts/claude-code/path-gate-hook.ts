@@ -57,6 +57,7 @@ import {
   recordRunStart,
   sessionRole,
 } from "../../src/path-gate.ts";
+import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../src/host.ts";
 import type { Role } from "../../src/path-policy.ts";
 import { decideBash } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
@@ -153,6 +154,14 @@ function allowWith(updatedInput: Readonly<Record<string, unknown>>): string {
  *  the bound role reaches the `pi-gates` process the shell starts. */
 const ROLE_ENV = "PI_DEV_STAGE_ROLE";
 
+/** A subagent bound by its definition holds every constraint: `tools:` is the
+ *  strip, this hook is the path and phase gate, and the role env prefix gives
+ *  the gates their scoped views. */
+const CLAUDE_CODE_BOUND = declareHost("claude-code", CONSTRAINTS);
+/** An ambient session (role from `.pi/dev-stage-role`) has no allowlist — the
+ *  hook judges what it maps and the rest of the toolset stays. */
+const CLAUDE_CODE_AMBIENT = declareHost("claude-code", ["path-gate", "phase-gate", "scoped-views"]);
+
 /**
  * One hook run, as a function: argv + stdin → what to print. `fallbackCwd` is
  * the process cwd, used only when the payload names none or cannot be read —
@@ -171,7 +180,7 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     const role = resolveRole(flags, cwd);
     if (role.kind === "none") return { stdout: "", stderr: role.note ?? "" };
 
-    return { stdout: evaluate(role.role, payload, cwd, harnessRoot), stderr: "" };
+    return { stdout: evaluate(role.role, role.kind === "bound", payload, cwd, harnessRoot), stderr: "" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logGuardEvent(cwd, {
@@ -205,7 +214,13 @@ function resolveRole(flags: Flags, cwd: string): RoleSource {
 }
 
 /** The decision proper: stdout to print ("" ⇒ allow). */
-function evaluate(role: Role, payload: Payload, cwd: string, harnessRoot: string): string {
+function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string): string {
+  // Say which host this is and what it holds (ADR 2026-029). The strip is the
+  // agent definition's `tools:` allowlist, so only a BOUND role has it; an
+  // ambient session keeps every Claude Code tool and the hook judges what it
+  // maps. Recorded on change, so the line appears once per stretch of a run.
+  recordHostDeclaration(cwd, bound ? CLAUDE_CODE_BOUND : CLAUDE_CODE_AMBIENT);
+
   // The first call the driving role makes is where the run demonstrably
   // starts — marked before it is judged, as in pi, because a refused first
   // call still started the run.

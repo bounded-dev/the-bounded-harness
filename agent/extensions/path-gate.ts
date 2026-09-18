@@ -59,6 +59,7 @@ import {
   planToolStrip,
   recordToolStrip,
 } from "../src/path-gate.ts";
+import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../src/host.ts";
 import type { Role } from "../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
 
@@ -66,6 +67,10 @@ import { knownModels } from "./model-tier.ts";
 // its parent's parent. Derived rather than configured: it must stay correct
 // through the ~/.pi/agent symlink and in any checkout.
 const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/** pi holds all four: the strip, the path gate, the phase gate and the
+ *  role-scoped worker views are all in-process hooks here. */
+const PI_HOST = declareHost("pi", CONSTRAINTS);
 
 /** Resolve an ambient fallback role once per session (env, then role file).
  *  The resolution itself is `ambientRole` in ../src/path-gate.ts — shared with
@@ -118,6 +123,11 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     // subagent's toolset loses its PARENT's forbidden tools too, and a
     // test-writer would be stripped of nothing while a builder lost run_tests.
     if (!boundRole && isAmbientSuppressed()) return;
+
+    // Say which host this is and what it holds, before the first tool call:
+    // a `pi-gates` transcript from a bare shell otherwise reads exactly like
+    // a blind run (ADR 2026-029). pi enforces every constraint the stage has.
+    recordHostDeclaration(ctx.cwd, PI_HOST);
 
     // Defence in depth over a gate that already refuses these calls: if the
     // host cannot strip, the session must still start and still be gated.

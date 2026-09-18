@@ -27,6 +27,12 @@ function run(args: readonly string[], cwd: string) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8" });
 }
 
+/** The log minus the host declaration the CLI writes first (ADR 2026-029) —
+ *  the gate-focused tests below are about the gate's own line. */
+function gateEvents(dir: string) {
+  return readGuardLog(dir).filter((e) => e.guard !== "host");
+}
+
 function parseJson(text: string): unknown {
   return JSON.parse(text);
 }
@@ -89,7 +95,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
     expect(drift).toMatchObject({
       name: "check-drift",
       tool: "check_drift",
-      flags: [{ name: "write", kind: "boolean" }],
+      flags: [],
     });
   });
 });
@@ -104,7 +110,7 @@ describe("surface-check (spawns nothing)", () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("surface-check: OK (1 contract pair)\nsurface-check: PASS\n");
     expect(r.stderr).toBe("");
-    expect(readGuardLog(dir)).toEqual([expect.objectContaining({ guard: "surface-check", verdict: "pass" })]);
+    expect(gateEvents(dir)).toEqual([expect.objectContaining({ guard: "surface-check", verdict: "pass" })]);
   });
 
   test("BLOCK: everything on stderr, exit 1", () => {
@@ -117,7 +123,7 @@ describe("surface-check (spawns nothing)", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr).toMatch(/surface-check: FAIL/);
     expect(r.stderr).toMatch(/\nsurface-check: BLOCK\n$/);
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "surface-check", verdict: "block" });
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "surface-check", verdict: "block" });
   });
 
   test("ERROR: no contracts is misuse, exit 2, with the explaining verdict line", () => {
@@ -149,7 +155,7 @@ describe("surface-check (spawns nothing)", () => {
     });
     const r = run(["surface-check", "proj"], dir);
     expect(r.status).toBe(0);
-    expect(readGuardLog(join(dir, "proj"))).toHaveLength(1);
+    expect(gateEvents(join(dir, "proj"))).toHaveLength(1);
   });
 });
 
@@ -159,7 +165,7 @@ describe("contract-purity", () => {
     const r = run(["contract-purity", "--json"], dir);
     expect(r.status).toBe(2);
     expect(parseJson(r.stdout)).toMatchObject({ gate: "contract-purity", code: 2 });
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
   });
 });
 
@@ -174,7 +180,7 @@ describe("typecheck (runs the real tsc once)", () => {
     const r = run(["typecheck"], dir);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("typecheck: OK — no type errors\ntypecheck: PASS\n");
-    expect(readGuardLog(dir)).toEqual([expect.objectContaining({ guard: "typecheck", verdict: "pass" })]);
+    expect(gateEvents(dir)).toEqual([expect.objectContaining({ guard: "typecheck", verdict: "pass" })]);
   });
 
   test("BLOCK on a type error, --role builder scopes and --json carries the detail", () => {
@@ -189,7 +195,7 @@ describe("typecheck (runs the real tsc once)", () => {
       detail: { ok: false, errorCount: 1, scoped: true, hidden: 0 },
     });
     expect(r.stdout).toContain("src/a.ts(1,14): error TS2322");
-    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "typecheck", verdict: "block", detail: { role: "builder" } });
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "typecheck", verdict: "block", detail: { role: "builder" } });
   });
 
   test("an unknown --role is the gate's misuse (2), not the CLI's (64)", () => {
@@ -217,5 +223,31 @@ describe("through the symlinks (the ~/.pi/agent case)", () => {
     const r = spawnSync(link, ["surface-check", "--json"], { cwd: dir, encoding: "utf8" });
     expect(r.status).toBe(2);
     expect(parseJson(r.stdout)).toMatchObject({ gate: "surface-check", code: 2 });
+  });
+});
+
+describe("host declaration (ADR 2026-029)", () => {
+  test("a bare shell records `host none` — gates alone are never mistaken for a blind run", () => {
+    const dir = project({});
+    run(["contract-purity", "--json"], dir);
+    const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]!.summary).toBe(
+      "host none: enforces nothing; unenforced: tool-strip, path-gate, phase-gate, scoped-views",
+    );
+    // Recorded on change: a second bare call adds no second line.
+    run(["contract-purity", "--json"], dir);
+    expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(1);
+  });
+
+  test("a role handed down by a host adapter means that host already declared itself", () => {
+    const dir = project({});
+    const r = spawnSync(process.execPath, [CLI, "contract-purity", "--json"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, PI_DEV_STAGE_ROLE: "builder" },
+    });
+    expect(r.status).not.toBeNull();
+    expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(0);
   });
 });

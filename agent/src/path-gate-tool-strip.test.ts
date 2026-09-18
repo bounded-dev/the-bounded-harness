@@ -237,6 +237,21 @@ describe("the strip at session start", () => {
     expect(events[0]!.detail).toMatchObject({ role: "architect" });
   });
 
+  test("a bound session declares its host — pi enforces all four constraints (ADR 2026-029)", () => {
+    const cwd = project();
+    const fake = fakePi(FULL_TOOLSET);
+    installArchitectPathGate(fake.pi as never);
+    fake.start(cwd);
+
+    const hosts = readGuardLog(cwd).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]!.summary).toBe("host pi: enforces tool-strip, path-gate, phase-gate, scoped-views");
+    expect(hosts[0]!.detail).toMatchObject({ kind: "host", host: "pi", unenforced: [] });
+    // Declared BEFORE the strip is recorded: the host line explains the lines after it.
+    const order = readGuardLog(cwd).map((e) => e.guard);
+    expect(order.indexOf("host")).toBeLessThan(order.indexOf("path-gate"));
+  });
+
   test("a host that cannot strip still starts, and is still gated", () => {
     // The strip is defence in depth over the tool_call refusals. If the host's
     // tool actions are unavailable, the session must come up gated rather than

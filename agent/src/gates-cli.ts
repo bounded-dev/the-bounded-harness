@@ -33,11 +33,14 @@ import {
 } from "./gate-command.ts";
 import { gateEnvelope, gateExitCode, verdictLine, type GateResult } from "./gate-result.ts";
 import { targetCwd } from "./target-cwd.ts";
+import { NO_HOST, recordHostDeclaration } from "./host.ts";
 
 /** sysexits' EX_USAGE: the program was invoked wrongly, no gate ran. */
 export const USAGE_EXIT = 64;
 
 const PROGRAM = "pi-gates";
+/** The env var a host adapter sets so the CLI runs as the bound role (src/path-gate.ts). */
+const ROLE_ENV = "PI_DEV_STAGE_ROLE";
 
 /** Flags the CLI itself owns, accepted before or after the gate name. */
 const GLOBAL_FLAGS: readonly FlagSpec[] = [
@@ -224,6 +227,11 @@ export async function main(
     return USAGE_EXIT;
   }
   const cwd = targetCwd(sessionCwd, parsed.positionals[0]);
+
+  // A bare shell enforces no capability constraint, and the log must say so
+  // (ADR 2026-029) — unless a host adapter handed this process its role, in
+  // which case that host declared itself before the call reached here.
+  if (process.env[ROLE_ENV] === undefined) recordHostDeclaration(cwd, NO_HOST);
 
   let result: GateResult;
   try {
