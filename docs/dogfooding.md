@@ -611,7 +611,7 @@ enforced, all on Haiku (orchestrator + all three workers). One component
 > — typecheck inside both gates, the value-objects rule, the `ls .` friction,
 > model tiering (ADR 2026-022), the folded architect. Kept as the record of
 > what was open then; the live list is
-> [issue #13](https://github.com/bounded-dev/pi-harness/issues/13).
+> [issue #13](https://github.com/bounded-dev/the-bounded-harness/issues/13).
 
 - **#12 the strip-down** — the folded shape is built and pushed; Run 6 is its
   first live test. Still open within it: the review role, the test-checksum

@@ -98,7 +98,7 @@ finding is what the rest of the machinery is in service of.
 Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 [ADR 2026-013](ADRs/2026-013-developer-stage-pipeline.md), evidence in
 [docs/dogfooding.md](docs/dogfooding.md), current plan in
-[issue #13](https://github.com/bounded-dev/pi-harness/issues/13).
+[issue #13](https://github.com/bounded-dev/the-bounded-harness/issues/13).
 
 ## Bootstrap a new machine (developer mode)
 
@@ -106,8 +106,8 @@ This is the stopgap install — symlinks into the frameworks' config homes,
 until the harness ships as packaged per-framework extensions.
 
 ```bash
-git clone git@github.com:bounded-dev/pi-harness.git
-cd pi-harness && agent/scripts/bounded-init
+git clone git@github.com:bounded-dev/the-bounded-harness.git
+cd the-bounded-harness && agent/scripts/bounded-init
 ```
 
 `bounded-init` does the rest, and is idempotent — re-run it after a pull to
