@@ -291,6 +291,12 @@ prints what it found. **Do not go reading the gate scripts to work out how to
 call them**; the tool descriptions are the interface, and each call is
 recorded in the guard log automatically.
 
+**Every gate is also a command.** `pi-gates <gate> [dir] [--json]` runs the
+same function the tool runs, prints the same lines and the same trailing
+verdict, and writes the same guard-log event — one registry, two doors (ADR
+2026-029). Whichever door, the guard log opens with a `host` line naming what
+that host enforced: read it before trusting that blindness held.
+
 Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.

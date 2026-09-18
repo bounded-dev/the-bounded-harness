@@ -28,7 +28,8 @@
 
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
-import { logGuardEvent, readGuardLog, type GuardVerdict } from "../../../src/guard-log.ts";
+import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import type { GateResult } from "../../../src/gate-result.ts";
 
 const GUARD = "sign-off";
 
@@ -42,14 +43,6 @@ export interface Finding {
   readonly summary: string;
   /** Where to look — a path, a symbol, a test name. Optional but wanted. */
   readonly evidence?: string;
-}
-
-export interface SignOffResult {
-  readonly code: 0 | 1 | 2;
-  readonly verdict: GuardVerdict;
-  readonly summary: string;
-  readonly lines: string[];
-  readonly detail: Readonly<Record<string, unknown>>;
 }
 
 const SEVERITIES: readonly string[] = ["blocker", "concern", "note"];
@@ -91,7 +84,7 @@ export function hasPassingGreen(events: readonly { guard: string; verdict: strin
 }
 
 /** Format the verdict. Pure. */
-export function classifySignOff(findings: readonly Finding[], greenPassed: boolean): SignOffResult {
+export function classifySignOff(findings: readonly Finding[], greenPassed: boolean): GateResult {
   if (!greenPassed) {
     return {
       code: 1,
@@ -128,10 +121,10 @@ export function classifySignOff(findings: readonly Finding[], greenPassed: boole
 
 /** Record the terminal verdict. The one implementation both the tool and the
  *  CLI go through. */
-export function runSignOff(cwd: string, raw: unknown): SignOffResult {
+export function runSignOff(cwd: string, raw: unknown): GateResult {
   const parsed = parseFindings(raw);
   if (!parsed.ok) {
-    const result: SignOffResult = {
+    const result: GateResult = {
       code: 2,
       verdict: "error",
       summary: parsed.error,

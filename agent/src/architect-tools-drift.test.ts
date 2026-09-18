@@ -1,6 +1,8 @@
+import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
 import installArchitectTools from "../extensions/architect-tools.ts";
 import installDevTools from "../extensions/dev-tools.ts";
+import { gates } from "../packs/ts/gates.ts";
 import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
 import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";
 
@@ -17,6 +19,12 @@ import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "./path-policy.t
 interface RegisteredTool {
   readonly name: string;
   readonly description: string;
+  readonly parameters: { readonly properties?: Record<string, unknown>; readonly required?: readonly string[] };
+}
+
+/** The schema as the model sees it: JSON, no TypeBox bookkeeping. */
+function asJson(schema: unknown): unknown {
+  return JSON.parse(JSON.stringify(schema));
 }
 
 /** Minimal ExtensionAPI stub: records the tools an extension registers. */
@@ -127,6 +135,63 @@ describe("architect tool registration matches the path policy", () => {
     expect(design).toBeDefined();
     const missing = DESIGN_STEPS.filter((step) => !design!.description.includes(step));
     expect(missing).toEqual([]);
+  });
+
+  // The tools come from the registry now, so the parameter schema is derived
+  // rather than written — and a derivation can drop what the hand-written
+  // schema said. Pin the two places it matters: the findings item schema is
+  // exactly what the model used to read, and the repeatable pattern flag is an
+  // array named as before.
+  test("sign_off's findings parameter is the item schema the model always read", () => {
+    const signOff = registeredTools(installArchitectTools).find((t) => t.name === "sign_off");
+    expect(signOff).toBeDefined();
+    expect(signOff!.parameters.required).toEqual(["findings"]);
+    expect(asJson(signOff!.parameters.properties?.["findings"])).toEqual(
+      asJson(
+        Type.Array(
+          Type.Object({
+            severity: Type.Union([Type.Literal("blocker"), Type.Literal("concern"), Type.Literal("note")], {
+              description: "blocker | concern | note",
+            }),
+            summary: Type.String({ description: "One line: what is wrong." }),
+            evidence: Type.Optional(Type.String({ description: "Where to look — a path, a symbol, a test name." })),
+          }),
+          { description: "What you saw. Pass [] to record that you found nothing." },
+        ),
+      ),
+    );
+  });
+
+  test("contract_purity and design_gate take `patterns` as an optional array of strings", () => {
+    for (const name of ["contract_purity", "design_gate"]) {
+      const tool = registeredTools(installArchitectTools).find((t) => t.name === name);
+      expect(tool, name).toBeDefined();
+      expect(Object.keys(tool!.parameters.properties ?? {}).sort(), name).toEqual(["cwd", "patterns"]);
+      expect(tool!.parameters.required ?? [], name).toEqual([]);
+      expect(asJson(tool!.parameters.properties?.["patterns"]), name).toMatchObject({
+        type: "array",
+        items: { type: "string" },
+      });
+    }
+  });
+
+  // A flag the registry marks cliOnly is for a person at a shell. Offered to a
+  // model it is a hole: `role` would let a worker choose its own scoping, and a
+  // findings file is a path a blind role could point at anything.
+  test("no registered tool exposes a cliOnly flag", () => {
+    const registered = [...registeredTools(installArchitectTools), ...registeredTools(installDevTools)];
+    const cliOnly = gates.flatMap((g) => g.flags.filter((f) => f.cliOnly === true));
+    expect(cliOnly.length).toBeGreaterThan(0);
+    for (const tool of registered) {
+      const params = Object.keys(tool.parameters.properties ?? {});
+      for (const flag of cliOnly) {
+        for (const spelling of [flag.name, flag.param ?? flag.name, "findingsFile", "findings_file"]) {
+          expect(params, `${tool.name} exposes '${spelling}'`).not.toContain(spelling);
+        }
+      }
+    }
+    const typecheck = registered.find((t) => t.name === "typecheck");
+    expect(Object.keys(typecheck!.parameters.properties ?? {})).toEqual(["cwd"]);
   });
 
   // The worker roles must never be handed one of these by a copy-paste.

@@ -20,6 +20,8 @@ import {
   sanitizeMessage,
   sanitizeTestRun,
 } from "./sanitize-test-output.ts";
+import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";
+import type { GateResult } from "../../../src/gate-result.ts";
 
 /** Captured output of one command invocation. */
 export interface CommandOutput {
@@ -219,6 +221,73 @@ export function formatRunTests(result: RunTestsResult): string {
     })
     .join("\n\n");
   return `${head}\n\n${failures}`;
+}
+
+// --- the gate (ADR 2026-029) ----------------------------------------------------
+// The builder's tool and the `pi-gates run-tests` command are the same call.
+// This is the guard-log boundary for the suite run: the event is what the
+// convergence nudge reads back, so writing it anywhere but next to the nudge
+// would let a host forget it and quietly switch the nudge off.
+
+/** The guard name of the suite-run event. Spelled like the tool because the
+ *  log already carries a history under it (dogfood Run 4 onward). */
+export const RUN_TESTS_GUARD = "run_tests";
+
+/** Failing-test-name sets from this project's prior run_tests events, oldest→newest. */
+function priorFailureSets(cwd: string): string[][] {
+  try {
+    return readGuardLog(cwd)
+      .filter((e) => e.guard === RUN_TESTS_GUARD)
+      .map((e) => {
+        const names = e.detail?.["names"];
+        return Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
+      });
+  } catch {
+    return []; // an unreadable log must never break the builder's only channel
+  }
+}
+
+/**
+ * Run the suite as a gate: the sanitized run, the convergence nudge drawn
+ * from this project's prior runs, and one guard event. BLOCK is a failing
+ * suite; ERROR is a suite that could not even produce a report.
+ */
+export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): Promise<GateResult> {
+  const result = await runTests(cwd, options);
+  const names = failureNames(result);
+  // The guard log is the only run history that survives between tool calls,
+  // and it is already written on every run — so convergence is measured
+  // from the same audit trail the orchestrator reads (dogfood Run 4).
+  const nudge = repeatedFailureNudge(priorFailureSets(cwd), names);
+  const blocked = result.blocked !== undefined;
+  const code = blocked ? 2 : result.failed === 0 ? 0 : 1;
+  const verdict = blocked ? "error" : result.failed === 0 ? "pass" : "block";
+  const summary = blocked
+    ? "suite could not run"
+    : `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped`;
+  logGuardEvent(cwd, {
+    guard: RUN_TESTS_GUARD,
+    verdict,
+    summary,
+    detail: { names, ...(nudge !== undefined ? { stuck: true } : {}) },
+  });
+  const text = nudge === undefined ? formatRunTests(result) : `${formatRunTests(result)}\n\n${nudge}`;
+  return {
+    code,
+    verdict,
+    summary,
+    lines: text.split("\n"),
+    detail: {
+      ok: result.ok,
+      total: result.total,
+      passed: result.passed,
+      failed: result.failed,
+      skipped: result.skipped,
+      blocked,
+      stuck: nudge !== undefined,
+      names,
+    },
+  };
 }
 
 // --- CLI ------------------------------------------------------------------------

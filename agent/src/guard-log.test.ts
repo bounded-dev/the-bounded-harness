@@ -65,12 +65,22 @@ describe("guard log (TN-26-001: a deterministic system that is opaque when it ja
   });
 
   test("logging never breaks the caller (unwritable path is swallowed)", () => {
+    // A regular file as the "project directory": mkdir under it fails with
+    // ENOTDIR at once on every platform. NOT a path under /proc — on Linux
+    // procfs answers mkdir with ENOENT while the parent exists, and Node's
+    // recursive mkdir then loops between child and parent forever, which no
+    // try/catch can end. That is a hang, not a throw, and it took the whole
+    // suite with it on Linux (CI runs ubuntu-latest); macOS has no /proc, so
+    // it threw fast there and the suite looked green.
+    const parent = join(tmp(), "not-a-directory");
+    writeFileSync(parent, "");
     expect(() =>
-      logGuardEvent("/proc/definitely-not-writable", {
+      logGuardEvent(parent, {
         guard: "scaffold",
         verdict: "pass",
         summary: "ok",
       }),
     ).not.toThrow();
+    expect(readGuardLog(parent)).toEqual([]);
   });
 });

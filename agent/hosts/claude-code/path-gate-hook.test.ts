@@ -1,0 +1,431 @@
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, test } from "vitest";
+import { readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
+import { HOST_ENV } from "../../src/host.ts";
+import { makeTempProject as makeProject, type TempProject } from "../../test/support/temp-project.ts";
+
+// ADR 2026-029: the adapter is verified by fixture until the first live run.
+// Each case spawns the hook exactly as Claude Code would — a fresh process,
+// the call as JSON on stdin — in a temp project, and asserts the decision it
+// prints and the guard-log lines it leaves.
+
+const HOOK = join(dirname(fileURLToPath(import.meta.url)), "path-gate-hook.ts");
+
+const projects: TempProject[] = [];
+function makeTempProject(files: Readonly<Record<string, string>>): string {
+  const project = makeProject(files, { prefix: "cc-hook-" });
+  projects.push(project);
+  return project.dir;
+}
+afterEach(() => {
+  while (projects.length) projects.pop()?.cleanup();
+});
+
+interface Run {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly decision: "allow" | "deny";
+  readonly reason: string;
+  /** The rewritten tool input an explicit allow carried, if any. */
+  readonly updatedInput?: Readonly<Record<string, unknown>>;
+}
+
+interface HookOutput {
+  readonly hookSpecificOutput: {
+    readonly hookEventName: string;
+    readonly permissionDecision: string;
+    readonly permissionDecisionReason?: string;
+    readonly updatedInput?: Readonly<Record<string, unknown>>;
+  };
+}
+
+function run(dir: string, stdin: string, flags: readonly string[] = []): Run {
+  const env = { ...process.env };
+  delete env["PI_GUARD_LOG"];
+  delete env["PI_DEV_STAGE_ROLE"];
+  const r = spawnSync(process.execPath, [HOOK, ...flags], { cwd: dir, input: stdin, encoding: "utf8", env });
+  let decision: Run["decision"] = "allow";
+  let reason = "";
+  let updatedInput: Run["updatedInput"];
+  if (r.stdout.trim() !== "") {
+    // The test's own reading of the wire format; a shape mismatch fails here.
+    const out = (JSON.parse(r.stdout) as HookOutput).hookSpecificOutput;
+    expect(out.hookEventName).toBe("PreToolUse");
+    if (out.permissionDecision === "deny") {
+      decision = "deny";
+      reason = out.permissionDecisionReason ?? "";
+    } else {
+      expect(out.permissionDecision).toBe("allow");
+      expect(out.updatedInput).toBeDefined();
+      updatedInput = out.updatedInput;
+    }
+  }
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, decision, reason, ...(updatedInput !== undefined ? { updatedInput } : {}) };
+}
+
+function payload(dir: string, tool_name: string, tool_input: unknown, extra: Readonly<Record<string, unknown>> = {}): string {
+  return JSON.stringify({
+    session_id: "s1",
+    cwd: dir,
+    hook_event_name: "PreToolUse",
+    tool_name,
+    tool_input,
+    permission_mode: "default",
+    ...extra,
+  });
+}
+
+/** The prefix an allowed `pi-gates` call is given (F3): the host, then the role. */
+const prefix = (role: string): string => `${HOST_ENV}=claude-code PI_DEV_STAGE_ROLE=${role}`;
+
+/** The log minus the host declaration the hook writes as the role binds
+ *  (ADR 2026-029) — these tests are about the gate's own lines. */
+function gateEvents(dir: string) {
+  return readGuardLog(dir).filter((e) => e.guard !== "host");
+}
+
+describe("path-gate-hook — the path gate, by role file", () => {
+  test("test-writer reading src/x.ts → deny JSON, exit 0, and a path-gate block in the log", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "test-writer\n" });
+    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }));
+    expect(r.status).toBe(0);
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toBe("path-gate: test-writer may not read 'src/x.ts': denied zone 'src/**'");
+    expect(r.stderr).toBe("");
+    const log = gateEvents(dir);
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "block", detail: { role: "test-writer", tool: "read" } });
+  });
+
+  test("test-writer reading src/x.contract.ts → allow, no output, no log", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "test-writer\n" });
+    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.contract.ts") }));
+    expect(r.status).toBe(0);
+    expect(r.decision).toBe("allow");
+    expect(r.stdout).toBe("");
+    expect(gateEvents(dir)).toEqual([]);
+  });
+
+  test("builder reading tests/a.test.ts → deny", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toBe("path-gate: builder may not read 'tests/a.test.ts': denied zone 'tests/**'");
+  });
+
+  test("builder Grep without a path searches the project root, which overlaps tests/ → deny", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Grep", { pattern: "TODO" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("may not search '.'");
+  });
+
+  test("MultiEdit is denied if any path is denied", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(
+      dir,
+      payload(dir, "MultiEdit", { file_path: join(dir, "src/a.ts"), edits: [{ file_path: join(dir, "src/a.contract.ts") }] }),
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("may not write 'src/a.contract.ts'");
+  });
+});
+
+describe("path-gate-hook — Bash, by role", () => {
+  test.each(["architect", "test-writer", "builder", "reviewer"])("%s: `npm test` → deny with the reason, and a logged block", (role) => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": `${role}\n` });
+    const r = run(dir, payload(dir, "Bash", { command: "npm test" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain(`path-gate: ${role} may not run 'npm': no role holds a shell`);
+    const block = gateEvents(dir).find((e) => e.guard === "path-gate" && e.verdict === "block");
+    expect(block).toMatchObject({ summary: r.reason, detail: { role, tool: "bash", command: "npm test" } });
+  });
+
+  test("`pi-gates red-gate`: architect allow, builder deny", () => {
+    const a = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const ok = run(a, payload(a, "Bash", { command: "pi-gates red-gate" }));
+    expect(ok.decision).toBe("allow");
+    expect(ok.updatedInput?.["command"]).toBe(`${prefix("architect")} pi-gates red-gate`);
+    const b = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(b, payload(b, "Bash", { command: "pi-gates red-gate" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("'red_gate' is the architect's");
+  });
+
+  test("`pi-gates typecheck`: builder allow, with the host and the bound role handed to the CLI through the env", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck", description: "typecheck", timeout: 60000 }));
+    expect(r.status).toBe(0);
+    expect(r.decision).toBe("allow");
+    expect(r.updatedInput).toEqual({ command: "PI_HOST=claude-code PI_DEV_STAGE_ROLE=builder pi-gates typecheck", description: "typecheck", timeout: 60000 });
+    expect(gateEvents(dir)).toEqual([]);
+  });
+
+  test("the env prefix carries the BOUND role, not the file's", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck" }), ["--role", "reviewer"]);
+    expect(r.updatedInput?.["command"]).toBe(`${prefix("reviewer")} pi-gates typecheck`);
+  });
+
+  test("a model-typed PI_HOST or PI_DEV_STAGE_ROLE prefix is refused; only the hook adds them", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    for (const command of ["PI_HOST=claude-code pi-gates typecheck", "PI_DEV_STAGE_ROLE=builder pi-gates typecheck", `${prefix("builder")} pi-gates typecheck`]) {
+      const r = run(dir, payload(dir, "Bash", { command }));
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("an env assignment prefix");
+    }
+  });
+
+  test("a model-supplied --role is refused; the host supplies the role", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck --role architect" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("may not pass '--role' to pi-gates");
+  });
+
+  test("git, sleep and rm allows stay silent: no updatedInput", () => {
+    const a = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    for (const command of ["git status", "sleep 1"]) {
+      const r = run(a, payload(a, "Bash", { command }));
+      expect(r.decision).toBe("allow");
+      expect(r.stdout).toBe("");
+    }
+    const t = makeTempProject({ ".pi/dev-stage-role": "test-writer\n", "tests/a.test.ts": "" });
+    const r = run(t, payload(t, "Bash", { command: "rm tests/a.test.ts" }));
+    expect(r.decision).toBe("allow");
+    expect(r.stdout).toBe("");
+  });
+
+  test("a Bash call with no command string is refused, not crashed on", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Bash", {}));
+    expect(r.decision).toBe("deny");
+    expect(r.stderr).toBe("");
+  });
+});
+
+describe("path-gate-hook — the phase gate on Agent", () => {
+  test("architect spawning the builder with no contracts → deny, logged as a phase-gate block", () => {
+    const dir = makeTempProject({});
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "builder", prompt: "implement it" }), ["--role", "architect"]);
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("phase-gate: cannot commission the builder — no *.contract.ts exists yet");
+    const block = gateEvents(dir).find((e) => e.guard === "phase-gate");
+    expect(block).toMatchObject({ verdict: "block", detail: { kind: "spawn-refused", role: "architect", target: "builder" } });
+  });
+
+  test("a worker holding no `subagent` is refused by the tool policy, not the phase", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "look" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("builder may not use 'subagent'");
+  });
+
+  // F1: on this host only the generated definitions carry a strip and a
+  // bound hook; any other subagent_type is a full-toolset proxy.
+  describe("an unbound subagent_type is refused before the phase gate", () => {
+    test.each([
+      ["general-purpose", { subagent_type: "general-purpose", prompt: "do it" }],
+      ["Explore", { subagent_type: "Explore", prompt: "look around" }],
+      ["delegate", { subagent_type: "delegate", prompt: "implement it" }],
+      ["(missing subagent_type)", { prompt: "do it" }],
+    ])("architect Agent %s → deny, logged as a phase-gate spawn-refused block", (_label, input) => {
+      const dir = makeTempProject({});
+      const r = run(dir, payload(dir, "Agent", input), ["--role", "architect"]);
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("holds no role binding");
+      expect(r.reason).toContain("only the generated definitions (architect, test-writer, builder, reviewer)");
+      const block = gateEvents(dir).find((e) => e.guard === "phase-gate");
+      const target = "subagent_type" in input ? { target: input.subagent_type } : {};
+      expect(block).toMatchObject({ verdict: "block", summary: r.reason, detail: { kind: "spawn-refused", role: "architect", ...target } });
+    });
+
+    test("Task, the older name, is judged the same", () => {
+      const dir = makeTempProject({});
+      const r = run(dir, payload(dir, "Task", { subagent_type: "general-purpose", prompt: "do it" }), ["--role", "architect"]);
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("'general-purpose' holds no role binding");
+    });
+
+    test("the reviewer (no preconditions) → allow", () => {
+      const dir = makeTempProject({});
+      const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "review the spec" }), ["--role", "architect"]);
+      expect(r.decision).toBe("allow");
+      expect(gateEvents(dir).filter((e) => e.verdict === "block")).toEqual([]);
+    });
+  });
+});
+
+describe("path-gate-hook — role source", () => {
+  test("--role beats the role file", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    // As builder this read is denied; as the bound test-writer it is its own zone.
+    expect(run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }), ["--role", "test-writer"]).decision).toBe("allow");
+    expect(run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }), ["--role", "test-writer"]).decision).toBe("deny");
+  });
+
+  test("no role anywhere → inactive: allow, no log", () => {
+    const dir = makeTempProject({});
+    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
+    expect(r.decision).toBe("allow");
+    expect(r.stdout).toBe("");
+    expect(gateEvents(dir)).toEqual([]);
+  });
+
+  test("a --role that is not a pipeline role fails open, loudly", () => {
+    const dir = makeTempProject({});
+    const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }), ["--role", "wizard"]);
+    expect(r.status).toBe(0);
+    expect(r.decision).toBe("allow");
+    expect(r.stderr).toContain("--role 'wizard' is not a pipeline role");
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "path-gate", verdict: "error" });
+  });
+
+  test("a tool the gate has no opinion on passes through", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    expect(run(dir, payload(dir, "WebFetch", { url: "https://example.com" })).decision).toBe("allow");
+  });
+
+  test("a non-PreToolUse event is ignored", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const evt = JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: join(dir, "tests/a.test.ts") } });
+    expect(run(dir, evt).decision).toBe("allow");
+  });
+});
+
+// F6: a mitigation for the ambient-hook + bound-subagent stack, unverified
+// live — it assumes a subagent's PreToolUse payload carries `agent_type` or
+// `agent_id` the way SubagentStart's does.
+describe("path-gate-hook — the ambient hook stands down for a bound subagent's call", () => {
+  const npmTest = { command: "npm test" }; // refused for every role, so an allow is the stand-down
+
+  test("ambient (role file architect) + agent_type in the payload → allow, and nothing logged", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const r = run(dir, payload(dir, "Bash", npmTest, { agent_type: "builder" }));
+    expect(r.decision).toBe("allow");
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+    expect(readGuardLog(dir)).toEqual([]);
+  });
+
+  test("agent_id alone is enough", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    expect(run(dir, payload(dir, "Bash", npmTest, { agent_id: "a-1" })).decision).toBe("allow");
+    expect(readGuardLog(dir)).toEqual([]);
+  });
+
+  test("without the field the ambient hook judges as before", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const r = run(dir, payload(dir, "Bash", npmTest));
+    expect(r.decision).toBe("deny");
+    expect(gateEvents(dir).some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  test("a BOUND hook never stands down", () => {
+    const dir = makeTempProject({});
+    const r = run(dir, payload(dir, "Bash", npmTest, { agent_type: "builder" }), ["--role", "builder"]);
+    expect(r.decision).toBe("deny");
+  });
+});
+
+describe("path-gate-hook — failure mode: open for reads and unknown tools, closed for writes", () => {
+  test("malformed stdin → allow, exit 0, one stderr line, an error event in the cwd's log", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, "this is not json");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr.split("\n").filter((l) => l !== "")).toHaveLength(1);
+    expect(r.stderr).toContain("path-gate-hook: error, allowing the call");
+    const log = gateEvents(dir);
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "error", detail: { host: "claude-code", kind: "hook-error" } });
+  });
+
+  test("empty stdin and a payload without tool_name are the same failure", () => {
+    const dir = makeTempProject({});
+    expect(run(dir, "").stderr).toContain("allowing the call");
+    expect(run(dir, JSON.stringify({ cwd: dir })).stderr).toContain("no tool_name");
+  });
+
+  // F5: a present, non-object tool_input is malformed — narrowing throws
+  // after the tool name is known, so the failure mode is chosen by tool.
+  test.each(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "Agent", "Task"])(
+    "%s with an input the hook cannot narrow → DENY whose reason says the hook errored, plus the error event",
+    (tool) => {
+      const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+      const r = run(dir, payload(dir, tool, "not an object"));
+      expect(r.status).toBe(0);
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("the hook errored (payload tool_input is not an object)");
+      expect(r.reason).toContain(`${tool} call is refused`);
+      expect(r.stderr).toContain(`refusing the ${tool} call`);
+      const log = gateEvents(dir);
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ guard: "path-gate", verdict: "error", detail: { host: "claude-code", kind: "hook-error", tool } });
+      expect(log[0]?.summary).toContain("call refused");
+    },
+  );
+
+  test("Read with the same bad input fails open: allow, with the error event", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const r = run(dir, payload(dir, "Read", "not an object"));
+    expect(r.decision).toBe("allow");
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("allowing the call");
+    expect(gateEvents(dir)[0]).toMatchObject({ verdict: "error", detail: { kind: "hook-error", tool: "Read" } });
+  });
+});
+
+describe("path-gate-hook — run start", () => {
+  test("the architect's first call stamps run-start once; later calls do not add another", () => {
+    const dir = makeTempProject({});
+    const call = payload(dir, "Read", { file_path: join(dir, "spec.md") });
+    run(dir, call, ["--role", "architect"]);
+    run(dir, call, ["--role", "architect"]);
+    run(dir, payload(dir, "Bash", { command: "npm test" }), ["--role", "architect"]);
+    const starts = readGuardLog(dir).filter((e) => e.guard === RUN_START_GUARD);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ verdict: "pass", summary: "first gated tool call (architect: Read)", detail: { kind: "run-start", role: "architect", tool: "Read" } });
+  });
+
+  test("a worker stamps no run-start", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
+    expect(readGuardLog(dir).filter((e) => e.guard === RUN_START_GUARD)).toEqual([]);
+  });
+});
+
+describe("host declaration (ADR 2026-029)", () => {
+  test("a bound role declares claude-code with every constraint — the definition's tools: is the strip", () => {
+    const dir = makeTempProject({});
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.summary).toBe(
+      "host claude-code: enforces tool-strip, path-gate, phase-gate, scoped-views",
+    );
+    // Declared before the run starts, so the host line explains what follows.
+    const order = readGuardLog(dir).map((e) => e.guard);
+    expect(order.indexOf("host")).toBeLessThan(order.indexOf(RUN_START_GUARD));
+  });
+
+  test("an ambient role (from the role file) declares claude-code WITHOUT the strip", () => {
+    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    run(dir, payload(dir, "Read", { file_path: join(dir, "src", "x.ts") }));
+    const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.summary).toBe(
+      "host claude-code: enforces path-gate, phase-gate, scoped-views; unenforced: tool-strip",
+    );
+  });
+
+  test("recorded on change: two calls under the same binding leave one line", () => {
+    const dir = makeTempProject({});
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    run(dir, payload(dir, "Read", { file_path: join(dir, "spec.md") }), ["--role", "architect"]);
+    expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(1);
+  });
+});

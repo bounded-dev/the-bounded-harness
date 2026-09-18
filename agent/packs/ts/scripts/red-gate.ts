@@ -79,7 +79,8 @@ import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests
 import { lintTests } from "./lint-src.ts";
 import { typecheck, type TypecheckOptions, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
-import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { logGuardEvent } from "../../../src/guard-log.ts";
+import type { GateResult } from "../../../src/gate-result.ts";
 
 const GUARD = "red-gate";
 
@@ -91,15 +92,6 @@ const NOT_IMPLEMENTED = /(^|\n)\s*NotImplementedError\b/;
 
 export function isNotImplementedFailure(message: string | undefined): boolean {
   return message !== undefined && NOT_IMPLEMENTED.test(message);
-}
-
-export interface GateResult {
-  readonly code: 0 | 1 | 2;
-  readonly verdict: GuardVerdict;
-  readonly summary: string;
-  /** Greppable output lines (first line is the verdict headline). */
-  readonly lines: string[];
-  readonly detail: Readonly<Record<string, unknown>>;
 }
 
 function firstLine(message: string | undefined): string {

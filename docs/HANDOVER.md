@@ -1,5 +1,25 @@
 # Handover — pi-harness developer stage
 
+2026-09-18 addendum (#16, ADR 2026-029 — read after the 09-11 one): enforcement
+is now host-portable. Every artifact gate is one CLI, `pi-gates <gate>`
+(`agent/src/gates-cli.ts` over the registry `agent/packs/ts/gates.ts`), and the
+pi tools read the same registry; capability constraints live per host —
+`agent/extensions/` for pi, `agent/hosts/claude-code/` for Claude Code (a
+`PreToolUse` hook, generated agent definitions, a bash policy derived from
+`ROLE_TOOLS`). Each run's guard log opens with a `host` line saying which host
+ran it and what it enforced. The Claude Code adapter is verified by fixture
+only; its first live run is the next dogfood entry, and its README lists the
+honest limits.
+
+Also fixed on the way: `npm run check` never completed on Linux. The
+guard-log test's "unwritable path" was under `/proc`, where mkdir answers
+ENOENT with the parent present and Node's recursive mkdir loops forever — a
+hang, not a throw, invisible on macOS (no `/proc`). CI runs ubuntu-latest, so
+every "main green" below was a local verdict; the test now uses a regular
+file as the parent and the suite completes everywhere.
+
+---
+
 2026-09-11 addendum (r16–r19 — read this one first): state of `main` after four
 harnessed pairs across three days. The arc and every number are in
 [dogfooding.md](dogfooding.md) (Runs 16–19 section); this is the state it left.

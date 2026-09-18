@@ -10,73 +10,37 @@
  *   run_tests(cwd?)         — BUILDER ONLY. Runs the project's vitest suite
  *                             with the JSON reporter and returns ONLY sanitized
  *                             results (failure names + assertion diffs; no code
- *                             frames, stacks, paths, or console). Sanitization
- *                             is the already-built sanitizeTestRun; this tool
- *                             only spawns + shapes.
+ *                             frames, stacks, paths, or console).
  *   typecheck(cwd?)         — runs `tsc --noEmit` and returns pass/fail +
  *                             diagnostics with absolute machine paths redacted
  *                             AND scoped to the calling role: a worker sees its
  *                             own zone and the shared interface in full, and
  *                             another role's errors as a count plus an owner.
  *                             Same blindness run_tests already enforces; the
- *                             role comes from the path gate's own binding.
+ *                             role comes from the path gate's own binding, and
+ *                             the tool exposes no way to claim another.
  *   record_design_review    — REVIEWER ONLY. Records the pre-freeze review of
  *     (findings, cwd?)        spec + contracts in the guard log, checksum-bound
  *                             to the bytes reviewed. The reviewer has no write
  *                             zone at all, so this is the only mark it leaves.
  *
- * Registration approach: a plain auto-loaded extension (extensions/*.ts) that
- * calls `pi.registerTool()` for each. The logic lives in testable pack modules
- * (packs/ts/scripts/{run-tests,typecheck,design-review}.ts); this file is the
- * thin pi-facing wiring + guard-log boundary. A normal session holds none of
- * these agents' allowlists and simply never calls them.
+ * Only `remove` is written here: it is a host tool (the path gate vets it),
+ * not an artifact gate. The other three are gate-registry entries
+ * (`packs/ts/gates.ts`, ADR 2026-029) registered through `lib/gate-tools.ts`,
+ * so their names, descriptions, parameters, guard events and verdict lines are
+ * the same ones `pi-gates` serves from a shell — this file says only which
+ * entries the worker roles hold. A normal session holds none of these agents'
+ * allowlists and simply never calls them.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { lstatSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
-import { formatRunTests, runTests,
-  failureNames,
-  repeatedFailureNudge,
-} from "../packs/ts/scripts/run-tests.ts";
-import { typecheck } from "../packs/ts/scripts/typecheck.ts";
-import {
-  formatScopedTypecheck,
-  scopeGuardDetail,
-  scopeTypecheck,
-} from "../packs/ts/scripts/typecheck-scope.ts";
-import { runRecordDesignReview } from "../packs/ts/scripts/design-review.ts";
-import { logGuardEvent, readGuardLog } from "../src/guard-log.ts";
-import { sessionRole } from "../src/path-gate.ts";
-
-const PARAMS = Type.Object({
-  cwd: Type.Optional(
-    Type.String({
-      description: "Project directory to run in (absolute, or relative to the session cwd). Defaults to the session cwd.",
-    }),
-  ),
-});
-
-/** Resolve the target cwd against the session cwd. */
-function targetCwd(sessionCwd: string, param?: string): string {
-  if (!param) return sessionCwd;
-  return isAbsolute(param) ? param : resolve(sessionCwd, param);
-}
-
-/** Failing-test-name sets from this project's prior run_tests events, oldest→newest. */
-function priorFailureSets(cwd: string): string[][] {
-  try {
-    return readGuardLog(cwd)
-      .filter((e) => e.guard === "run_tests")
-      .map((e) => {
-        const names = (e.detail as { names?: unknown } | undefined)?.names;
-        return Array.isArray(names) ? names.filter((n): n is string => typeof n === "string") : [];
-      });
-  } catch {
-    return []; // an unreadable log must never break the builder's only channel
-  }
-}
+import { gates } from "../packs/ts/gates.ts";
+import { logGuardEvent } from "../src/guard-log.ts";
+import { targetCwd } from "../src/target-cwd.ts";
+import { registerGateTools } from "./lib/gate-tools.ts";
 
 export default function (pi: ExtensionAPI): void {
   pi.registerTool({
@@ -111,134 +75,5 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // The reviewer's only pen. As a fresh mind it reads the spec and every
-  // contract once before the freeze and writes nothing — its whole output is
-  // this one guard event, which records the SET of files it challenged so a
-  // contract added or removed afterwards is detectably surface it never saw.
-  pi.registerTool({
-    name: "record_design_review",
-    label: "Record Design Review",
-    description:
-      "Record the challenges you raise reading spec + contracts. Findings are claims for the architect to weigh, not verdicts — a blocker included — and an empty list is a valid review. You review the whole design once; the architect may revise a file in answer and it stays covered, so only a contract file added or removed later re-requires a review.",
-    promptSnippet: "Record the challenges you raise reading the spec and the contracts.",
-    promptGuidelines: [
-      "Call this once, at the end of the review, with everything you found — it is the only output of the role, and you are not re-run to re-check.",
-      "severity: 'blocker' is the challenge you would stake most on — the pipeline looks set to jam (an operation nobody can call, a type nobody can construct, two requirements that contradict) — still advisory, the architect may freeze over it; 'concern' means two careful implementers could read it differently; 'note' is everything else.",
-      "Pass [] when you found nothing. A clean review that is recorded can be audited later; a silence cannot.",
-    ],
-    parameters: Type.Object({
-      findings: Type.Array(
-        Type.Object({
-          severity: Type.Union(
-            [Type.Literal("blocker"), Type.Literal("concern"), Type.Literal("note")],
-            { description: "blocker | concern | note" },
-          ),
-          summary: Type.String({ description: "One line: what is wrong." }),
-          evidence: Type.Optional(
-            Type.String({ description: "Where to look — a path, a symbol, an exported operation." }),
-          ),
-        }),
-        { description: "What you found. Pass [] to record that you found nothing." },
-      ),
-      cwd: Type.Optional(
-        Type.String({
-          description:
-            "Project directory to run in (absolute, or relative to the session cwd). Defaults to the session cwd.",
-        }),
-      ),
-    }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = targetCwd(ctx.cwd, params.cwd);
-      const r = runRecordDesignReview(cwd, params.findings);
-      return {
-        content: [{ type: "text" as const, text: r.lines.join("\n") }],
-        details: { code: r.code, ok: r.code === 0 },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "run_tests",
-    label: "Run Tests",
-    description:
-      "Run the project's vitest suite and return sanitized results: failing test names and assertion diffs only. Code frames, stack traces, file paths, and console output are stripped — you cannot see test source, only outcomes.",
-    promptSnippet: "Run the test suite and see sanitized pass/fail results (no test source).",
-    promptGuidelines: [
-      "Use run_tests to check whether your implementation satisfies the suite; it never reveals test source.",
-    ],
-    parameters: PARAMS,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const cwd = targetCwd(ctx.cwd, params.cwd);
-      const result = await runTests(cwd);
-      if (signal?.aborted) return { content: [{ type: "text", text: "run_tests: cancelled" }], details: {} };
-      const names = failureNames(result);
-      // The guard log is the only run history that survives between tool calls,
-      // and it is already written on every run — so convergence is measured
-      // from the same audit trail the orchestrator reads (dogfood Run 4).
-      const nudge = repeatedFailureNudge(priorFailureSets(cwd), names);
-      logGuardEvent(cwd, {
-        guard: "run_tests",
-        verdict: result.blocked !== undefined ? "error" : result.failed === 0 ? "pass" : "block",
-        summary: result.blocked !== undefined
-          ? "suite could not run"
-          : `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped`,
-        detail: { names, ...(nudge !== undefined ? { stuck: true } : {}) },
-      });
-      const text = nudge === undefined ? formatRunTests(result) : `${formatRunTests(result)}\n\n${nudge}`;
-      return {
-        content: [{ type: "text", text }],
-        details: {
-          ok: result.ok,
-          total: result.total,
-          passed: result.passed,
-          failed: result.failed,
-          skipped: result.skipped,
-          blocked: result.blocked !== undefined,
-          stuck: nudge !== undefined,
-        },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "typecheck",
-    label: "Typecheck",
-    description:
-      "Run `tsc --noEmit` on the project and return pass/fail plus type-error diagnostics. Absolute machine paths are redacted. Diagnostics are SCOPED TO YOUR ROLE: errors in your own zone and in the shared interface (contracts, spec, config) are shown in full; errors in another role's zone are reported as a count and an owner only — no paths, no messages, no symbol names.",
-    promptSnippet: "Type-check the project with tsc --noEmit (scoped to your zone).",
-    promptGuidelines: [
-      "Use typecheck to confirm your implementation compiles before relying on run_tests.",
-      "Errors reported as another role's are not yours to fix and do not block you — never redesign your code around them, and never ask for their content; report them to the architect if they seem to block the ticket.",
-      "'clean in your zone' is not 'the project compiles': it means nothing is left for YOU to fix.",
-    ],
-    parameters: PARAMS,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const cwd = targetCwd(ctx.cwd, params.cwd);
-      const result = await typecheck(cwd);
-      if (signal?.aborted) return { content: [{ type: "text", text: "typecheck: cancelled" }], details: {} };
-      // Raw tsc output is project-wide, so this tool was a hole in the same
-      // wall run_tests and the path gate build (dogfood Run 15): a builder read
-      // a test file's diagnostic — file, line, and the symbol name — out of its
-      // own typecheck and reshaped the implementation around test source it may
-      // never read. The role comes from the SAME binding the path gate acts on,
-      // so the two layers cannot disagree about who is calling.
-      const scoped = scopeTypecheck(result, sessionRole(ctx.cwd));
-      logGuardEvent(cwd, {
-        guard: "typecheck",
-        verdict: result.ok ? "pass" : "block",
-        // The summary stays the WHOLE project's verdict — the guard log is the
-        // orchestrator's evidence, and it is never scoped.
-        summary: result.ok ? "no type errors" : `${result.errorCount} error${result.errorCount === 1 ? "" : "s"}`,
-        detail: scopeGuardDetail(scoped),
-      });
-      return {
-        content: [{ type: "text", text: formatScopedTypecheck(scoped) }],
-        details: {
-          ok: result.ok,
-          errorCount: scoped.scoped ? scoped.shown : result.errorCount,
-          ...(scoped.scoped ? { scoped: true, hidden: scoped.hidden } : {}),
-        },
-      };
-    },
-  });
+  registerGateTools(pi, gates, new Set(["run_tests", "typecheck", "record_design_review"]));
 }

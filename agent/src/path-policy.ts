@@ -234,6 +234,22 @@ export const GATE_TOOLS: readonly string[] = [
   "deliver",
 ];
 
+/**
+ * Every pi tool that is an ARTIFACT GATE (ADR 2026-029): the architect's
+ * gates above plus the measurement and the worker gates. This is the set the
+ * gate registry exposes as tools and a second host reaches through
+ * `pi-gates`; "which tools are not gates" is derived from it, never listed
+ * again. `sleep`, `git`, `subagent`, `remove` and the file tools are host
+ * capabilities and stay out.
+ */
+export const ARTIFACT_GATE_TOOLS: readonly string[] = [
+  ...GATE_TOOLS,
+  "mutation_score",
+  "typecheck",
+  "run_tests",
+  "record_design_review",
+];
+
 export const ROLE_TOOLS: Record<Role, readonly string[]> = {
   architect: [
     "read",
@@ -567,8 +583,13 @@ const NAMED_TOOLS: Record<Role, string> = {
   reviewer: "read/grep/find/ls, typecheck, or record_design_review",
 };
 
-/** One line: why the tool is refused, and what to use instead. */
-function forbiddenWhy(role: Role, tool: string): string {
+/** One line: why the tool is refused, and what to use instead.
+ *
+ *  Exported for the host adapters (hosts/claude-code/bash-policy.ts): a shell
+ *  command that is not a sanctioned carrier is refused with the same sentence
+ *  the pi `bash` tool would get, so the two hosts never explain one rule two
+ *  ways. */
+export function forbiddenWhy(role: Role, tool: string): string {
   // The architect is the one role with a real substitute for each of these,
   // so it gets told the substitute rather than its general toolkit.
   if (role === "architect" && tool === "run_tests") {

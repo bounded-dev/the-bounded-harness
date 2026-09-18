@@ -1,4 +1,4 @@
-# pi-harness
+# The Bounded Harness
 
 An open-source coding-agent harness, built in the open and used daily. The
 **`agent/` subdirectory** is the live config home — `~/.pi/agent` symlinks to
@@ -38,6 +38,18 @@ the part you own.
   config (ADR 2026-007). `packs/ts` is the first and the substantial one: the
   contract-authoring skill, the zone lint rules, the scaffolder, and every gate
   script the developer stage runs.
+
+- **Hosts.** The harness's logic never depends on which agent runtime loads
+  it; only a thin **host adapter** does (ADR 2026-029). Every *artifact gate*
+  — purity, design, drift, red, green, sign-off, deliver, mutation score,
+  typecheck, the test run — is one CLI, `pi-gates <gate> [dir] [--json]`,
+  callable from any agent, from CI, or by hand; the pi gate tools read the
+  same registry. The *capability constraints* — tool strip, path gate, phase
+  gate, scoped worker views — need host cooperation and live per host:
+  `agent/extensions/` for pi, `agent/hosts/claude-code/` for Claude Code (a
+  `PreToolUse` hook plus generated agent definitions). A run's guard log
+  says which host it ran under and what that host enforced, so a gates-only
+  transcript is never mistaken for a blind one.
 
 Packages are pinned via `pi install` (recorded in `agent/settings.json`),
 secrets and session state stay uncommitted, and work happens in worktrees on
@@ -84,6 +96,7 @@ git clone git@github.com:bounded-dev/pi-harness.git
 ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
 ln -s "$PWD/pi-harness/agent/AGENTS.md" ~/.claude/CLAUDE.md   # Claude Code
 ln -s ~/.pi/agent/scripts/pi-ticket /usr/local/bin/pi-ticket   # the gated launcher, anywhere on PATH
+ln -s ~/.pi/agent/scripts/pi-gates /usr/local/bin/pi-gates     # every artifact gate as a command
 pi update --extensions                      # install packages from settings.json
 cd pi-harness/agent && npm ci && npm run check
 ```
@@ -91,6 +104,14 @@ cd pi-harness/agent && npm ci && npm run check
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
 Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in `agent/`
 (ADR 2026-002). A `BRAVE_API_KEY` env var overrides the file.
+
+To drive a ticket from **Claude Code** instead of pi, install the host
+adapter into the project: `node ~/.pi/agent/hosts/claude-code/install.ts
+<project>` writes the four role definitions to `<project>/.claude/agents/`
+and the ambient path-gate hook to `<project>/.claude/settings.json`. See
+[`agent/hosts/claude-code/README.md`](agent/hosts/claude-code/README.md) for
+what it enforces, what it does not, and its honest limits — it is verified
+by fixture; the first live run is a dogfood entry.
 
 ## Conventions
 
