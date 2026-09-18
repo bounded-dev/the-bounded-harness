@@ -7,6 +7,7 @@ import installAmbientPathGate from "../extensions/path-gate.ts";
 import installArchitectPathGate from "../extensions/path-gate/architect.ts";
 import installBuilderPathGate from "../extensions/path-gate/builder.ts";
 import { readGuardLog } from "./guard-log.ts";
+import { NO_HOST, recordHostDeclaration } from "./host.ts";
 import { planToolStrip, resetPathGateRegistry } from "./path-gate.ts";
 import { FORBIDDEN_TOOLS, ROLE_TOOLS, type Role } from "./path-policy.ts";
 
@@ -36,6 +37,8 @@ interface FakePi {
   readonly pi: unknown;
   /** Fire session_start as the host does, after binding. */
   start(cwd: string): void;
+  /** Fire one tool_call as the host does; the gate's answer, if any. */
+  call(cwd: string, toolName: string, input: Record<string, unknown>): Promise<unknown>;
   /** The tool names the model can actually see. */
   active(): string[];
   /** Every setActiveTools() call, in order. */
@@ -64,6 +67,13 @@ function fakePi(active: readonly string[]): FakePi {
       for (const h of handlers.get("session_start") ?? []) {
         h({ type: "session_start", reason: "startup" }, { cwd });
       }
+    },
+    async call(cwd: string, toolName: string, input: Record<string, unknown>) {
+      let answer: unknown;
+      for (const h of handlers.get("tool_call") ?? []) {
+        answer = (await h({ type: "tool_call", toolName, input }, { cwd })) ?? answer;
+      }
+      return answer;
     },
     active: () => [...current],
     calls,
@@ -250,6 +260,29 @@ describe("the strip at session start", () => {
     // Declared BEFORE the strip is recorded: the host line explains the lines after it.
     const order = readGuardLog(cwd).map((e) => e.guard);
     expect(order.indexOf("host")).toBeLessThan(order.indexOf("path-gate"));
+  });
+
+  test("the host line is re-declared on every gated call, so a bare pi-gates cannot leave it lying", async () => {
+    // A `pi-gates` from another terminal writes `host none` mid-session; every
+    // pi event after it would sit under a line saying nothing was enforced.
+    const cwd = project();
+    const fake = fakePi(FULL_TOOLSET);
+    installArchitectPathGate(fake.pi as never);
+    fake.start(cwd);
+    const hostLines = () => readGuardLog(cwd).filter((e) => e.guard === "host").map((e) => e.detail?.["host"]);
+    expect(hostLines()).toEqual(["pi"]);
+
+    recordHostDeclaration(cwd, NO_HOST);
+    expect(hostLines()).toEqual(["pi", "none"]);
+
+    const answer = await fake.call(cwd, "read", { path: join(cwd, "src", "money", "money.contract.ts") });
+    expect(answer).toBeUndefined(); // the architect may read a contract: the call passed
+    expect(hostLines()).toEqual(["pi", "none", "pi"]);
+    expect(readGuardLog(cwd).at(-1)?.summary).toBe("host pi: enforces tool-strip, path-gate, phase-gate, scoped-views");
+
+    // Deduped: a second call with the host line already current writes nothing.
+    await fake.call(cwd, "read", { path: join(cwd, "src", "money", "money.contract.ts") });
+    expect(hostLines()).toEqual(["pi", "none", "pi"]);
   });
 
   test("a host that cannot strip still starts, and is still gated", () => {

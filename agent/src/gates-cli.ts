@@ -22,18 +22,23 @@
 // and belongs to the host's adapter (the path gate in pi). From a bare shell
 // every gate is runnable and the log says so by what it does not record.
 
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  argString,
   isGateRegistry,
   parseGateArgs,
   type FlagSpec,
+  type GateArgs,
   type GateCommand,
 } from "./gate-command.ts";
-import { gateEnvelope, gateExitCode, verdictLine, type GateResult } from "./gate-result.ts";
+import { gateEnvelope, gateError, gateExitCode, verdictLine, type GateResult } from "./gate-result.ts";
+import { logGuardEvent } from "./guard-log.ts";
+import { HOST_ENV, NO_HOST, hostFromEnv, recordHostDeclaration } from "./host.ts";
+import { isMainModule } from "./is-main-module.ts";
+import { asRole } from "./path-gate.ts";
 import { targetCwd } from "./target-cwd.ts";
-import { NO_HOST, recordHostDeclaration } from "./host.ts";
 
 /** sysexits' EX_USAGE: the program was invoked wrongly, no gate ran. */
 export const USAGE_EXIT = 64;
@@ -41,6 +46,19 @@ export const USAGE_EXIT = 64;
 const PROGRAM = "pi-gates";
 /** The env var a host adapter sets so the CLI runs as the bound role (src/path-gate.ts). */
 const ROLE_ENV = "PI_DEV_STAGE_ROLE";
+
+/**
+ * The args the environment supplies: a gate with a `role` flag that was not
+ * given one on the command line takes the role a host adapter (or a person)
+ * exported, if it names a pipeline role. The gate itself never resolves a
+ * role — it would resolve it against the TARGET directory, which is how
+ * `typecheck src` came back unscoped in Run 15.
+ */
+export function envArgs(gate: GateCommand, args: GateArgs, env: Readonly<Record<string, string | undefined>>): GateArgs {
+  if (!gate.flags.some((f) => f.name === "role") || argString(args, "role") !== undefined) return args;
+  const role = asRole(env[ROLE_ENV]);
+  return role === undefined ? args : { ...args, role };
+}
 
 /** Flags the CLI itself owns, accepted before or after the gate name. */
 const GLOBAL_FLAGS: readonly FlagSpec[] = [
@@ -173,11 +191,16 @@ export async function main(
 ): Promise<number> {
   const all = gates ?? (await discoverGates());
 
+  // `--list` anywhere means list: it names no gate, so no gate runs.
+  if (argv.includes("--list")) {
+    io.out(argv.includes("--json") ? `${JSON.stringify(listing(all))}\n` : usage(all));
+    return 0;
+  }
+
   // The gate name is the first token that is not one of the CLI's own flags;
   // anything after it is parsed against that gate's spec.
   let json = false;
   let help = false;
-  let list = false;
   let name: string | undefined;
   const rest: string[] = [];
   for (const token of argv) {
@@ -187,8 +210,6 @@ export async function main(
       json = true;
     } else if (token === "--help") {
       help = true;
-    } else if (token === "--list") {
-      list = true;
     } else if (token.startsWith("--")) {
       io.err(`${PROGRAM}: unknown flag ${token}\n\n${usage(all)}`);
       return USAGE_EXIT;
@@ -197,10 +218,6 @@ export async function main(
     }
   }
 
-  if (list) {
-    io.out(json ? `${JSON.stringify(listing(all))}\n` : usage(all));
-    return 0;
-  }
   if (name === undefined) {
     (help ? io.out : io.err)(usage(all));
     return help ? 0 : USAGE_EXIT;
@@ -229,41 +246,27 @@ export async function main(
   const cwd = targetCwd(sessionCwd, parsed.positionals[0]);
 
   // A bare shell enforces no capability constraint, and the log must say so
-  // (ADR 2026-029) — unless a host adapter handed this process its role, in
-  // which case that host declared itself before the call reached here.
-  if (process.env[ROLE_ENV] === undefined) recordHostDeclaration(cwd, NO_HOST);
+  // (ADR 2026-029) — unless a host adapter NAMED itself to this process, in
+  // which case it declared itself before the call reached here. A role alone
+  // is not a host: a person exports PI_DEV_STAGE_ROLE to see a role's view.
+  if (hostFromEnv(process.env[HOST_ENV]) === undefined) recordHostDeclaration(cwd, NO_HOST);
 
   let result: GateResult;
   try {
-    result = await gate.run(cwd, parsed.args);
+    result = await gate.run(cwd, envArgs(gate, parsed.args, process.env));
   } catch (e) {
     // A gate that throws could not run: ERROR, in the same shape as any
-    // other, so a --json consumer never has to parse a stack trace.
-    const message = e instanceof Error ? e.message : String(e);
-    result = {
-      code: 2,
-      verdict: "error",
-      summary: message,
-      lines: [`${gate.name}: ERROR — ${message}`],
-      detail: { reason: "threw" },
-    };
+    // other, so a --json consumer never has to parse a stack trace — and
+    // logged, because a gate that ran and threw is still a gate that did
+    // not pass.
+    result = gateError(gate.name, e instanceof Error ? e.message : String(e), "threw");
+    logGuardEvent(cwd, { guard: gate.name, verdict: "error", summary: result.summary, detail: result.detail });
   }
   print(io, gate.name, result, json);
   return gateExitCode(result);
 }
 
-// Symlink-safe main check (invoked via the ~/.pi/agent symlink): compare realpaths.
-function isMainModule(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isMainModule()) {
+if (isMainModule(import.meta.url)) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e: unknown) => {

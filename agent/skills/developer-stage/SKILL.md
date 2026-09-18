@@ -268,12 +268,8 @@ recorded in the guard log automatically.
 **Every gate is also a command.** `pi-gates <gate> [dir] [--json]` runs the
 same function the tool runs, prints the same lines and the same trailing
 verdict, and writes the same guard-log event — one registry, two doors (ADR
-2026-029). In pi you hold the tools and never need the command. On a host
-with no named tools — Claude Code — the gates are reached as `pi-gates …`
-through a role-narrowed Bash, and the host adapter hands the process your
-role so `typecheck` scopes exactly as the tool does. Whichever door, the
-guard log opens with a `host` line naming what that host enforced: read it
-before trusting that blindness held.
+2026-029). Whichever door, the guard log opens with a `host` line naming what
+that host enforced: read it before trusting that blindness held.
 
 Every gate and every bounce writes a one-line, greppable reason to the
 project's guard log. A deterministic system that is opaque when it jams is just

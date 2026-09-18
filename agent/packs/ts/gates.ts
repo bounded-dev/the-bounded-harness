@@ -29,9 +29,8 @@ import {
   type GateArgs,
   type GateCommand,
 } from "../../src/gate-command.ts";
-import { guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
+import { gateError, guardVerdictOf, toGateResult, type GateResult } from "../../src/gate-result.ts";
 import { logGuardEvent } from "../../src/guard-log.ts";
-import { sessionRole } from "../../src/path-gate.ts";
 
 // --- shared pieces ----------------------------------------------------------------
 
@@ -91,13 +90,7 @@ function findingsFlags(schema: {
 /** A gate that could not run because of how it was called. Logged like any
  *  other error verdict: a misused gate is still a gate that did not pass. */
 function misuse(name: string, cwd: string, message: string): GateResult {
-  const result: GateResult = {
-    code: 2,
-    verdict: "error",
-    summary: message,
-    lines: [`${name}: ERROR — ${message}`],
-    detail: { reason: "bad-invocation" },
-  };
+  const result = gateError(name, message, "bad-invocation");
   logGuardEvent(cwd, { guard: name, verdict: "error", summary: message, detail: result.detail });
   return result;
 }
@@ -334,11 +327,13 @@ export const gates: readonly GateCommand[] = [
     ],
     async run(cwd, args) {
       const { parseRole, typecheckGate } = await import("./scripts/typecheck-gate.ts");
-      // The scoped view comes from the session's own binding — the same one
-      // the path gate acts on — never from a caller's claim: a tool exposes
-      // no `role`, and only a shell may name one.
+      // The role is the HOST's to supply, never this gate's to resolve: the pi
+      // tool injects the session's binding (extensions/lib/gate-tools.ts) and
+      // the CLI maps PI_DEV_STAGE_ROLE (src/gates-cli.ts). Resolving it here
+      // against `cwd` was Run 15's hole — `cwd` is the TARGET, and a target
+      // subdirectory holds no role file, so the answer came back unscoped.
       const raw = argString(args, "role");
-      if (raw === undefined) return await typecheckGate(cwd, sessionRole(cwd));
+      if (raw === undefined) return await typecheckGate(cwd);
       const role = parseRole(raw);
       if (role === undefined) {
         return misuse("typecheck", cwd, `--role must be one of architect | test-writer | builder | reviewer (got '${raw}')`);

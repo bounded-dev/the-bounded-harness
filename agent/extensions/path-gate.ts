@@ -157,9 +157,17 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     // first gated call too; before r16 every one stamped a marker and the clock
     // picked a late one, starting DESIGN inside the design phase. A worker the
     // architect spawns did not start the run, so it marks nothing.
-    if ((boundRole !== undefined || !isAmbientSuppressed()) && isDrivingRole(role)) {
+    const evaluating = boundRole !== undefined || !isAmbientSuppressed();
+    if (evaluating && isDrivingRole(role)) {
       noteRunStart(ctx.cwd, role, event.toolName);
     }
+
+    // Re-declare the host on every gated call, not only at session start: a
+    // bare `pi-gates` from another terminal writes `host none` mid-session,
+    // and every pi event after it would otherwise sit under a line that says
+    // nothing was enforced. The declaration dedupes against the log's latest
+    // host line, so this is one small read per call and a write on change.
+    if (evaluating) recordHostDeclaration(ctx.cwd, PI_HOST);
 
     const input = event.input as Readonly<Record<string, unknown>>;
     const ev = {

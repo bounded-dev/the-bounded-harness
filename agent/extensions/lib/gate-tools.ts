@@ -18,6 +18,12 @@
  *   · `gateArgsFrom(gate, params)` — the inverse: the tool's parameters as the
  *     `GateArgs` the gate's `run` reads, keyed by FLAG name (`--pattern`),
  *     which is how the CLI's parser would have keyed them.
+ *   · `hostArgs(gate, sessionCwd)` — what the HOST supplies and a caller never
+ *     may: a gate with a `cliOnly` `role` flag is handed the session's own
+ *     role (the one the path gate acts on), resolved from the SESSION cwd, not
+ *     the target `cwd` a caller passed. Run 15's hole was exactly that
+ *     resolution done against the target: `typecheck({cwd: "src"})` found no
+ *     role file under `src/` and answered unscoped.
  *
  * `registerGateTools` then registers one tool per registry entry in the set a
  * host names. Its output is the CLI's: the gate's lines, then
@@ -33,6 +39,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type TObject, type TOptional, type TSchema, type TString } from "typebox";
 import type { FlagSpec, GateArgs, GateCommand } from "../../src/gate-command.ts";
 import { verdictLine } from "../../src/gate-result.ts";
+import { sessionRole } from "../../src/path-gate.ts";
 import { targetCwd } from "../../src/target-cwd.ts";
 
 /** The one parameter every gate tool takes, worded once. */
@@ -93,6 +100,19 @@ export function gateArgsFrom(gate: GateCommand, params: Readonly<Record<string, 
   return args;
 }
 
+/** A `cliOnly` flag named `role` marks a gate that scopes by the session's role. */
+function takesSessionRole(gate: GateCommand): boolean {
+  return gate.flags.some((f) => f.cliOnly === true && f.name === "role");
+}
+
+/** The args the host adds on the session's behalf: `role`, when the gate
+ *  takes one and the session has one. Absent stays absent — unscoped. */
+export function hostArgs(gate: GateCommand, sessionCwd: string): GateArgs {
+  if (!takesSessionRole(gate)) return {};
+  const role = sessionRole(sessionCwd);
+  return role === undefined ? {} : { role };
+}
+
 /** pi's UI label, from the tool name: `check_drift` → "Check Drift". */
 function labelOf(tool: string): string {
   return tool
@@ -128,7 +148,7 @@ export function registerGateTools(
       parameters: toolParams(gate),
       async execute(_id, params, signal, _onUpdate, ctx) {
         const cwd = targetCwd(ctx.cwd, stringParam(params, "cwd"));
-        const result = await gate.run(cwd, gateArgsFrom(gate, params));
+        const result = await gate.run(cwd, { ...gateArgsFrom(gate, params), ...hostArgs(gate, ctx.cwd) });
         // A cancelled call reports the cancellation, not a verdict the caller
         // never waited for (the gate itself has already run to completion).
         if (signal?.aborted) return { content: [{ type: "text", text: `${tool}: cancelled` }], details: {} };

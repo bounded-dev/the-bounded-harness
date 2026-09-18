@@ -1,9 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, describe, expect, test } from "vitest";
 import installArchitectTools from "../../extensions/architect-tools.ts";
 import installDevTools from "../../extensions/dev-tools.ts";
 import { paramName, toolFlags, toolParams } from "../../extensions/lib/gate-tools.ts";
 import { isGateCommand } from "../../src/gate-command.ts";
-import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "../../src/path-policy.ts";
+import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
+import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
 import { gates } from "./gates.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-029):
@@ -33,18 +36,6 @@ function registeredTools(install: (pi: never) => void): RegisteredTool[] {
   install(pi as never);
   return tools;
 }
-
-/** The worker-side gate tools: everything a non-architect role holds that is
- *  not a builtin. Derived from ROLE_TOOLS so a new worker tool cannot land
- *  without a registry entry. */
-const BUILTIN = new Set(["read", "grep", "find", "ls", "write", "edit", "remove", "subagent", "git"]);
-const WORKER_GATE_TOOLS = [
-  ...new Set(
-    (["test-writer", "builder", "reviewer"] as const).flatMap((role) =>
-      ROLE_TOOLS[role].filter((t) => !BUILTIN.has(t)),
-    ),
-  ),
-];
 
 describe("the registry is well-formed", () => {
   test("every entry passes the runtime shape check the CLI applies", () => {
@@ -128,17 +119,12 @@ describe("what the command line takes and a tool does not", () => {
 });
 
 describe("the registry and the path policy agree", () => {
-  // `sleep` is the architect's other utility and is a WAIT, not a gate: it
-  // inspects nothing, so it has no place in a registry of artifact gates.
-  const TOOL_GATES = [
-    ...GATE_TOOLS,
-    ...ARCHITECT_UTILITY_TOOLS.filter((t) => t !== "sleep"),
-    ...WORKER_GATE_TOOLS,
-  ].sort();
-
-  test("the tool-bearing entries are exactly the gate tools every role can hold", () => {
+  // ARTIFACT_GATE_TOOLS is the path policy's list of every pi tool that is an
+  // artifact gate (ADR 2026-029); `sleep` is a WAIT, not a gate, and is not in
+  // it. The registry's tool-bearing entries must be that list exactly.
+  test("the tool-bearing entries are exactly ARTIFACT_GATE_TOOLS", () => {
     const tools = gates.flatMap((g) => (g.tool === undefined ? [] : [g.tool])).sort();
-    expect(tools).toEqual(TOOL_GATES);
+    expect(tools).toEqual([...ARTIFACT_GATE_TOOLS].sort());
   });
 
   // A step of design_gate (ADR 2026-019) and the check the delivered project
@@ -151,24 +137,52 @@ describe("the registry and the path policy agree", () => {
 
 describe("the registry and the extensions say the same thing", () => {
   const registered = [...registeredTools(installArchitectTools), ...registeredTools(installDevTools)];
-  const NOT_GATES = new Set(["sleep", "git", "remove"]);
+  // What the extensions register that is NOT an artifact gate (sleep, git,
+  // remove): derived from the policy's list, never restated.
+  const isGate = (name: string): boolean => ARTIFACT_GATE_TOOLS.includes(name);
 
   test("every gate tool the extensions register has a registry entry", () => {
     for (const tool of registered) {
-      if (NOT_GATES.has(tool.name)) continue;
+      if (!isGate(tool.name)) continue;
       expect(gates.find((g) => g.tool === tool.name), `${tool.name} has no registry entry`).toBeDefined();
     }
   });
+});
 
-  // Verbatim, because the description IS the interface of a role with no
-  // shell, and the drift tests pin phrases in it.
-  test("description, snippet and prompt guidelines are verbatim the extension's", () => {
-    for (const tool of registered) {
-      if (NOT_GATES.has(tool.name)) continue;
-      const gate = gates.find((g) => g.tool === tool.name);
-      expect(gate?.description, tool.name).toBe(tool.description);
-      expect(gate?.promptSnippet, tool.name).toBe(tool.promptSnippet);
-      expect(gate?.promptGuidelines, tool.name).toEqual(tool.promptGuidelines);
-    }
+// The host supplies the role (ADR 2026-029). The typecheck entry used to
+// resolve it itself with `sessionRole(cwd)` — against the TARGET, so a
+// `typecheck src` in a bound session found no role file and answered
+// unscoped (Run 15). It now reads `args.role` and nothing else.
+describe("typecheck takes its role from the host", () => {
+  const projects: TempProject[] = [];
+  afterAll(() => projects.forEach((p) => p.cleanup()));
+
+  test("the registry never imports the session-role resolver", () => {
+    const source = readFileSync(join(import.meta.dirname, "gates.ts"), "utf8");
+    expect(source).not.toMatch(/path-gate\.ts/);
+    expect(source).not.toMatch(/sessionRole/);
+  });
+
+  test("run with no role is unscoped, even with a role file in the target", async () => {
+    const p = makeTempProject(
+      {
+        "tsconfig.json": JSON.stringify({
+          compilerOptions: { strict: true, noEmit: true, types: [], skipLibCheck: true },
+          include: ["src"],
+        }),
+        "src/a.ts": 'export const x: number = "s";\n',
+        ".pi/dev-stage-role": "builder\n",
+      },
+      { prefix: "gates-typecheck-", nodeModules: true },
+    );
+    projects.push(p);
+    const typecheck = gates.find((g) => g.name === "typecheck");
+    expect(typecheck).toBeDefined();
+    const result = await typecheck!.run(p.dir, {});
+    expect(result.code).toBe(1);
+    expect(result.detail).toMatchObject({ ok: false, errorCount: 1 });
+    expect(result.detail["scoped"]).toBeUndefined();
+    const scoped = await typecheck!.run(p.dir, { role: "builder" });
+    expect(scoped.detail).toMatchObject({ scoped: true });
   });
 });

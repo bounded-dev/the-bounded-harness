@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import type { GateCommand } from "./gate-command.ts";
 import { readGuardLog } from "../src/guard-log.ts";
 import { makeTempProject, type TempProject } from "../test/support/temp-project.ts";
-import { USAGE_EXIT } from "./gates-cli.ts";
+import { USAGE_EXIT, main } from "./gates-cli.ts";
 
 // `pi-gates` end to end (ADR 2026-029): spawned, because the launcher, the
 // symlink resolution and the exit code ARE the contract a shell sees. The
@@ -81,6 +82,13 @@ describe("usage (exit 64) and help (exit 0)", () => {
     expect(r.stdout).toContain("An EMPTY findings list is a valid and expected answer");
     expect(r.stdout).toMatch(/--findings <json>/);
     expect(r.stdout).toMatch(/--findings-file <string>/);
+  });
+
+  test("--list anywhere in argv lists, and runs no gate", () => {
+    const r = run(["typecheck", "--list"], dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^usage: pi-gates/);
+    expect(gateEvents(dir)).toEqual([]);
   });
 
   test("--list --json is an array of {name, tool, description, flags}", () => {
@@ -204,6 +212,49 @@ describe("typecheck (runs the real tsc once)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/--role must be one of architect \| test-writer \| builder \| reviewer/);
   });
+
+  // The host hands the CLI its role through the environment (ADR 2026-029);
+  // the gate never resolves one itself, because it would resolve it against
+  // the TARGET directory — Run 15's hole.
+  test("PI_DEV_STAGE_ROLE scopes typecheck with no --role", () => {
+    const dir = project({ "tsconfig.json": TSCONFIG, "src/a.ts": 'export const x: number = "s";\n' }, true);
+    const r = spawnSync(process.execPath, [CLI, "typecheck", "--json"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, PI_DEV_STAGE_ROLE: "builder" },
+    });
+    expect(r.status).toBe(1);
+    expect(parseJson(r.stdout)).toMatchObject({ gate: "typecheck", detail: { scoped: true } });
+    expect(gateEvents(dir)[0]).toMatchObject({ guard: "typecheck", detail: { role: "builder" } });
+  });
+});
+
+describe("a gate that throws", () => {
+  const THROWS: GateCommand = {
+    name: "throws",
+    description: "A gate whose runner throws.",
+    flags: [],
+    async run() {
+      throw new Error("boom");
+    },
+  };
+
+  test("is ERROR in the contract's shape, exit 2, and leaves a guard line", async () => {
+    const dir = project({});
+    const out: string[] = [];
+    const code = await main(["throws", "--json"], dir, { out: (t) => out.push(t), err: () => {} }, [THROWS]);
+    expect(code).toBe(2);
+    expect(parseJson(out.join(""))).toMatchObject({
+      gate: "throws",
+      verdict: "error",
+      code: 2,
+      summary: "boom",
+      detail: { reason: "threw" },
+    });
+    expect(gateEvents(dir)).toEqual([
+      expect.objectContaining({ guard: "throws", verdict: "error", summary: "boom", detail: { reason: "threw" } }),
+    ]);
+  });
 });
 
 describe("through the symlinks (the ~/.pi/agent case)", () => {
@@ -240,14 +291,24 @@ describe("host declaration (ADR 2026-029)", () => {
     expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(1);
   });
 
-  test("a role handed down by a host adapter means that host already declared itself", () => {
+  function hostsAfter(env: Readonly<Record<string, string>>) {
     const dir = project({});
     const r = spawnSync(process.execPath, [CLI, "contract-purity", "--json"], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, PI_DEV_STAGE_ROLE: "builder" },
+      env: { ...process.env, ...env },
     });
     expect(r.status).not.toBeNull();
-    expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(0);
+    return readGuardLog(dir).filter((e) => e.guard === "host");
+  }
+
+  test("a host that named itself (PI_HOST) already declared itself — no `none` line", () => {
+    expect(hostsAfter({ PI_HOST: "claude-code", PI_DEV_STAGE_ROLE: "builder" })).toHaveLength(0);
+  });
+
+  test("a role alone is not a host: PI_DEV_STAGE_ROLE by itself still records `none`", () => {
+    const hosts = hostsAfter({ PI_DEV_STAGE_ROLE: "builder" });
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]!.detail).toMatchObject({ host: "none" });
   });
 });

@@ -1,7 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
 import type { GateArgs, GateCommand } from "../../src/gate-command.ts";
 import type { GateResult } from "../../src/gate-result.ts";
-import { CWD_DESCRIPTION, gateArgsFrom, registerGateTools, toolParams } from "./gate-tools.ts";
+import { CWD_DESCRIPTION, gateArgsFrom, hostArgs, registerGateTools, toolParams } from "./gate-tools.ts";
 
 // The registry says what a gate IS; this module says what a pi tool made from
 // it looks like. Both directions are pinned here with a fake gate, because the
@@ -202,5 +205,58 @@ describe("registerGateTools", () => {
     const res = await tool.execute("c1", {}, AbortSignal.abort(), () => {}, { cwd: "/session" });
     expect(res.content[0]?.text).toBe("other: cancelled");
     expect(res.details).toEqual({});
+  });
+});
+
+// The host supplies the role (ADR 2026-029): a gate with a cliOnly `role`
+// flag is handed the SESSION's binding — the one the path gate acts on — and
+// resolved from the session cwd. Run 15's hole was resolving it from the
+// TARGET: `typecheck({cwd: "src"})` found no role file under `src/` and
+// answered with the unscoped project diagnostics, test paths and all.
+describe("the session role is the host's to supply", () => {
+  const SCOPED: GateCommand = {
+    name: "scoped",
+    tool: "scoped",
+    description: "A gate that scopes by role.",
+    flags: [{ name: "role", kind: "string", cliOnly: true, description: "the role" }],
+    async run(cwd, args): Promise<GateResult> {
+      return { code: 0, verdict: "pass", summary: cwd, lines: [JSON.stringify(args)], detail: {} };
+    },
+  };
+  const dirs: string[] = [];
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+  /** A session dir bound to `builder` by role file, with a bare `sub/` under it. */
+  function session(): string {
+    const dir = mkdtempSync(join(tmpdir(), "gate-tools-role-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "dev-stage-role"), "builder\n");
+    return dir;
+  }
+
+  test("hostArgs names the session role only for a gate with a cliOnly `role` flag", () => {
+    const dir = session();
+    expect(hostArgs(SCOPED, dir)).toEqual({ role: "builder" });
+    expect(hostArgs(EVERY_KIND, dir)).toEqual({});
+    expect(hostArgs(SCOPED, join(dir, "sub"))).toEqual({});
+  });
+
+  test("execute hands the gate the role from ctx.cwd, not from the target cwd", async () => {
+    const dir = session();
+    const tool = one([SCOPED], new Set(["scoped"]), "scoped");
+    const res = await tool.execute("c1", { cwd: "sub" }, undefined, () => {}, { cwd: dir });
+    expect(res.content[0]?.text).toBe([JSON.stringify({ role: "builder" }), "scoped: PASS"].join("\n"));
+  });
+
+  test("a caller cannot pass `role` as a parameter — the host's wins, and none means unscoped", async () => {
+    const dir = session();
+    const tool = one([SCOPED], new Set(["scoped"]), "scoped");
+    const claimed = await tool.execute("c1", { role: "architect" }, undefined, () => {}, { cwd: dir });
+    expect(claimed.content[0]?.text).toContain(JSON.stringify({ role: "builder" }));
+    const unbound = await tool.execute("c2", {}, undefined, () => {}, { cwd: join(dir, "sub") });
+    expect(unbound.content[0]?.text).toBe(["{}", "scoped: PASS"].join("\n"));
   });
 });
