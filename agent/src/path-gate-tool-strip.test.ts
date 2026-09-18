@@ -262,8 +262,8 @@ describe("the strip at session start", () => {
     expect(order.indexOf("host")).toBeLessThan(order.indexOf("path-gate"));
   });
 
-  test("the host line is re-declared on every gated call, so a bare bounded-gates cannot leave it lying", async () => {
-    // A `bounded-gates` from another terminal writes `host none` mid-session; every
+  test("the host line is re-declared on every gated call, so a bare bounded gates cannot leave it lying", async () => {
+    // A `bounded gates` from another terminal writes `host none` mid-session; every
     // pi event after it would sit under a line saying nothing was enforced.
     const cwd = project();
     const fake = fakePi(FULL_TOOLSET);

@@ -7,7 +7,7 @@ import { readGuardLog } from "../src/guard-log.ts";
 import { makeTempProject, type TempProject } from "../test/support/temp-project.ts";
 import { USAGE_EXIT, main } from "./gates-cli.ts";
 
-// `bounded-gates` end to end (ADR 2026-034): spawned, because the launcher, the
+// `bounded gates` end to end (ADR 2026-034): spawned, because the launcher, the
 // symlink resolution and the exit code ARE the contract a shell sees. The
 // gates chosen are the cheap ones — surface-check and contract-purity spawn
 // nothing; typecheck runs the real tsc once on a one-file project.
@@ -46,7 +46,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("no gate: usage on stderr, 64", () => {
     const r = run([], dir);
     expect(r.status).toBe(USAGE_EXIT);
-    expect(r.stderr).toMatch(/^usage: bounded-gates <gate> \[cwd\] \[--json\] \[flags\]/);
+    expect(r.stderr).toMatch(/^usage: bounded gates <gate> \[cwd\] \[--json\] \[flags\]/);
     expect(r.stderr).toMatch(/\n  surface-check +Check every/);
     expect(r.stdout).toBe("");
   });
@@ -54,7 +54,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("--help: the same usage on stdout, 0", () => {
     const r = run(["--help"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: bounded-gates/);
+    expect(r.stdout).toMatch(/^usage: bounded gates/);
   });
 
   test("unknown gate → 64, naming it", () => {
@@ -71,14 +71,14 @@ describe("usage (exit 64) and help (exit 0)", () => {
     ]) {
       const r = run(args, dir);
       expect(r.status, args.join(" ")).toBe(USAGE_EXIT);
-      expect(r.stderr, args.join(" ")).toMatch(/usage: bounded-gates typecheck \[cwd\]/);
+      expect(r.stderr, args.join(" ")).toMatch(/usage: bounded gates typecheck \[cwd\]/);
     }
   });
 
   test("<gate> --help prints the whole description and the flags", () => {
     const r = run(["sign-off", "--help"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: bounded-gates sign-off \[cwd\] \[--json\] \[flags\]/);
+    expect(r.stdout).toMatch(/^usage: bounded gates sign-off \[cwd\] \[--json\] \[flags\]/);
     expect(r.stdout).toContain("An EMPTY findings list is a valid and expected answer");
     expect(r.stdout).toMatch(/--findings <json>/);
     expect(r.stdout).toMatch(/--findings-file <string>/);
@@ -87,7 +87,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("--list anywhere in argv lists, and runs no gate", () => {
     const r = run(["typecheck", "--list"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: bounded-gates/);
+    expect(r.stdout).toMatch(/^usage: bounded gates/);
     expect(gateEvents(dir)).toEqual([]);
   });
 
@@ -267,7 +267,7 @@ describe("through the symlinks (the ~/.pi/agent case)", () => {
     expect(Array.isArray(parseJson(r.stdout))).toBe(true);
   });
 
-  test("the bounded-gates launcher resolves itself through a symlink and execs the CLI", () => {
+  test("the bounded gates launcher resolves itself through a symlink and execs the CLI", () => {
     const dir = project({});
     const link = join(dir, "bounded-gates");
     symlinkSync(LAUNCHER, link);

@@ -1,7 +1,7 @@
 // The TypeScript pack's gate registry (ADR 2026-034).
 //
 // Every artifact gate this pack contributes, as one list the root discovers by
-// convention (`packs/*/gates.ts`) and never by name. `bounded-gates` reads it for
+// convention (`packs/*/gates.ts`) and never by name. `bounded gates` reads it for
 // its command line; the pi extensions read it for their tool roster; a second
 // host reads it for whatever it binds. A gate's name, tool name, description,
 // flags and prompt guidance therefore live HERE and nowhere else — the
@@ -14,7 +14,7 @@
 // `toGateResult`; their own return types are left alone.
 //
 // The runners are imported inside `run`, not at the top: the table itself is
-// what `bounded-gates --list`, a usage message and a tool roster need, and loading
+// what `bounded gates --list`, a usage message and a tool roster need, and loading
 // every gate's machinery (eslint, ts-morph, …) to print a table cost a second
 // per invocation. A gate's cost is paid when it runs.
 

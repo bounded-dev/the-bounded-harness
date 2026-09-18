@@ -3,14 +3,14 @@
 // In pi no role holds a shell: the gates, git and sleep are NAMED tools, and
 // `bash` is in every role's FORBIDDEN_TOOLS. Claude Code has no way to add a
 // named tool to a subagent, so the gates are reached the one way they can be —
-// `bounded-gates <gate>` through Bash — and Bash becomes the thing this file
+// `bounded gates <gate>` through Bash — and Bash becomes the thing this file
 // narrows: a role may run exactly the commands that stand in for the pi tools
 // its ROLE_TOOLS entry names, and nothing else. One list, derived, never a
 // second: the set of gates a role may invoke here IS its ROLE_TOOLS minus the
 // tools that have a Claude Code tool or a bash carrier of their own.
 //
 // The narrowing is deliberately stricter than "is the first word allowed".
-// A shell string is a program, and `bounded-gates typecheck; cat tests/x.test.ts`
+// A shell string is a program, and `bounded gates typecheck; cat tests/x.test.ts`
 // starts with an allowed word. So the command is first read the way a POSIX
 // shell would, quote by quote, and refused the moment it uses anything that
 // would make it more than one plain argv: separators, pipes, redirects,
@@ -20,7 +20,7 @@
 // commands this role may run instead, because a refused command costs a turn
 // and a vague refusal costs several.
 //
-// An allowed `bounded-gates` call is also where the bound role and the host cross
+// An allowed `bounded gates` call is also where the bound role and the host cross
 // into the CLI process: the hook rewrites the command with a
 // `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>` prefix (`updatedInput`).
 // `sessionRole()` reads the role before the role file, so a role-scoped gate
@@ -44,9 +44,9 @@ import {
 import { isSleepSeconds, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 
 /** Which sanctioned carrier an allowed command is. The hook needs to know:
- *  a `bounded-gates` call is handed the bound role through `updatedInput`, the
+ *  a `bounded gates` call is handed the bound role through `updatedInput`, the
  *  other carriers are let through untouched. */
-export type Carrier = "bounded-gates" | "git" | "sleep" | "rm";
+export type Carrier = "bounded gates" | "git" | "sleep" | "rm";
 
 /** A Decision that, when it allows, also says which carrier it allowed. */
 export type BashDecision =
@@ -57,7 +57,7 @@ const allow = (carrier: Carrier): BashDecision => ({ allow: true, carrier });
 const block = (reason: string): BashDecision => ({ allow: false, reason });
 
 /**
- * The pi tools reached through `bounded-gates`: exactly ARTIFACT_GATE_TOOLS
+ * The pi tools reached through `bounded gates`: exactly ARTIFACT_GATE_TOOLS
  * (src/path-policy.ts). Everything else in a role's ROLE_TOOLS is a host
  * capability — the file tools have a Claude Code tool of their own (see
  * render-agents.ts), and `remove`, `git` and `sleep` have their own bash
@@ -66,7 +66,7 @@ const block = (reason: string): BashDecision => ({ allow: false, reason });
  */
 const CLI_GATE_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_GATE_TOOLS);
 
-/** The pi tool names a role reaches through `bounded-gates <gate>`. */
+/** The pi tool names a role reaches through `bounded gates <gate>`. */
 export function cliGates(role: Role): readonly string[] {
   return ROLE_TOOLS[role].filter((tool) => CLI_GATE_TOOLS.has(tool));
 }
@@ -81,7 +81,7 @@ export function gateCommand(tool: string): string {
 
 /** The pi tool a CLI argument names: `red-gate` → `red_gate`. Both spellings
  *  are accepted on the way in so a model that read the pi brief and one that
- *  read `bounded-gates --list` are both right. */
+ *  read `bounded gates --list` are both right. */
 function gateTool(arg: string): string {
   return arg.replace(/-/g, "_");
 }
@@ -89,7 +89,7 @@ function gateTool(arg: string): string {
 /** What this role may put through Bash — the tail of every refusal. */
 export function carriers(role: Role): string {
   const tools = ROLE_TOOLS[role];
-  const out = ["bounded-gates <gate>"];
+  const out = ["bounded gates <gate>"];
   if (tools.includes("git")) out.push("git …");
   if (tools.includes("sleep")) out.push(`sleep <${SLEEP_MIN_SECONDS}-${SLEEP_MAX_SECONDS}>`);
   if (tools.includes("remove")) out.push("rm <path>");
@@ -278,8 +278,13 @@ export function decideBash(role: Role, command: string, ctx: Ctx): BashDecision 
 
   const tools = ROLE_TOOLS[role];
   switch (head) {
-    case "bounded-gates":
-      return decideGate(role, argv);
+    case "bounded": {
+      if (argv[1] === "gates") return decideGate(role, argv.slice(1));
+      const sub = argv[1] === undefined ? "'bounded' with no subcommand" : `'bounded ${argv[1]}'`;
+      return block(
+        `path-gate: ${role} may not run ${sub}: in this pipeline Bash carries only ${carriers(role)}`,
+      );
+    }
     case "git":
       if (!tools.includes("git")) {
         return block(`path-gate: ${role} may not run 'git': ${forbiddenWhy(role, "git")}`);
@@ -312,25 +317,25 @@ function decideGate(role: Role, argv: readonly string[]): BashDecision {
   const claimed = argv.find((a) => HOST_ONLY_FLAGS.some((f) => a === f || a.startsWith(`${f}=`)));
   if (claimed !== undefined) {
     return block(
-      `path-gate: ${role} may not pass '${claimed}' to bounded-gates: the host supplies the role and findings are passed inline`,
+      `path-gate: ${role} may not pass '${claimed}' to bounded gates: the host supplies the role and findings are passed inline`,
     );
   }
   const arg = argv[1];
   if (arg === undefined) {
-    return block(`path-gate: ${role} may not run 'bounded-gates' with no gate — 'bounded-gates --list' shows them`);
+    return block(`path-gate: ${role} may not run 'bounded gates' with no gate — 'bounded gates --list' shows them`);
   }
-  if (arg === "--list" || arg === "--help" || arg === "-h") return allow("bounded-gates");
+  if (arg === "--list" || arg === "--help" || arg === "-h") return allow("bounded gates");
   const tool = gateTool(arg);
   const mine = cliGates(role);
-  if (mine.includes(tool)) return allow("bounded-gates");
+  if (mine.includes(tool)) return allow("bounded gates");
   // A gate some other role holds: pi's own sentence for it. The GATE_TOOLS are
   // not in FORBIDDEN_TOOLS (pi's frontmatter strip keeps them from the
   // workers), but forbiddenWhy still names their owner correctly.
   if (ALL_GATES.has(tool)) {
-    return block(`path-gate: ${role} may not run 'bounded-gates ${arg}': ${forbiddenWhy(role, tool)}`);
+    return block(`path-gate: ${role} may not run 'bounded gates ${arg}': ${forbiddenWhy(role, tool)}`);
   }
   return block(
-    `path-gate: ${role} may not run 'bounded-gates ${arg}': no such gate for this role — ${role}'s gates are ${mine.map(gateCommand).join(", ")}`,
+    `path-gate: ${role} may not run 'bounded gates ${arg}': no such gate for this role — ${role}'s gates are ${mine.map(gateCommand).join(", ")}`,
   );
 }
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# bounded-gates — run one artifact gate from any shell (ADR 2026-034).
+# bounded gates — run one artifact gate from any shell (ADR 2026-034).
 #
-#   bounded-gates                          # list the gates
-#   bounded-gates red-gate                 # run a gate in the current project
-#   bounded-gates typecheck ../proj --json # against another directory, as JSON
-#   bounded-gates sign-off --help          # a gate's flags
+#   bounded gates                          # list the gates
+#   bounded gates red-gate                 # run a gate in the current project
+#   bounded gates typecheck ../proj --json # against another directory, as JSON
+#   bounded gates sign-off --help          # a gate's flags
 #
 # Why this exists: the gates were always host-independent — plain functions
 # over the tree — but the only way to run them together was a pi session, so
@@ -34,7 +34,7 @@ HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 
 CLI="$HARNESS/src/gates-cli.ts"
 if [ ! -f "$CLI" ]; then
-  echo "bounded-gates: cannot find the gates CLI at $CLI" >&2
+  echo "bounded gates: cannot find the gates CLI at $CLI" >&2
   exit 2
 fi
 

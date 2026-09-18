@@ -1,7 +1,7 @@
 # Handover — the Bounded Harness developer stage
 
 2026-09-18 addendum (#16, ADR 2026-034 — read after the 09-11 one): enforcement
-is now host-portable. Every artifact gate is one CLI, `bounded-gates <gate>`
+is now host-portable. Every artifact gate is one CLI, `bounded gates <gate>`
 (`agent/src/gates-cli.ts` over the registry `agent/packs/ts/gates.ts`), and the
 pi tools read the same registry; capability constraints live per host —
 `agent/extensions/` for pi, `agent/hosts/claude-code/` for Claude Code (a
@@ -154,7 +154,7 @@ changes landed, all with tests, all motivated by a numbered finding in
    child.
 4. **Forbidden tools are stripped, not refused.** A bound session loses them
    from the visible toolset at `session_start` (`tool-strip` guard event);
-   `bounded-ticket` also excludes them at launch.
+   `bounded ticket` also excludes them at launch.
 5. **Two model tiers.** `.pi/dev-stage-models.json` names `designModel`
    (architect, reviewer) and `workerModel` (test-writer, builder), injected at
    spawn time, logged as `model-tier`, never fatal (ADR 2026-022).
@@ -183,7 +183,7 @@ six-cell grid (opus/sonnet/kimi x harness/guidance) is archived as r10-*..r12-*
 with gradings in the branch commit messages. The mutation matrix says blind
 test-first buys ordering coverage, in-run adversarial pressure, and evidence —
 not raw assertion quality. Open next: timing (target <20 min), composite
-design gate, bounded-ticket default, mutation-score gate.
+design gate, bounded ticket default, mutation-score gate.
 
 # Original handover (Run 6) — the method below still holds
 
@@ -310,7 +310,7 @@ export PI_CODING_AGENT_DIR=~/.pi-vanilla/agent   # auth + models symlinks only
    what actually unlocks the test-writer and builder working in parallel
    (~10 min of a 30 min run). **This is the highest-value next task.**
 2. **The role-file route still shows `bash`** to the model — blocked on call,
-   about one wasted turn. Only a launch flag can strip it, so `bounded-ticket` stays
+   about one wasted turn. Only a launch flag can strip it, so `bounded ticket` stays
    the stricter route. Decide whether to make it the default.
 3. **The skill still says "do not improvise a target"** while Run 6 only
    escaped its deadlock *because* the architect ignored that. The green-gate

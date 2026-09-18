@@ -238,7 +238,7 @@ export const GATE_TOOLS: readonly string[] = [
  * Every pi tool that is an ARTIFACT GATE (ADR 2026-034): the architect's
  * gates above plus the measurement and the worker gates. This is the set the
  * gate registry exposes as tools and a second host reaches through
- * `bounded-gates`; "which tools are not gates" is derived from it, never listed
+ * `bounded gates`; "which tools are not gates" is derived from it, never listed
  * again. `sleep`, `git`, `subagent`, `remove` and the file tools are host
  * capabilities and stay out.
  */

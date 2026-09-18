@@ -292,7 +292,7 @@ are printed and attributed, the freeze proceeds, and the workers repair their
 own zones once commissioned. What still blocks is anything design-owned — a
 contract, project config, or a generated skeleton, whose errors are the
 contract's own. This is also how a CHANGE RUN enters: on a delivered tree whose
-run boundary the driver has opened (`bounded-change-run` archives the guard log; the
+run boundary the driver has opened (`bounded change-run` archives the guard log; the
 manifest survives), the same re-freeze path runs — fresh review first, then a
 freeze that stands over the drift the change itself created. So revise when the
 design is wrong. What a revision still costs is the red: a changed contract voids the

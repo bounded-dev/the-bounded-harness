@@ -154,7 +154,7 @@ export function renderPreamble(role: Role): string {
   if (has("git")) lines.push("- `git` → `git …` through Bash, one plain command per call.");
   if (has("sleep")) lines.push("- `sleep` → `sleep <seconds>` through Bash, 1-120.");
   for (const gate of cliGates(role)) {
-    lines.push(`- \`${gate}\` → \`bounded-gates ${gateCommand(gate)}\``);
+    lines.push(`- \`${gate}\` → \`bounded gates ${gateCommand(gate)}\``);
   }
 
   return [
@@ -164,7 +164,7 @@ export function renderPreamble(role: Role): string {
     "",
     ...lines,
     "",
-    `Every gate is a command — \`bounded-gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`bounded-gates --list\` names them all.`,
+    `Every gate is a command — \`bounded gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`bounded gates --list\` names them all.`,
     "",
     `Bash is refused for anything else — no \`npm\`, \`npx\`, \`cat\`, \`ls\`, \`find\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.pi/guard-log.jsonl\`.`,
   ].join("\n");

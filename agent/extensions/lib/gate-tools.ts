@@ -2,7 +2,7 @@
  * Gate tools — the pi face of the gate registry (ADR 2026-034).
  *
  * A gate's name, description, flags and prompt guidance live in one registry
- * entry (`packs/<lang>/gates.ts`), and `bounded-gates` reads that entry for its
+ * entry (`packs/<lang>/gates.ts`), and `bounded gates` reads that entry for its
  * command line. This module reads the SAME entry for a pi tool, so a gate
  * cannot differ by how it was invoked: the extensions used to hand-wire each
  * tool over the same run function, and hand-wiring is where a description, a

@@ -51,7 +51,7 @@ domain glossary (`CONTEXT.md`), and technical notes (`docs/tn/`).
   loads it; only a thin **host adapter** does (ADR 2026-034). Every
   *artifact gate* — purity, design, drift, red, green, sign-off, deliver,
   mutation score, typecheck, the test run — is one CLI,
-  `bounded-gates <gate> [dir] [--json]`, callable from any agent, from CI,
+  `bounded gates <gate> [dir] [--json]`, callable from any agent, from CI,
   or by hand; the pi gate tools read the same registry. The *capability
   constraints* — tool strip, path gate, phase gate, scoped worker views —
   need host cooperation and live per host: `agent/extensions/` for pi,
@@ -107,16 +107,16 @@ until the harness ships as packaged per-framework extensions.
 
 ```bash
 git clone git@github.com:bounded-dev/the-bounded-harness.git
-cd the-bounded-harness && agent/scripts/bounded-init
+cd the-bounded-harness && agent/scripts/bounded init
 ```
 
-`bounded-init` does the rest, and is idempotent — re-run it after a pull to
-pick up newly added commands. It symlinks `~/.pi/agent` to `agent/` (the
-live pi config home) and `~/.claude/CLAUDE.md` to `agent/AGENTS.md`, puts
-the harness's commands on PATH (`bounded-gates`, `bounded-ticket`,
-`bounded-change-run`, `dogfood-reset`, `bounded-init` itself), then runs
-`npm ci` and the harness's own test suite. It never overwrites a real file —
-only its own symlinks.
+`bounded init` does the rest, and is idempotent — re-run it after a pull.
+It symlinks `~/.pi/agent` to `agent/` (the live pi config home) and
+`~/.claude/CLAUDE.md` to `agent/AGENTS.md`, puts the one command `bounded`
+on PATH (everything else is a subcommand: `bounded gates`, `bounded
+ticket`, `bounded change-run`, `bounded dogfood-reset`), then runs `npm ci`
+and the harness's own test suite. It never overwrites a real file — only
+its own symlinks.
 
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
 Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in `agent/`

@@ -33,8 +33,8 @@ verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 ## Running one
 
 ```bash
-dogfood-reset          # rebuilds both arms from the default prompt
-dogfood-reset --design-model <pattern> --worker-model <pattern>
+bounded dogfood-reset          # rebuilds both arms from the default prompt
+bounded dogfood-reset --design-model <pattern> --worker-model <pattern>
 ```
 
 The two model flags set the harnessed arm's tiers — the judgment seats
@@ -49,11 +49,11 @@ Then walk into each and paste `PROMPT.md`:
   automatically via `.pi/dev-stage-role`; there is no launcher to remember.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
-— `dogfood-reset` wipes both and starts over, so copy anything worth keeping
+— `bounded dogfood-reset` wipes both and starts over, so copy anything worth keeping
 before re-running. Past runs (1–5) live as branches in
 `~/dev/bounded-harness-dogfood-archive`.
 
-`dogfood-reset` writes the operational `AGENTS.md` block from a single string
+`bounded dogfood-reset` writes the operational `AGENTS.md` block from a single string
 and then *verifies* both arms got byte-identical prompts and blocks, failing
 loudly if not. That check is the experiment: exactly one line may differ
 between arms, the one naming what the environment offers.
@@ -258,7 +258,7 @@ frontmatter allowlist binds subagents only, so a session started from
 `.pi/dev-stage-role` gets everything pi offers minus what the path gate blocks.
 *(Closed since, after r14 paid for it again: a bound session now has its
 forbidden tools removed from the visible toolset at `session_start` — logged as
-a `tool-strip` guard event — and `bounded-ticket` additionally launches with
+a `tool-strip` guard event — and `bounded ticket` additionally launches with
 `--exclude-tools`, which drops them from the registry outright. A refusal layer
 stays as a backstop.)*
 
@@ -1242,7 +1242,7 @@ clean — 205 failures, 0 passed — so this is not universal.)
 r21 is the change cycle's first live outing (ADR 2026-028, TN-26-003, issue
 #14), kimi-only (k3 design / k2.7 workers), both halves headless. First a
 fresh **baseline**: the cockpit prompt, prompt-to-deliver in one session. Then
-the tree was committed, the driver opened the run boundary (`bounded-change-run`
+the tree was committed, the driver opened the run boundary (`bounded change-run`
 archived the guard log; manifest, role and tiers survived), and a **new
 architect session** was fed the first change-request prompt
 (`heating-cockpit-change-1-prompt.md`): the single 90% availability gate

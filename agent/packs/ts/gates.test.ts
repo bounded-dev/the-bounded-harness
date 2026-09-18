@@ -10,7 +10,7 @@ import { makeTempProject, type TempProject } from "../../test/support/temp-proje
 import { gates } from "./gates.ts";
 
 // The registry is the one place a gate's public face lives (ADR 2026-034):
-// `bounded-gates` reads it for its command line and the pi extensions read it for
+// `bounded gates` reads it for its command line and the pi extensions read it for
 // their tool roster. The agreement tests below are therefore tautological by
 // construction — and kept, because they are what fails the day someone
 // hand-wires a tool again.

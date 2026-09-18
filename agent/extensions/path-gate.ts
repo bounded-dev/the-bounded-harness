@@ -125,7 +125,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     if (!boundRole && isAmbientSuppressed()) return;
 
     // Say which host this is and what it holds, before the first tool call:
-    // a `bounded-gates` transcript from a bare shell otherwise reads exactly like
+    // a `bounded gates` transcript from a bare shell otherwise reads exactly like
     // a blind run (ADR 2026-034). pi enforces every constraint the stage has.
     recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
@@ -163,7 +163,7 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     }
 
     // Re-declare the host on every gated call, not only at session start: a
-    // bare `bounded-gates` from another terminal writes `host none` mid-session,
+    // bare `bounded gates` from another terminal writes `host none` mid-session,
     // and every pi event after it would otherwise sit under a line that says
     // nothing was enforced. The declaration dedupes against the log's latest
     // host line, so this is one small read per call and a write on change.

@@ -291,7 +291,7 @@ prints what it found. **Do not go reading the gate scripts to work out how to
 call them**; the tool descriptions are the interface, and each call is
 recorded in the guard log automatically.
 
-**Every gate is also a command.** `bounded-gates <gate> [dir] [--json]` runs the
+**Every gate is also a command.** `bounded gates <gate> [dir] [--json]` runs the
 same function the tool runs, prints the same lines and the same trailing
 verdict, and writes the same guard-log event — one registry, two doors (ADR
 2026-034). Whichever door, the guard log opens with a `host` line naming what

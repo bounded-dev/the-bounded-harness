@@ -17,7 +17,7 @@
 //
 // Bash is the one call that maps to a pi tool the gate would flatly refuse —
 // `bash` is in every role's FORBIDDEN_TOOLS — and in this host it is instead
-// the carrier for `bounded-gates`. It is still returned as a `bash` GateCall rather
+// the carrier for `bounded gates`. It is still returned as a `bash` GateCall rather
 // than swallowed: the hook routes `bash` to the bash policy, and if it ever
 // forgot to, decide() would refuse the call rather than let it through. The
 // safe default is the one that needs no code.

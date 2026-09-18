@@ -25,7 +25,7 @@ Two tiers, cleanly split:
 
 - **Artifact gates are a CLI.** Everything that judges the *tree* — purity,
   design, drift, red, green, sign-off, deliver, mutation score, typecheck,
-  the test run — is one command, `bounded-gates <gate> [dir] [--json]`, over
+  the test run — is one command, `bounded gates <gate> [dir] [--json]`, over
   one result contract (exit `0` PASS, `1` BLOCK, `2` ERROR). No agent
   framework in the loop: CI, a shell, or any agent gets the same verdict from
   the same tree. This tier is 100% deterministic by construction.
@@ -53,7 +53,7 @@ Today:
 
 - **pi — the reference host.** Constraints ride pi's extension system
   (`agent/extensions/`); role binding happens at launch via
-  `bounded-ticket`. pi is also the recommended and primary-tested host: its
+  `bounded ticket`. pi is also the recommended and primary-tested host: its
   system prompt is minimal, so the harness's rules are nearly all the model
   reads — no negotiation with a large built-in prompt over tool habits,
   delegation, or tone.
@@ -75,10 +75,12 @@ The current install — a repo whose `agent/` directory is symlinked into the
 frameworks' config homes (`~/.pi/agent`, `~/.claude/CLAUDE.md`) — is a
 **stopgap**: developer mode for a harness built in the open, where every
 edit is live immediately. It is not the architecture, and no design should
-treat it as load-bearing. The destination is the one the adapters imply:
-the harness ships as an installable extension per supported framework, with
-a real install step, and the CLI (`bounded-gates` and its siblings) as the
-framework-independent core every package carries.
+treat it as load-bearing. The destination is the one the adapters imply: a
+user installs the **`bounded` CLI** and types `bounded init`, which guides
+them through setup — wiring the harness into each agent framework it finds,
+as a packaged extension per framework rather than a symlink. The CLI
+(`bounded gates`, `bounded ticket`, `bounded change-run`, behind the one
+`bounded` command) is the framework-independent core every package carries.
 
 ## What this buys
 

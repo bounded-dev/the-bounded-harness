@@ -91,7 +91,7 @@ describe("Agent → subagent launch", () => {
 
 describe("Bash and the rest", () => {
   test("Bash → the explicit bash marker carrying the command", () => {
-    expect(map("Bash", { command: "bounded-gates typecheck" })).toEqual([{ toolName: BASH_TOOL, input: { command: "bounded-gates typecheck" } }]);
+    expect(map("Bash", { command: "bounded gates typecheck" })).toEqual([{ toolName: BASH_TOOL, input: { command: "bounded gates typecheck" } }]);
     expect(BASH_TOOL).toBe("bash"); // the pi name: decide() would refuse it outright if a host forgot to route it
   });
   test.each(["WebFetch", "WebSearch", "TodoWrite", "AskUserQuestion", "Skill", "SomethingNew"])(

@@ -41,7 +41,7 @@ hit this constantly.
 
 > **Partially landed (2026-09-12).** ADR 2026-028 built the entry point: a
 > change run is a new run on the same tree, entered by the driver opening the
-> **run boundary** (`bounded-change-run` archives the guard log; the manifest, role
+> **run boundary** (`bounded change-run` archives the guard log; the manifest, role
 > and tiers survive), and `design_gate`'s typecheck step now stands over
 > worker-owned drift on a re-freeze so the freeze-first order the dispute
 > protocol always described is reachable. Gaps 1 (same-machine case) and 2

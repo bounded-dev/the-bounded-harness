@@ -89,8 +89,8 @@ _Avoid_: manager agent, supervisor, orchestrator
 One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → design-review → freeze. `sleep` and `mutation_score` sit in the same toolset and are **not** gates — one waits out a subagent, one measures the suite before sign-off; neither decides a transition, and firing a real gate to pass the time corrupts the run's own record.
 _Avoid_: gate script (that's the CLI), command
 
-**bounded-ticket**:
-The launcher (`agent/scripts/bounded-ticket`, symlinked onto PATH as `bounded-ticket`) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it, and the architect's forbidden tools are excluded from the session's registry rather than merely refused when called.
+**bounded ticket**:
+The launcher (`bounded ticket`, a subcommand of the `bounded` CLI) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it, and the architect's forbidden tools are excluded from the session's registry rather than merely refused when called.
 _Avoid_: wrapper, alias
 
 **Dispute**:
@@ -152,7 +152,7 @@ The thin, per-host layer that binds the harness's capability constraints to that
 _Avoid_: plugin, integration, port
 
 **Artifact gate**:
-A mechanism that inspects what exists in the tree — purity, design, drift, red, green, sign-off, deliver, mutation score, typecheck, the test run, the recorded review, surface check, scaffold — and so is host-independent by construction. Exposed once, as `bounded-gates <gate> [cwd] [--json]`, over one result contract; the pi gate tools read the same registry. A CLI does not enforce who may run a gate: that is a capability constraint.
+A mechanism that inspects what exists in the tree — purity, design, drift, red, green, sign-off, deliver, mutation score, typecheck, the test run, the recorded review, surface check, scaffold — and so is host-independent by construction. Exposed once, as `bounded gates <gate> [cwd] [--json]`, over one result contract; the pi gate tools read the same registry. A CLI does not enforce who may run a gate: that is a capability constraint.
 _Avoid_: check script, Tier A (the tier name is for the ADR, not the prose)
 
 **Capability constraint**:
@@ -185,7 +185,7 @@ _Avoid_: brownfield run, incremental run
 
 **Run boundary**:
 The driver-side act that ends one run and arms the next on the same tree:
-`bounded-change-run` archives the guard log (run state) while the manifest, role
+`bounded change-run` archives the guard log (run state) while the manifest, role
 binding and model tiers (tree state) survive. Every log-derived gate — review
 freshness, the phase gate, green-requires-red, timing — is re-armed by it, and
 it refuses to cut through an undelivered run without `--force`.

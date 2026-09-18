@@ -39,7 +39,7 @@ export interface BareGateRun {
   readonly lines: readonly string[];
 }
 
-/** The JSON object `bounded-gates --json` prints: the result plus the gate's name
+/** The JSON object `bounded gates --json` prints: the result plus the gate's name
  *  and the route it named, if any, lifted out of `detail` because a consumer
  *  bouncing work to a role should not have to know the detail's layout. */
 export interface GateEnvelope {

@@ -1,8 +1,8 @@
-// bounded-gates — every artifact gate, from any shell (ADR 2026-034).
+// bounded gates — every artifact gate, from any shell (ADR 2026-034).
 //
-//   bounded-gates <gate> [cwd] [--json] [flags]
-//   bounded-gates <gate> --help
-//   bounded-gates --list [--json]
+//   bounded gates <gate> [cwd] [--json] [flags]
+//   bounded gates <gate> --help
+//   bounded gates --list [--json]
 //
 // The gates were already plain functions, but the only way to reach them
 // together was a pi session: the trailing verdict line, the cwd rule and two
@@ -43,7 +43,7 @@ import { targetCwd } from "./target-cwd.ts";
 /** sysexits' EX_USAGE: the program was invoked wrongly, no gate ran. */
 export const USAGE_EXIT = 64;
 
-const PROGRAM = "bounded-gates";
+const PROGRAM = "bounded gates";
 /** The env var a host adapter sets so the CLI runs as the bound role (src/path-gate.ts). */
 const ROLE_ENV = "BOUNDED_DEV_STAGE_ROLE";
 

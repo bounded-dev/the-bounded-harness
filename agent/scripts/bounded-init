@@ -2,7 +2,7 @@
 # bounded-init — make a freshly cloned Bounded Harness live on this machine.
 #
 #   git clone git@github.com:bounded-dev/the-bounded-harness.git
-#   cd the-bounded-harness && agent/scripts/bounded-init
+#   cd the-bounded-harness && agent/scripts/bounded init
 #
 # Does everything the README used to ask you to do by hand:
 #
@@ -28,7 +28,7 @@ REPO="$(cd -P "$AGENT/.." && pwd)"
 
 # The commands this harness puts on PATH. Adding one here is all it takes —
 # a contributor should not also have to remember to tell people to symlink it.
-COMMANDS=(bounded-ticket bounded-gates bounded-change-run dogfood-reset bounded-init)
+COMMANDS=(bounded)
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
@@ -51,7 +51,7 @@ link() {
   ok "$what → $target"
 }
 
-echo "bounded-init: $REPO"
+echo "bounded init: $REPO"
 echo
 echo "Config home"
 link "$AGENT" "$HOME/.pi/agent" "~/.pi/agent"
@@ -97,11 +97,12 @@ fi
 
 cat <<EOF
 
-Ready. Available now:
+Ready. One command, subcommands for everything:
 
-  bounded-ticket        start a pi session gated as the architect (one ticket)
-  bounded-gates         run one artifact gate from any shell: bounded-gates <gate> [cwd] [--json]
-  dogfood-reset    rebuild the two dogfood arms, ready to run
+  bounded ticket           start a pi session gated as the architect (one ticket)
+  bounded gates <gate>     run one artifact gate from any shell (bounded gates --list)
+  bounded change-run       open the run boundary for a change run
+  bounded dogfood-reset    rebuild the two dogfood arms, ready to run
 
-Re-run bounded-init after a pull to pick up newly added commands.
+Re-run \`bounded init\` after a pull.
 EOF
