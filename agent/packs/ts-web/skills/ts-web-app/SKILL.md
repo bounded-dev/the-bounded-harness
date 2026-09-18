@@ -49,7 +49,7 @@ src/ui/shared/ui/  ← anatomy: markup, a11y, states, spacing. Generated.
 **A fresh look for a project is a fresh `theme.css` and nothing else.** That is
 the deal the whole styling design exists to make true: components style only
 through the semantic token names this file defines (the
-`pi-harness-ts-web/tokens-only-styling` rule refuses anything else), so every
+`bounded-ts-web/tokens-only-styling` rule refuses anything else), so every
 colour on screen came through a name you control here.
 
 Two things the delivery gate checks, so "any look" never becomes an unreadable
@@ -135,13 +135,13 @@ exists. `processes` is gone; FSD deprecated it itself.
 **Law 1 — imports flow strictly downward.** `shared < entities < features <
 widgets < pages`. A module may import its own layer or a lower one, never a
 higher one. If a component needs something from above, take it as a prop.
-Enforced by `pi-harness-ts-web/fsd-downward-imports`, type-only imports
+Enforced by `bounded-ts-web/fsd-downward-imports`, type-only imports
 included.
 
 **Law 2 — each slice has one front door.** A cross-slice import targets the
 slice root (`../building`), never a file inside it
 (`../building/model/query.js`). Inside your own slice, reach for anything.
-Enforced by `pi-harness-ts-web/fsd-slice-public-api`.
+Enforced by `bounded-ts-web/fsd-slice-public-api`.
 
 Together they are the reason the layers stay a structure rather than becoming a
 diagram: both defects compile, both run, and neither is visible in review until
@@ -169,7 +169,7 @@ Law 1, and it is also just the read side not depending on the write side.
 ## The one door
 
 Everything network lives under `src/ui/shared/api/`, and
-`pi-harness-ts-web/client-one-door` refuses a runtime `@trpc/*` or `@tanstack/*`
+`bounded-ts-web/client-one-door` refuses a runtime `@trpc/*` or `@tanstack/*`
 import anywhere else (`import type` is fine everywhere).
 
 ```ts
@@ -271,7 +271,7 @@ noise.
   `props as any` is the same lie about the same type checker — plus
   `fsd-downward-imports`, `fsd-slice-public-api`, `client-one-door` and
   `blessed-stacks-only`.
-- **`pi-harness-ts-web/tokens-only-styling`**, inside `src/ui/**`: no raw
+- **`bounded-ts-web/tokens-only-styling`**, inside `src/ui/**`: no raw
   Tailwind palette (`bg-red-500`, `dark:text-zinc-400`), no hand-written colour
   in brackets (`bg-[#0ea5e9]`, `[color:red]`). Semantic tokens, or
   `bg-[var(--color-…)]`. Sizes in brackets (`w-[42ch]`) are fine — the rule is

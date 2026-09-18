@@ -1,7 +1,7 @@
 {
-  "name": "pi-harness",
+  "name": "bounded-harness",
   "version": "0.1.0",
-  "description": "Personal pi coding agent harness — extensions, skills, prompts, themes",
+  "description": "The Bounded Harness — a coding-agent harness: extensions, skills, packs, and gates",
   "private": true,
   "type": "module",
   "keywords": [

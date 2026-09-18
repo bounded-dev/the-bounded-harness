@@ -44,8 +44,8 @@ interface HookOutput {
 
 function run(dir: string, stdin: string, flags: readonly string[] = []): Run {
   const env = { ...process.env };
-  delete env["PI_GUARD_LOG"];
-  delete env["PI_DEV_STAGE_ROLE"];
+  delete env["BOUNDED_GUARD_LOG"];
+  delete env["BOUNDED_DEV_STAGE_ROLE"];
   const r = spawnSync(process.execPath, [HOOK, ...flags], { cwd: dir, input: stdin, encoding: "utf8", env });
   let decision: Run["decision"] = "allow";
   let reason = "";
@@ -78,8 +78,8 @@ function payload(dir: string, tool_name: string, tool_input: unknown, extra: Rea
   });
 }
 
-/** The prefix an allowed `pi-gates` call is given (F3): the host, then the role. */
-const prefix = (role: string): string => `${HOST_ENV}=claude-code PI_DEV_STAGE_ROLE=${role}`;
+/** The prefix an allowed `bounded-gates` call is given (F3): the host, then the role. */
+const prefix = (role: string): string => `${HOST_ENV}=claude-code BOUNDED_DEV_STAGE_ROLE=${role}`;
 
 /** The log minus the host declaration the hook writes as the role binds
  *  (ADR 2026-034) — these tests are about the gate's own lines. */
@@ -144,35 +144,35 @@ describe("path-gate-hook — Bash, by role", () => {
     expect(block).toMatchObject({ summary: r.reason, detail: { role, tool: "bash", command: "npm test" } });
   });
 
-  test("`pi-gates red-gate`: architect allow, builder deny", () => {
+  test("`bounded-gates red-gate`: architect allow, builder deny", () => {
     const a = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
-    const ok = run(a, payload(a, "Bash", { command: "pi-gates red-gate" }));
+    const ok = run(a, payload(a, "Bash", { command: "bounded-gates red-gate" }));
     expect(ok.decision).toBe("allow");
-    expect(ok.updatedInput?.["command"]).toBe(`${prefix("architect")} pi-gates red-gate`);
+    expect(ok.updatedInput?.["command"]).toBe(`${prefix("architect")} bounded-gates red-gate`);
     const b = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
-    const r = run(b, payload(b, "Bash", { command: "pi-gates red-gate" }));
+    const r = run(b, payload(b, "Bash", { command: "bounded-gates red-gate" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("'red_gate' is the architect's");
   });
 
-  test("`pi-gates typecheck`: builder allow, with the host and the bound role handed to the CLI through the env", () => {
+  test("`bounded-gates typecheck`: builder allow, with the host and the bound role handed to the CLI through the env", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
-    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck", description: "typecheck", timeout: 60000 }));
+    const r = run(dir, payload(dir, "Bash", { command: "bounded-gates typecheck", description: "typecheck", timeout: 60000 }));
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
-    expect(r.updatedInput).toEqual({ command: "PI_HOST=claude-code PI_DEV_STAGE_ROLE=builder pi-gates typecheck", description: "typecheck", timeout: 60000 });
+    expect(r.updatedInput).toEqual({ command: "BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=builder bounded-gates typecheck", description: "typecheck", timeout: 60000 });
     expect(gateEvents(dir)).toEqual([]);
   });
 
   test("the env prefix carries the BOUND role, not the file's", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
-    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck" }), ["--role", "reviewer"]);
-    expect(r.updatedInput?.["command"]).toBe(`${prefix("reviewer")} pi-gates typecheck`);
+    const r = run(dir, payload(dir, "Bash", { command: "bounded-gates typecheck" }), ["--role", "reviewer"]);
+    expect(r.updatedInput?.["command"]).toBe(`${prefix("reviewer")} bounded-gates typecheck`);
   });
 
-  test("a model-typed PI_HOST or PI_DEV_STAGE_ROLE prefix is refused; only the hook adds them", () => {
+  test("a model-typed BOUNDED_HOST or BOUNDED_DEV_STAGE_ROLE prefix is refused; only the hook adds them", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
-    for (const command of ["PI_HOST=claude-code pi-gates typecheck", "PI_DEV_STAGE_ROLE=builder pi-gates typecheck", `${prefix("builder")} pi-gates typecheck`]) {
+    for (const command of ["BOUNDED_HOST=claude-code bounded-gates typecheck", "BOUNDED_DEV_STAGE_ROLE=builder bounded-gates typecheck", `${prefix("builder")} bounded-gates typecheck`]) {
       const r = run(dir, payload(dir, "Bash", { command }));
       expect(r.decision).toBe("deny");
       expect(r.reason).toContain("an env assignment prefix");
@@ -181,9 +181,9 @@ describe("path-gate-hook — Bash, by role", () => {
 
   test("a model-supplied --role is refused; the host supplies the role", () => {
     const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
-    const r = run(dir, payload(dir, "Bash", { command: "pi-gates typecheck --role architect" }));
+    const r = run(dir, payload(dir, "Bash", { command: "bounded-gates typecheck --role architect" }));
     expect(r.decision).toBe("deny");
-    expect(r.reason).toContain("may not pass '--role' to pi-gates");
+    expect(r.reason).toContain("may not pass '--role' to bounded-gates");
   });
 
   test("git, sleep and rm allows stay silent: no updatedInput", () => {

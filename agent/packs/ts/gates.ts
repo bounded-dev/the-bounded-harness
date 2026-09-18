@@ -1,7 +1,7 @@
 // The TypeScript pack's gate registry (ADR 2026-034).
 //
 // Every artifact gate this pack contributes, as one list the root discovers by
-// convention (`packs/*/gates.ts`) and never by name. `pi-gates` reads it for
+// convention (`packs/*/gates.ts`) and never by name. `bounded-gates` reads it for
 // its command line; the pi extensions read it for their tool roster; a second
 // host reads it for whatever it binds. A gate's name, tool name, description,
 // flags and prompt guidance therefore live HERE and nowhere else — the
@@ -14,7 +14,7 @@
 // `toGateResult`; their own return types are left alone.
 //
 // The runners are imported inside `run`, not at the top: the table itself is
-// what `pi-gates --list`, a usage message and a tool roster need, and loading
+// what `bounded-gates --list`, a usage message and a tool roster need, and loading
 // every gate's machinery (eslint, ts-morph, …) to print a table cost a second
 // per invocation. A gate's cost is paid when it runs.
 
@@ -329,7 +329,7 @@ export const gates: readonly GateCommand[] = [
       const { parseRole, typecheckGate } = await import("./scripts/typecheck-gate.ts");
       // The role is the HOST's to supply, never this gate's to resolve: the pi
       // tool injects the session's binding (extensions/lib/gate-tools.ts) and
-      // the CLI maps PI_DEV_STAGE_ROLE (src/gates-cli.ts). Resolving it here
+      // the CLI maps BOUNDED_DEV_STAGE_ROLE (src/gates-cli.ts). Resolving it here
       // against `cwd` was Run 15's hole — `cwd` is the TARGET, and a target
       // subdirectory holds no role file, so the answer came back unscoped.
       const raw = argString(args, "role");

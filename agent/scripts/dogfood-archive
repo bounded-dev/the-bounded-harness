@@ -14,8 +14,8 @@
 # archive is not.
 set -euo pipefail
 
-ARCHIVE="${DOGFOOD_ARCHIVE:-$HOME/dev/pi-harness-dogfood-archive}"
-HARNESS="${PI_HARNESS:-$HOME/dev/pi-harness}"
+ARCHIVE="${DOGFOOD_ARCHIVE:-$HOME/dev/bounded-harness-dogfood-archive}"
+HARNESS="${BOUNDED_HARNESS:-$HOME/dev/pi-harness}"
 ARM_DIR=""; ARM="harnessed"; PROMPT=""; MSG=""
 NAME="${1:-}"; shift || true
 while [ $# -gt 0 ]; do
@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$NAME" ] || { echo "usage: dogfood-archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]" >&2; exit 2; }
-ARM_DIR="$HOME/dev/pi-harness-dogfood-$ARM"
+ARM_DIR="$HOME/dev/bounded-harness-dogfood-$ARM"
 [ -d "$ARM_DIR" ] || { echo "dogfood-archive: no such arm '$ARM_DIR'" >&2; exit 2; }
 [ -d "$ARCHIVE/.git" ] || { echo "dogfood-archive: archive repo missing at $ARCHIVE" >&2; exit 2; }
 

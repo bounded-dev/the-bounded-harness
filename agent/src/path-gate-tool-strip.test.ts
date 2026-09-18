@@ -22,7 +22,7 @@ import { FORBIDDEN_TOOLS, ROLE_TOOLS, type Role } from "./path-policy.ts";
 // A subagent never pays this. Its frontmatter `tools:` allowlist removes the
 // tool at spawn, before the model is shown anything — which is exactly why the
 // refusal text calls the allowlist the primary layer. A session launched
-// DIRECTLY (`.pi/dev-stage-role` + plain `pi`, or `pi-ticket`) has no
+// DIRECTLY (`.pi/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
 // frontmatter, so there the allowlist was documentation and the gate was
 // paying a turn per attempt.
 //
@@ -262,8 +262,8 @@ describe("the strip at session start", () => {
     expect(order.indexOf("host")).toBeLessThan(order.indexOf("path-gate"));
   });
 
-  test("the host line is re-declared on every gated call, so a bare pi-gates cannot leave it lying", async () => {
-    // A `pi-gates` from another terminal writes `host none` mid-session; every
+  test("the host line is re-declared on every gated call, so a bare bounded-gates cannot leave it lying", async () => {
+    // A `bounded-gates` from another terminal writes `host none` mid-session; every
     // pi event after it would sit under a line saying nothing was enforced.
     const cwd = project();
     const fake = fakePi(FULL_TOOLSET);
@@ -315,18 +315,18 @@ describe("the strip at session start", () => {
 
 // `--exclude-tools` is the STRONGER of the two layers: it drops the tool from
 // the session's registry entirely, where setActiveTools only deactivates it.
-// pi-ticket carries the architect's list literally, because a bash launcher
+// bounded-ticket carries the architect's list literally, because a bash launcher
 // cannot import TypeScript — so the two are pinned equal here instead. Without
 // this, adding a tool to FORBIDDEN_TOOLS.architect would silently leave the
 // launcher one tool behind.
-describe("pi-ticket's --exclude-tools list", () => {
+describe("bounded-ticket's --exclude-tools list", () => {
   test("names exactly the architect's forbidden tools", () => {
     const script = readFileSync(
-      join(dirname(dirname(fileURLToPath(import.meta.url))), "scripts", "pi-ticket"),
+      join(dirname(dirname(fileURLToPath(import.meta.url))), "scripts", "bounded-ticket"),
       "utf8",
     );
     const m = /--exclude-tools (\S+)/.exec(script);
-    expect(m, "pi-ticket no longer passes --exclude-tools").not.toBeNull();
+    expect(m, "bounded-ticket no longer passes --exclude-tools").not.toBeNull();
     expect(m![1]!.split(",").sort()).toEqual([...FORBIDDEN_TOOLS.architect].sort());
   });
 });

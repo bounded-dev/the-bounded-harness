@@ -11,7 +11,7 @@
  * (`packs/ts/gates.ts`, ADR 2026-034) through `lib/gate-tools.ts`: one entry
  * per gate carries the name, description, flags and prompt guidance, and this
  * extension only says WHICH entries the architect holds — `GATE_TOOLS` from
- * the path policy, plus `mutation_score`. `pi-gates` reads the same entries
+ * the path policy, plus `mutation_score`. `bounded-gates` reads the same entries
  * for its command line, so a gate cannot differ by how it was invoked. That
  * matters more than it sounds: "the architect runs every gate itself and
  * never trusts a worker's word" is worth nothing if the tool is a second,

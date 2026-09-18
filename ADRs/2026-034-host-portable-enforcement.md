@@ -10,7 +10,7 @@ implied:
 - **Artifact gates** inspect the tree: purity, design, drift, red, green,
   sign-off, deliver, mutation score, typecheck, the test run, the recorded
   review, surface check, scaffold. They are host-independent by
-  construction and are exposed **once**, as a CLI — `pi-gates <gate> [cwd]
+  construction and are exposed **once**, as a CLI — `bounded-gates <gate> [cwd]
   [--json]` — over a single result contract (`src/gate-result.ts`: code
   `0|1|2`, verdict, summary, lines, detail; exit `0` PASS, `1` BLOCK, `2`
   ERROR, `64` usage). A pack contributes its gates through `packs/<lang>/
@@ -22,7 +22,7 @@ implied:
   pi's extensions today, `hosts/claude-code/` hooks as the second host.
 
 A host declares which constraints it enforces, and the guard log records it
-once per run. A run whose host enforces nothing — `pi-gates` from a bare
+once per run. A run whose host enforces nothing — `bounded-gates` from a bare
 shell — records that its capability constraints were unenforced. Gates alone
 are never reported as blindness.
 
@@ -51,8 +51,8 @@ adapter binds a role the same way pi does — by which definition loads it.
 
 ## Consequences
 
-- `pi-gates` is installed by `pi-harness-init` beside `pi-ticket`.
-- In Claude Code `bash` is not forbidden; it is the carrier for `pi-gates`,
+- `bounded-gates` is installed by `bounded-init` beside `bounded-ticket`.
+- In Claude Code `bash` is not forbidden; it is the carrier for `bounded-gates`,
   and the hook narrows it to exactly the gates in the role's `ROLE_TOOLS`.
   Anything else — compound commands, redirects, substitutions — is refused
   with the role's `forbiddenWhy` reason. One list, derived, never a second.

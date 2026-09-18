@@ -248,11 +248,11 @@ function runGate(dir: string, typeErrors = false) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PI_GATE_TEST_CMD: "cat",
-      PI_GATE_TEST_ARGS: JSON.stringify(["run.json"]),
+      BOUNDED_GATE_TEST_CMD: "cat",
+      BOUNDED_GATE_TEST_ARGS: JSON.stringify(["run.json"]),
       // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
-      PI_GATE_TSC_CMD: "sh",
-      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
+      BOUNDED_GATE_TSC_CMD: "sh",
+      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
     },
   });
 }

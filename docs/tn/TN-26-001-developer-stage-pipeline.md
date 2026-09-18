@@ -54,7 +54,7 @@ ORCHESTRATOR (a pi session; interactive mode = main session)
 gates now enforce is shorter, and its middle is not a sequence:
 
 ```
-ARCHITECT (a pi session bound to the role at launch, via pi-ticket)
+ARCHITECT (a pi session bound to the role at launch, via bounded-ticket)
   1. DESIGN   architect writes spec.md + *.contract.ts
               · reviewer subagent reads the design and records its findings
               · gate: design_gate — contract-purity → scaffold → typecheck →
@@ -105,7 +105,7 @@ Enforcement layers:
    called. Builder: `read, write, edit, run_tests, typecheck` — no `bash`
    (shell access defeats all path rules). Subagents get this from their
    frontmatter allowlist. A session bound to a role directly gets it two ways:
-   `pi-ticket` launches with `--exclude-tools`, dropping them from the
+   `bounded-ticket` launches with `--exclude-tools`, dropping them from the
    registry, and the path-gate extension strips the role's forbidden tools
    from the visible toolset at `session_start`, logging one `tool-strip` guard
    event so a tool's absence stays distinguishable from a model not reaching

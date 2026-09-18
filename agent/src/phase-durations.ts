@@ -479,7 +479,7 @@ export function phaseDurations(all: readonly LoggedGuardEvent[]): PhaseDurations
       unavailable:
         skipped > 0
           ? `no usable guard events (${skipped} unreadable) — the log is corrupt`
-          : "the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+          : "the guard log is empty or absent (BOUNDED_GUARD_LOG=off, or no gate ran here)",
     };
   }
 

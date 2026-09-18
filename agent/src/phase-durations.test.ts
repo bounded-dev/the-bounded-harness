@@ -354,7 +354,7 @@ describe("formatPhaseDurations", () => {
 
   test("an unavailable summary degrades to one line saying why", () => {
     expect(formatPhaseDurations(phaseDurations([]))).toEqual([
-      "unavailable — the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+      "unavailable — the guard log is empty or absent (BOUNDED_GUARD_LOG=off, or no gate ran here)",
     ]);
   });
 
@@ -465,7 +465,7 @@ describe("friction", () => {
       unroutedBlocks: 0,
     });
     expect(formatPhaseDurations(d)).toEqual([
-      "unavailable — the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+      "unavailable — the guard log is empty or absent (BOUNDED_GUARD_LOG=off, or no gate ran here)",
     ]);
   });
 });

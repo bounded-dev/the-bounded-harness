@@ -37,8 +37,8 @@
 // .pi/guard-log.jsonl, carrying the contract manifest and the tests-tree hash
 // the verdict was made against — green binds itself to both (green-gate.ts).
 //
-// The suite and tsc commands are injectable for testing via PI_GATE_TEST_CMD /
-// PI_GATE_TEST_ARGS and PI_GATE_TSC_CMD / PI_GATE_TSC_ARGS (JSON arrays);
+// The suite and tsc commands are injectable for testing via BOUNDED_GATE_TEST_CMD /
+// BOUNDED_GATE_TEST_ARGS and BOUNDED_GATE_TSC_CMD / BOUNDED_GATE_TSC_ARGS (JSON arrays);
 // defaults are `npx vitest run --reporter=json` and `npx tsc --noEmit`.
 
 import { fileURLToPath } from "node:url";
@@ -227,17 +227,17 @@ export function classifyRed(run: RunTestsResult, tsc: TypecheckResult): GateResu
 
 /** Test seam: override the suite command without spawning real vitest. */
 export function gateOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): RunTestsOptions {
-  const command = env["PI_GATE_TEST_CMD"];
+  const command = env["BOUNDED_GATE_TEST_CMD"];
   if (!command) return {};
-  const args = JSON.parse(env["PI_GATE_TEST_ARGS"] ?? "[]") as string[];
+  const args = JSON.parse(env["BOUNDED_GATE_TEST_ARGS"] ?? "[]") as string[];
   return { command, args };
 }
 
 /** The same seam for the gates' typecheck run (both red and green typecheck). */
 export function gateTypecheckOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): TypecheckOptions {
-  const command = env["PI_GATE_TSC_CMD"];
+  const command = env["BOUNDED_GATE_TSC_CMD"];
   if (!command) return {};
-  const args = JSON.parse(env["PI_GATE_TSC_ARGS"] ?? "[]") as string[];
+  const args = JSON.parse(env["BOUNDED_GATE_TSC_ARGS"] ?? "[]") as string[];
   return { command, args };
 }
 

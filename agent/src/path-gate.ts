@@ -64,12 +64,12 @@ export function asRole(value: unknown): Role | undefined {
 // Deliberately one-way: nothing should ever re-enable the ambient gate in a
 // process that has a bound role. Subagents are separate processes, so the flag
 // never crosses between them.
-const BOUND_ROLE_KEY = Symbol.for("pi-harness.path-gate.boundRoleInstalled");
+const BOUND_ROLE_KEY = Symbol.for("bounded-harness.path-gate.boundRoleInstalled");
 // The role ITSELF, not just the fact of a binding. Other worker tools need the
 // same answer the gate acts on: `typecheck` scopes its diagnostics by the
 // calling role (packs/ts/scripts/typecheck-scope.ts), and a second, private
 // notion of "who am I" is exactly how two enforcement layers drift apart.
-const BOUND_ROLE_VALUE_KEY = Symbol.for("pi-harness.path-gate.boundRole");
+const BOUND_ROLE_VALUE_KEY = Symbol.for("bounded-harness.path-gate.boundRole");
 
 type GlobalWithRegistry = typeof globalThis & {
   [BOUND_ROLE_KEY]?: boolean;
@@ -103,7 +103,7 @@ export function resetPathGateRegistry(): void {
  *  project. Both are process/cwd-global — see extensions/path-gate.ts for why
  *  they are a fallback and not the mechanism. */
 export function ambientRole(cwd: string): Role | undefined {
-  const fromEnv = asRole(process.env["PI_DEV_STAGE_ROLE"]);
+  const fromEnv = asRole(process.env["BOUNDED_DEV_STAGE_ROLE"]);
   if (fromEnv) return fromEnv;
   try {
     return asRole(readFileSync(join(cwd, ".pi", "dev-stage-role"), "utf8").trim());
@@ -138,7 +138,7 @@ export function sessionRole(cwd: string): Role | undefined {
 // Subagent-spawned roles never had this problem — their frontmatter `tools:`
 // allowlist strips the toolset before the model is ever shown it, which is why
 // the refusal text calls the allowlist the primary layer. A DIRECTLY launched
-// session (`.pi/dev-stage-role` + plain `pi`, or `pi-ticket`) has no
+// session (`.pi/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
 // frontmatter, so the allowlist is documentation there and the gate was doing
 // all the work by refusing calls the model had every reason to make.
 //

@@ -25,7 +25,7 @@ no new rule:
 The third was genuinely un-briefed and passed purity clean, so it moves:
 
 - **cross-contract type import / re-export** — a new rule,
-  `pi-harness-ts/no-cross-contract-type-import`. In a `*.contract.ts`, an
+  `bounded-ts/no-cross-contract-type-import`. In a `*.contract.ts`, an
   `import type … from "…contract.js"` or `export type … from "…contract.js"`
   (any `.contract` specifier) is an error, naming the implementation specifier
   to use instead. This is the cross-FILE twin of `value-objects-own-contract`

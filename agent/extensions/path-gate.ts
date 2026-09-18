@@ -37,7 +37,7 @@
  * ── Fallback (documented limitation) ─────────────────────────────────────
  * This file also auto-loads ambiently (extensions/*.ts). Its default export
  * binds NO role, so it is inert unless a role is found via the fallbacks:
- *   1. PI_DEV_STAGE_ROLE env var, then
+ *   1. BOUNDED_DEV_STAGE_ROLE env var, then
  *   2. a `.pi/dev-stage-role` file in the project cwd.
  * Both are PROCESS/CWD-global: they cannot distinguish two roles operating in
  * the same project at once, and env leaks to nested children. They exist only
@@ -70,7 +70,7 @@ const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /** pi holds all four: the strip, the path gate, the phase gate and the
  *  role-scoped worker views are all in-process hooks here. */
-const PI_HOST = declareHost("pi", CONSTRAINTS);
+const BOUNDED_HOST = declareHost("pi", CONSTRAINTS);
 
 /** Resolve an ambient fallback role once per session (env, then role file).
  *  The resolution itself is `ambientRole` in ../src/path-gate.ts — shared with
@@ -125,9 +125,9 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     if (!boundRole && isAmbientSuppressed()) return;
 
     // Say which host this is and what it holds, before the first tool call:
-    // a `pi-gates` transcript from a bare shell otherwise reads exactly like
+    // a `bounded-gates` transcript from a bare shell otherwise reads exactly like
     // a blind run (ADR 2026-034). pi enforces every constraint the stage has.
-    recordHostDeclaration(ctx.cwd, PI_HOST);
+    recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
     // Defence in depth over a gate that already refuses these calls: if the
     // host cannot strip, the session must still start and still be gated.
@@ -163,11 +163,11 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     }
 
     // Re-declare the host on every gated call, not only at session start: a
-    // bare `pi-gates` from another terminal writes `host none` mid-session,
+    // bare `bounded-gates` from another terminal writes `host none` mid-session,
     // and every pi event after it would otherwise sit under a line that says
     // nothing was enforced. The declaration dedupes against the log's latest
     // host line, so this is one small read per call and a write on change.
-    if (evaluating) recordHostDeclaration(ctx.cwd, PI_HOST);
+    if (evaluating) recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
 
     const input = event.input as Readonly<Record<string, unknown>>;
     const ev = {

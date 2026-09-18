@@ -122,7 +122,7 @@ it. Unwrap explicitly: `const c = Currency.parse("USD"); if (c === undefined)
 throw new Error("fixture");` — three honest lines, once, in a helper.
 
 **Non-blessed frameworks are banned in tests too** —
-`pi-harness-ts/blessed-stacks-only` refuses imports of non-blessed API
+`bounded-ts/blessed-stacks-only` refuses imports of non-blessed API
 frameworks and schema engines (graphql, express, ajv, joi, yup, …). Your
 fakes are hand-built against the contract's ports; a validation library in a
 fixture is a second identity for a value the domain already parses (ADR

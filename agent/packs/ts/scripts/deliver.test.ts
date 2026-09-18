@@ -576,19 +576,19 @@ describe("runDeliver: phase timing", () => {
   });
 
   test("an unavailable log costs one line, never the delivery", () => {
-    // PI_GUARD_LOG=off is the real way a project ends up with no log at all:
+    // BOUNDED_GUARD_LOG=off is the real way a project ends up with no log at all:
     // nothing was ever written, including this delivery's own events.
     const dir = proj();
-    process.env["PI_GUARD_LOG"] = "off";
+    process.env["BOUNDED_GUARD_LOG"] = "off";
     try {
       const r = deliver(dir);
       expect(r.code).toBe(0);
       expect(r.lines).toContain(
-        "deliver: timing — unavailable — the guard log is empty or absent (PI_GUARD_LOG=off, or no gate ran here)",
+        "deliver: timing — unavailable — the guard log is empty or absent (BOUNDED_GUARD_LOG=off, or no gate ran here)",
       );
       expect(r.lines.at(-1)).toMatch(/^deliver: OK — \d+ steps applied$/);
     } finally {
-      delete process.env["PI_GUARD_LOG"];
+      delete process.env["BOUNDED_GUARD_LOG"];
     }
     // the repo was still delivered
     expect(existsSync(join(dir, "src/index.ts"))).toBe(true);

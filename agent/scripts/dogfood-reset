@@ -28,8 +28,8 @@
 #
 # Afterwards there is nothing to configure and no command to remember:
 #
-#   cd ~/dev/pi-harness-dogfood-bare        → run Claude Code
-#   cd ~/dev/pi-harness-dogfood-harnessed   → run pi
+#   cd ~/dev/bounded-harness-dogfood-bare        → run Claude Code
+#   cd ~/dev/bounded-harness-dogfood-harnessed   → run pi
 #   …and paste the canonical prompt from docs/dogfood/ into either.
 #
 # The harnessed arm binds the architect role itself through
@@ -54,8 +54,8 @@
 set -euo pipefail
 
 # Overridable so the script can be exercised without destroying a live run.
-BARE="${DOGFOOD_BARE:-$HOME/dev/pi-harness-dogfood-bare}"
-HARNESSED="${DOGFOOD_HARNESSED:-$HOME/dev/pi-harness-dogfood-harnessed}"
+BARE="${DOGFOOD_BARE:-$HOME/dev/bounded-harness-dogfood-bare}"
+HARNESSED="${DOGFOOD_HARNESSED:-$HOME/dev/bounded-harness-dogfood-harnessed}"
 
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do

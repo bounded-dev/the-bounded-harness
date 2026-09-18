@@ -156,19 +156,19 @@ describe("sessionRole", () => {
   });
 
   test("no binding, no env, no role file ⇒ no role (a normal session)", () => {
-    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", "");
     expect(sessionRole(project())).toBeUndefined();
   });
 
   test("falls back to the role file, exactly as the ambient gate does", () => {
-    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", "");
     const dir = project("builder");
     expect(ambientRole(dir)).toBe("builder");
     expect(sessionRole(dir)).toBe("builder");
   });
 
   test("a garbage role file names no role", () => {
-    vi.stubEnv("PI_DEV_STAGE_ROLE", "");
+    vi.stubEnv("BOUNDED_DEV_STAGE_ROLE", "");
     expect(sessionRole(project("plumber"))).toBeUndefined();
   });
 

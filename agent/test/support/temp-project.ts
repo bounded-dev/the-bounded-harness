@@ -31,7 +31,7 @@ export function makeTempProject(
   files: Readonly<Record<string, string>>,
   options: TempProjectOptions = {},
 ): TempProject {
-  const dir = mkdtempSync(join(tmpdir(), options.prefix ?? "pi-harness-"));
+  const dir = mkdtempSync(join(tmpdir(), options.prefix ?? "bounded-harness-"));
   for (const [rel, content] of Object.entries(files)) {
     const path = join(dir, rel);
     mkdirSync(dirname(path), { recursive: true });

@@ -190,8 +190,8 @@ function runGate(dir: string, typeErrors = false) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PI_GATE_TSC_CMD: "sh",
-      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
+      BOUNDED_GATE_TSC_CMD: "sh",
+      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["-c", `cat tsc.txt; exit ${typeErrors ? 2 : 0}`]),
     },
   });
 }

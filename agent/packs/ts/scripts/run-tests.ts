@@ -224,7 +224,7 @@ export function formatRunTests(result: RunTestsResult): string {
 }
 
 // --- the gate (ADR 2026-034) ----------------------------------------------------
-// The builder's tool and the `pi-gates run-tests` command are the same call.
+// The builder's tool and the `bounded-gates run-tests` command are the same call.
 // This is the guard-log boundary for the suite run: the event is what the
 // convergence nudge reads back, so writing it anywhere but next to the nudge
 // would let a host forget it and quietly switch the nudge off.

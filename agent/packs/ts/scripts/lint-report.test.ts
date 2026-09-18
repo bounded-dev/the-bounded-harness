@@ -9,7 +9,7 @@ import { formatProblems, toProblems } from "./lint-report.ts";
 
 function message(partial: Partial<Linter.LintMessage>): Linter.LintMessage {
   return {
-    ruleId: "pi-harness-ts/declaration-only",
+    ruleId: "bounded-ts/declaration-only",
     severity: 2,
     message: "a contract may only declare",
     line: 1,
@@ -37,7 +37,7 @@ describe("toProblems", () => {
     expect(
       toProblems([
         result("/proj/src/orders/orders.contract.ts", [
-          message({ line: 12, column: 3, ruleId: "pi-harness-ts/no-naked-primitives", message: "naked string" }),
+          message({ line: 12, column: 3, ruleId: "bounded-ts/no-naked-primitives", message: "naked string" }),
         ]),
       ]),
     ).toEqual([
@@ -45,7 +45,7 @@ describe("toProblems", () => {
         filePath: "/proj/src/orders/orders.contract.ts",
         line: 12,
         column: 3,
-        ruleId: "pi-harness-ts/no-naked-primitives",
+        ruleId: "bounded-ts/no-naked-primitives",
         message: "naked string",
       },
     ]);
@@ -98,17 +98,17 @@ describe("formatProblems", () => {
       formatProblems(
         [
           result("/proj/src/orders/orders.contract.ts", [
-            message({ line: 12, column: 3, ruleId: "pi-harness-ts/declaration-only", message: "no bodies" }),
+            message({ line: 12, column: 3, ruleId: "bounded-ts/declaration-only", message: "no bodies" }),
           ]),
         ],
         "/proj",
       ),
-    ).toEqual(["src/orders/orders.contract.ts:12:3  pi-harness-ts/declaration-only  no bodies"]);
+    ).toEqual(["src/orders/orders.contract.ts:12:3  bounded-ts/declaration-only  no bodies"]);
   });
 
   test("a file outside cwd stays locatable as a relative path", () => {
     expect(formatProblems([result("/other/x.ts", [message({ line: 2, column: 5 })])], "/proj")).toEqual([
-      "../other/x.ts:2:5  pi-harness-ts/declaration-only  a contract may only declare",
+      "../other/x.ts:2:5  bounded-ts/declaration-only  a contract may only declare",
     ]);
   });
 

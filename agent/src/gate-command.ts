@@ -47,7 +47,7 @@ export interface FlagSpec {
 export type GateArgs = Readonly<Record<string, unknown>>;
 
 export interface GateCommand {
-  /** The CLI name: `pi-gates <name>`. Also the prefix of the verdict line. */
+  /** The CLI name: `bounded-gates <name>`. Also the prefix of the verdict line. */
   readonly name: string;
   /** The pi tool name, when the gate is exposed as one. Absent for a gate that
    *  is CLI-only: a step of a composite (scaffold) or a check the delivered

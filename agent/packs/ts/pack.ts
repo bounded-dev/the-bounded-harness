@@ -54,12 +54,12 @@ export type RoleBrief = "builder" | "test-writer";
  * One ESLint rule contributed to the src gate.
  *
  * `plugin` is the flat-config namespace the rule is registered under, and it is
- * the CONTRIBUTING pack's, never `pi-harness-ts`: two packs owning rules in one
+ * the CONTRIBUTING pack's, never `bounded-ts`: two packs owning rules in one
  * namespace is a collision waiting for the first name clash, and the rule id a
  * block prints should say which pack to go and read.
  */
 export interface LintSrcRuleContribution {
-  /** Flat-config plugin namespace, e.g. `pi-harness-ts-web`. */
+  /** Flat-config plugin namespace, e.g. `bounded-ts-web`. */
   readonly plugin: string;
   /** Rule name within that namespace, e.g. `fsd-downward-imports`. */
   readonly name: string;
@@ -69,7 +69,7 @@ export interface LintSrcRuleContribution {
   readonly namedIn: RoleBrief;
 }
 
-/** `pi-harness-ts-web/fsd-downward-imports` — derived, never stored, so the id
+/** `bounded-ts-web/fsd-downward-imports` — derived, never stored, so the id
  *  a gate enforces and the id a brief is checked against cannot drift apart. */
 export function lintSrcRuleId(contribution: LintSrcRuleContribution): string {
   return `${contribution.plugin}/${contribution.name}`;

@@ -29,8 +29,8 @@
 // unrunnable / bad invocation). Logs one guard event to the target's
 // .pi/guard-log.jsonl.
 //
-// The suite and tsc commands are injectable for testing via PI_GATE_TEST_CMD /
-// PI_GATE_TEST_ARGS and PI_GATE_TSC_CMD / PI_GATE_TSC_ARGS (JSON arrays).
+// The suite and tsc commands are injectable for testing via BOUNDED_GATE_TEST_CMD /
+// BOUNDED_GATE_TEST_ARGS and BOUNDED_GATE_TSC_CMD / BOUNDED_GATE_TSC_ARGS (JSON arrays).
 
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";

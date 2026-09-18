@@ -112,15 +112,15 @@ describe("rendered Claude Code agent definitions", () => {
         expect(source).toContain(`\n---\n\n${body}\n`);
       });
 
-      test("the host preamble names each gate the role holds as a pi-gates command, and no other", () => {
+      test("the host preamble names each gate the role holds as a bounded-gates command, and no other", () => {
         const preamble = source.slice(fm.length, source.indexOf("\n---\n", fm.length + 8));
         expect(preamble).toContain("## This host: Claude Code");
-        for (const gate of cliGates(role)) expect(preamble).toContain(`\`pi-gates ${gateCommand(gate)}\``);
+        for (const gate of cliGates(role)) expect(preamble).toContain(`\`bounded-gates ${gateCommand(gate)}\``);
         for (const gate of GATE_TOOLS) {
-          if (!ROLE_TOOLS[role].includes(gate)) expect(preamble).not.toContain(`\`pi-gates ${gateCommand(gate)}\``);
+          if (!ROLE_TOOLS[role].includes(gate)) expect(preamble).not.toContain(`\`bounded-gates ${gateCommand(gate)}\``);
         }
         expect(preamble).toContain("Bash is refused for anything else");
-        expect(preamble).toContain("the hook prefixes `PI_HOST=claude-code PI_DEV_STAGE_ROLE=<role>` itself");
+        expect(preamble).toContain("the hook prefixes `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role>` itself");
       });
 
       // (b2) `subagent` and `git` belong to the architect alone: no worker

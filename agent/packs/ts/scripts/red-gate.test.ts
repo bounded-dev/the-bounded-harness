@@ -240,7 +240,7 @@ const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** A target project whose "test suite" is `cat run.json` (canned vitest JSON),
- *  wired via the PI_GATE_TEST_CMD seam so no real vitest install is needed.
+ *  wired via the BOUNDED_GATE_TEST_CMD seam so no real vitest install is needed.
  *
  *  The repo also carries a real contract and a real test file, because the gate
  *  now builds a PRISTINE project before running anything and a project with no
@@ -266,11 +266,11 @@ function runGate(dir: string, file = "run.json", typeErrors = false) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PI_GATE_TEST_CMD: "cat",
-      PI_GATE_TEST_ARGS: JSON.stringify([join(dir, file)]),
+      BOUNDED_GATE_TEST_CMD: "cat",
+      BOUNDED_GATE_TEST_ARGS: JSON.stringify([join(dir, file)]),
       // tsc stand-in: replay a captured diagnostics file with tsc's exit code.
-      PI_GATE_TSC_CMD: "sh",
-      PI_GATE_TSC_ARGS: JSON.stringify(["-c", `cat ${join(dir, "tsc.txt")}; exit ${typeErrors ? 2 : 0}`]),
+      BOUNDED_GATE_TSC_CMD: "sh",
+      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["-c", `cat ${join(dir, "tsc.txt")}; exit ${typeErrors ? 2 : 0}`]),
     },
   });
 }
@@ -899,10 +899,10 @@ function runGateForReal(dir: string) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PI_GATE_TEST_CMD: REAL_VITEST,
-      PI_GATE_TEST_ARGS: JSON.stringify(["run", "--reporter=json"]),
-      PI_GATE_TSC_CMD: REAL_TSC,
-      PI_GATE_TSC_ARGS: JSON.stringify(["--noEmit", "--pretty", "false"]),
+      BOUNDED_GATE_TEST_CMD: REAL_VITEST,
+      BOUNDED_GATE_TEST_ARGS: JSON.stringify(["run", "--reporter=json"]),
+      BOUNDED_GATE_TSC_CMD: REAL_TSC,
+      BOUNDED_GATE_TSC_ARGS: JSON.stringify(["--noEmit", "--pretty", "false"]),
     },
   });
 }

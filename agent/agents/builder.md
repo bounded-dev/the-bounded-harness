@@ -144,13 +144,13 @@ that is a `CONTRACT-DISPUTE`, not a cast. The canonical value-object class
 needs none of these: `new Currency(raw)` inside `static parse` is a real
 constructor, and composite parsers narrow with `in`, never `as`.
 
-**The stack is policy, not preference** — `pi-harness-ts/blessed-stacks-only`
+**The stack is policy, not preference** — `bounded-ts/blessed-stacks-only`
 refuses imports of non-blessed API frameworks and schema engines (graphql,
 express, fastify, ajv, joi, yup, …). tRPC (`@trpc/server`) is the RPC stack
 and zod the schema engine (ADR 2026-029); if the spec seems to require a
 banned framework, that is a `CONTRACT-DISPUTE`, not an import.
 
-**The framework has one door** — `pi-harness-ts/raw-framework-entry`: a
+**The framework has one door** — `bounded-ts/raw-framework-entry`: a
 runtime import of `@trpc/*` is legal only inside the generated
 `service-runtime.ts` (`import type` is fine anywhere). Build procedures
 through `createService` / `command` / `query` from `./service-runtime.js` —
@@ -158,7 +158,7 @@ the error taxonomy (parse failure → BAD_REQUEST, the named throwers for
 NOT_FOUND / UNPROCESSABLE_CONTENT / CONFLICT) is code in that one shipped
 file, not a convention for you to re-implement (TN-26-004).
 
-**The UI's layers point one way** — `pi-harness-ts-web/fsd-downward-imports`:
+**The UI's layers point one way** — `bounded-ts-web/fsd-downward-imports`:
 inside `src/ui/**`, imports flow strictly downward through
 `shared < entities < features < widgets < pages`. A module may import its own
 layer or a lower one, never a higher one — a `shared/ui` component that imports
@@ -168,14 +168,14 @@ something from above, take it as a prop. Type-only imports count: a type is a
 dependency. Nothing outside `src/ui` is in scope — importing the domain, a
 contract or a package is ordinary work.
 
-**Each slice has one front door** — `pi-harness-ts-web/fsd-slice-public-api`: a
+**Each slice has one front door** — `bounded-ts-web/fsd-slice-public-api`: a
 cross-slice import targets the slice root (`../building`, or
 `../building/index.js`), never a file inside it (`../building/model/query.js`).
 The index is the list of things the rest of the app may depend on, and
 everything else in the slice stays free to move. Inside your OWN slice, reach
 for whatever you like.
 
-**The frontend has one door to the network** — `pi-harness-ts-web/client-one-door`:
+**The frontend has one door to the network** — `bounded-ts-web/client-one-door`:
 runtime imports of `@trpc/*` and `@tanstack/*` are legal only under
 `src/ui/shared/api/` (`import type` is fine anywhere). One client, one URL, one
 QueryClient — a second QueryClient splits the cache and nothing fails, so half
@@ -185,7 +185,7 @@ or feature hook. This is the client-side twin of `raw-framework-entry`, which
 owns the server door (`@trpc/server`).
 
 **Colour comes from tokens, never from your fingers** —
-`pi-harness-ts-web/tokens-only-styling`: inside `src/ui/**`, a class string may
+`bounded-ts-web/tokens-only-styling`: inside `src/ui/**`, a class string may
 not name Tailwind's raw palette (`bg-red-500`, `text-slate-300`,
 `hover:border-zinc-200`) or carry a hand-written colour in brackets
 (`bg-[#0ea5e9]`, `[color:red]`). Style through the semantic tokens the project's
@@ -199,7 +199,7 @@ that one element keeps yesterday's brand — with nothing failing. Composing the
 generated kit (PageShell, Card, Stat, Badge, DataList) is the path that needs no
 className at all.
 
-**Value objects parse with zod** — `pi-harness-ts/zod-backed-parse`: a
+**Value objects parse with zod** — `bounded-ts/zod-backed-parse`: a
 branded class's `static parse` must delegate to a zod schema (module-level
 `const schema = z.…`, then `schema.safeParse(raw)`), composing the schemas of
 the value objects it contains rather than re-checking them by hand (ADR

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pi-ticket — start a pi session bound to the ARCHITECT role, for driving one
+# bounded-ticket — start a pi session bound to the ARCHITECT role, for driving one
 # ticket through the developer stage.
 #
 # Why this exists (issue #12): the path gate learns its role from WHICH
@@ -17,9 +17,9 @@
 # Without a launcher nobody would type the full invocation, the ungated path
 # would win by being easier, and the enforcement would quietly become optional.
 #
-#   pi-ticket                 # interactive, in the current project
-#   pi-ticket "build X"       # with an opening prompt
-#   pi-ticket --model …       # any further pi flags pass straight through
+#   bounded-ticket                 # interactive, in the current project
+#   bounded-ticket "build X"       # with an opening prompt
+#   bounded-ticket --model …       # any further pi flags pass straight through
 #
 # Being gated means: read anything in the project, write only spec.md and
 # *.contract.ts, no bash, and the gates + git as named tools. The forbidden
@@ -42,7 +42,7 @@ HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 
 GATE="$HARNESS/extensions/path-gate/architect.ts"
 if [ ! -f "$GATE" ]; then
-  echo "pi-ticket: cannot find the architect path-gate loader at $GATE" >&2
+  echo "bounded-ticket: cannot find the architect path-gate loader at $GATE" >&2
   exit 2
 fi
 

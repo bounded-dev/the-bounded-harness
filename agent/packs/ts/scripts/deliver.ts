@@ -61,7 +61,7 @@
 // (steps 8, 9 and 10 only read, so they never count as applied).
 // Exit 0 delivered · 1 block · 2 misuse (bad target / missing checker
 // source). The checker source is injectable for tests via options or
-// PI_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts);
+// BOUNDED_DELIVER_SURFACE_CHECK (the real file is packs/ts/scripts/surface-check.ts);
 // so is the npm runner steps 5 and 9 spawn (DeliverOptions.run).
 
 import { spawnSync } from "node:child_process";
@@ -145,7 +145,7 @@ export const spawnRun: CommandRun = (command, args, cwd) => {
 
 export interface DeliverOptions {
   /** Path to the surface checker to ship. Default: this pack's
-   *  surface-check.ts (or PI_DELIVER_SURFACE_CHECK). */
+   *  surface-check.ts (or BOUNDED_DELIVER_SURFACE_CHECK). */
   readonly surfaceCheckSource?: string;
   /** How to run npm — the ts-morph install (step 5) and the project's own
    *  check (step 9). Default: {@link spawnRun}. Injectable so the wiring is
@@ -280,7 +280,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   if (!existsSync(join(cwd, "src"))) return misuse(`no src/ in '${cwd}' — nothing to deliver`);
   const checkerSource =
     options.surfaceCheckSource ??
-    process.env["PI_DELIVER_SURFACE_CHECK"] ??
+    process.env["BOUNDED_DELIVER_SURFACE_CHECK"] ??
     join(dirname(fileURLToPath(import.meta.url)), "surface-check.ts");
   if (!existsSync(checkerSource)) {
     return misuse(`surface checker source not found at '${checkerSource}'`);

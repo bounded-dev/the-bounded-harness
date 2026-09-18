@@ -178,34 +178,34 @@ follow that one:
 
 ## The gates that watch your contracts — write to pass them the FIRST time
 
-`contract_purity` enforces, by machine: `pi-harness-ts/declaration-only`
+`contract_purity` enforces, by machine: `bounded-ts/declaration-only`
 (bodiless declarations only, no value imports, no enums, no `as`),
-`pi-harness-ts/no-naked-primitives` (no bare `string`/`number` on the public
-surface), `pi-harness-ts/no-branded-aliases` (a primitive intersected with a
+`bounded-ts/no-naked-primitives` (no bare `string`/`number` on the public
+surface), `bounded-ts/no-branded-aliases` (a primitive intersected with a
 brand object is banned — optional brands enforce nothing and required ones
-need a cast the builder cannot legally write), `pi-harness-ts/value-object-shape`
+need a cast the builder cannot legally write), `bounded-ts/value-object-shape`
 (every exported class is a value object: private `__brand` matching the class
 name, private constructor, `static parse(raw: unknown): T | undefined`, all
 instance properties readonly, no extends), and
-`pi-harness-ts/value-object-documented` (a doc comment stating the validity
+`bounded-ts/value-object-documented` (a doc comment stating the validity
 rule — plus two `@accepts` examples so the generated laws all run), and
-`pi-harness-ts/value-objects-own-contract` (a value object may not share a file
+`bounded-ts/value-objects-own-contract` (a value object may not share a file
 with an interface / type-alias / operation that references it — value objects
 get their own `*.contract.ts`; see below), and
-`pi-harness-ts/no-cross-contract-type-import` (a contract may not `import type`
+`bounded-ts/no-cross-contract-type-import` (a contract may not `import type`
 or `export type … from` another `*.contract.ts` — reach a sibling component
 through its implementation module; see below), and
-`pi-harness-ts/no-erased-router` (a type-erased framework type — `AnyRouter`
+`bounded-ts/no-erased-router` (a type-erased framework type — `AnyRouter`
 and kin — may not describe a service surface: the router's type is inferred,
 so re-export it from the implementation module, `export type ServiceRouter =
 typeof serviceRouter`; ADR 2026-030), and
-`pi-harness-ts/router-type-reexported` (the other half of the same rule: a
+`bounded-ts/router-type-reexported` (the other half of the same rule: a
 contract that imports a `service-runtime` module must ACTUALLY carry that
 re-export — `import type { serviceRouter } from "./api.js"; export type
 ServiceRouter = typeof serviceRouter;`. Leaving it out is legal and silent,
 and it forfeits the typed client just as completely as erasing it — r23
 shipped two services that way; ADR 2026-030), and
-`pi-harness-ts/no-schema-on-surface` (nothing from zod may appear in a
+`bounded-ts/no-schema-on-surface` (nothing from zod may appear in a
 contract — the schema is the value object's internal engine, and the
 contract's whole validation surface is `static parse(raw: unknown)`; ADR
 2026-031).
@@ -292,7 +292,7 @@ are printed and attributed, the freeze proceeds, and the workers repair their
 own zones once commissioned. What still blocks is anything design-owned — a
 contract, project config, or a generated skeleton, whose errors are the
 contract's own. This is also how a CHANGE RUN enters: on a delivered tree whose
-run boundary the driver has opened (`pi-change-run` archives the guard log; the
+run boundary the driver has opened (`bounded-change-run` archives the guard log; the
 manifest survives), the same re-freeze path runs — fresh review first, then a
 freeze that stands over the drift the change itself created. So revise when the
 design is wrong. What a revision still costs is the red: a changed contract voids the

@@ -4,7 +4,7 @@ First used at Run 21, against a tree delivered from
 heating-cockpit-ingest-prompt.md by the same arm in the same repository.
 
 It is fed to a NEW architect session after the driver opens the run boundary
-(`pi-change-run`): the tree keeps its spec, contracts, implementation, suite
+(`bounded-change-run`): the tree keeps its spec, contracts, implementation, suite
 and frozen manifest; the guard log is archived. What is under test is the
 change cycle — whether the pipeline can evolve a delivered component through
 the same gates, not rebuild it.

@@ -6,9 +6,9 @@
 // Claude Code runs this once per tool call, feeding the call as JSON on stdin,
 // and reads a decision back: nothing on stdout means "allow", a JSON object
 // with `permissionDecision: "deny"` means "refuse, and tell the model why",
-// and an allowed `pi-gates …` comes back as `permissionDecision: "allow"` with
-// `updatedInput` rewriting the command to `PI_HOST=claude-code
-// PI_DEV_STAGE_ROLE=<role> …` — the one place the bound role and the host
+// and an allowed `bounded-gates …` comes back as `permissionDecision: "allow"` with
+// `updatedInput` rewriting the command to `BOUNDED_HOST=claude-code
+// BOUNDED_DEV_STAGE_ROLE=<role> …` — the one place the bound role and the host
 // cross into the gate's own process, where `sessionRole()` reads the role
 // before any role file and the CLI records which host ran it.
 // It is the analogue of pi's `tool_call` hook (extensions/path-gate.ts), and
@@ -23,7 +23,7 @@
 // `subagentOnlyExtensions`). The role is decided by WHICH definition loaded,
 // from outside the project, and nothing the model does can change it.
 //
-// Ambient, from `.pi/dev-stage-role` (or PI_DEV_STAGE_ROLE), when installed
+// Ambient, from `.pi/dev-stage-role` (or BOUNDED_DEV_STAGE_ROLE), when installed
 // project-wide in `.claude/settings.json` with no `--role`. That is the same
 // weaker fallback pi has, for a session the user drives directly. Neither
 // source ⇒ the gate is inactive and every call passes.
@@ -188,10 +188,10 @@ function allowWith(updatedInput: Readonly<Record<string, unknown>>): string {
 }
 
 /** The env var `sessionRole()` reads first (src/path-gate.ts), which is how
- *  the bound role reaches the `pi-gates` process the shell starts. */
-const ROLE_ENV = "PI_DEV_STAGE_ROLE";
+ *  the bound role reaches the `bounded-gates` process the shell starts. */
+const ROLE_ENV = "BOUNDED_DEV_STAGE_ROLE";
 
-/** The env prefix an allowed `pi-gates` call is given: the host, so the CLI
+/** The env prefix an allowed `bounded-gates` call is given: the host, so the CLI
  *  records `claude-code` rather than `none`, and the bound role. */
 export function gateEnvPrefix(role: Role): string {
   return `${HOST_ENV}=claude-code ${ROLE_ENV}=${role}`;
@@ -308,7 +308,7 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       // policy has already refused every construct that could make the
       // prefix mean anything but an env assignment. git, sleep and rm pass
       // through untouched — nothing in them reads a role.
-      if (decision.carrier === "pi-gates") {
+      if (decision.carrier === "bounded-gates") {
         allowed = allowWith({ ...payload.toolInput, command: `${gateEnvPrefix(role)} ${command}` });
       }
       continue;

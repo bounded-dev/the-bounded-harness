@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# pi-harness-init — make a freshly cloned pi-harness live on this machine.
+# bounded-init — make a freshly cloned Bounded Harness live on this machine.
 #
 #   git clone git@github.com:bounded-dev/pi-harness.git
-#   cd pi-harness && agent/scripts/pi-harness-init
+#   cd pi-harness && agent/scripts/bounded-init
 #
 # Does everything the README used to ask you to do by hand:
 #
@@ -28,7 +28,7 @@ REPO="$(cd -P "$AGENT/.." && pwd)"
 
 # The commands this harness puts on PATH. Adding one here is all it takes —
 # a contributor should not also have to remember to tell people to symlink it.
-COMMANDS=(pi-ticket pi-gates dogfood-reset pi-harness-init)
+COMMANDS=(bounded-ticket bounded-gates bounded-change-run dogfood-reset bounded-init)
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
@@ -51,7 +51,7 @@ link() {
   ok "$what → $target"
 }
 
-echo "pi-harness-init: $REPO"
+echo "bounded-init: $REPO"
 echo
 echo "Config home"
 link "$AGENT" "$HOME/.pi/agent" "~/.pi/agent"
@@ -88,10 +88,10 @@ fi
 
 echo
 echo "Self-check"
-if ( cd "$AGENT" && npm run check >/tmp/pi-harness-init-check.log 2>&1 ); then
-  ok "$(grep -oE '[0-9]+ passed \([0-9]+\)' /tmp/pi-harness-init-check.log | tail -1) — harness is green"
+if ( cd "$AGENT" && npm run check >/tmp/bounded-init-check.log 2>&1 ); then
+  ok "$(grep -oE '[0-9]+ passed \([0-9]+\)' /tmp/bounded-init-check.log | tail -1) — harness is green"
 else
-  warn "npm run check FAILED — see /tmp/pi-harness-init-check.log"
+  warn "npm run check FAILED — see /tmp/bounded-init-check.log"
   exit 1
 fi
 
@@ -99,9 +99,9 @@ cat <<EOF
 
 Ready. Available now:
 
-  pi-ticket        start a pi session gated as the architect (one ticket)
-  pi-gates         run one artifact gate from any shell: pi-gates <gate> [cwd] [--json]
+  bounded-ticket        start a pi session gated as the architect (one ticket)
+  bounded-gates         run one artifact gate from any shell: bounded-gates <gate> [cwd] [--json]
   dogfood-reset    rebuild the two dogfood arms, ready to run
 
-Re-run pi-harness-init after a pull to pick up newly added commands.
+Re-run bounded-init after a pull to pick up newly added commands.
 EOF

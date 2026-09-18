@@ -1,6 +1,6 @@
 // contract-purity gate (TN-26-001, DESIGN stage): *.contract.ts files must be
 // declaration-only AND express the domain in value objects. Thin CLI over
-// ESLint + the pi-harness-ts plugin (declaration-only + no-naked-primitives).
+// ESLint + the bounded-ts plugin (declaration-only + no-naked-primitives).
 // The orchestrator runs this; the architect never lints its own work.
 //
 // The two rules answer different questions: declaration-only asks "is this a
@@ -29,16 +29,16 @@ import { logGuardEvent } from "../../../src/guard-log.ts";
 
 /** Every rule id the contract gate enforces — exported for guard-doc-drift. */
 export const CONTRACT_RULE_IDS: readonly string[] = [
-  "pi-harness-ts/declaration-only",
-  "pi-harness-ts/no-naked-primitives",
-  "pi-harness-ts/no-branded-aliases",
-  "pi-harness-ts/value-object-shape",
-  "pi-harness-ts/value-object-documented",
-  "pi-harness-ts/value-objects-own-contract",
-  "pi-harness-ts/no-cross-contract-type-import",
-  "pi-harness-ts/no-erased-router",
-  "pi-harness-ts/router-type-reexported",
-  "pi-harness-ts/no-schema-on-surface",
+  "bounded-ts/declaration-only",
+  "bounded-ts/no-naked-primitives",
+  "bounded-ts/no-branded-aliases",
+  "bounded-ts/value-object-shape",
+  "bounded-ts/value-object-documented",
+  "bounded-ts/value-objects-own-contract",
+  "bounded-ts/no-cross-contract-type-import",
+  "bounded-ts/no-erased-router",
+  "bounded-ts/router-type-reexported",
+  "bounded-ts/no-schema-on-surface",
 ];
 
 // --- Contributed overrides (TN-26-005, the ts pack's socket) -----------------
@@ -72,27 +72,27 @@ export function createContractLinter(): ESLint {
         languageOptions: { parser },
         // @typescript-eslint RuleModule and eslint's flat-config Plugin type
         // are structurally incompatible (known upstream friction); runtime fine.
-        plugins: { "pi-harness-ts": plugin as unknown as ESLint.Plugin },
+        plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
         rules: {
-          "pi-harness-ts/declaration-only": "error",
-          "pi-harness-ts/no-naked-primitives": "error",
+          "bounded-ts/declaration-only": "error",
+          "bounded-ts/no-naked-primitives": "error",
           // Run 9: a branded ALIAS with an optional brand passed every gate
           // and enforced nothing; the required form cannot be built without a
           // cast the src lint bans. Classes only.
-          "pi-harness-ts/no-branded-aliases": "error",
+          "bounded-ts/no-branded-aliases": "error",
           // The value object rules. no-naked-primitives says a primitive may
           // not cross the boundary; these two say what must be there instead,
           // and that its validity rule is written down where the test-writer
           // (which reads only spec.md and the contract) can see it.
-          "pi-harness-ts/value-object-shape": "error",
-          "pi-harness-ts/value-object-documented": "error",
+          "bounded-ts/value-object-shape": "error",
+          "bounded-ts/value-object-documented": "error",
           // A value object and the operations over it may not share a contract
           // file: the value object becomes a runtime class in its skeleton, and
           // a same-file reference to it binds a second '__brand' identity that
           // does not compile (the same-file twin of ADR 2026-023, dogfood
           // r18/r19). Value objects get their own '*.contract.ts'; operations
           // import them from the implementation module (ADR 2026-026).
-          "pi-harness-ts/value-objects-own-contract": "error",
+          "bounded-ts/value-objects-own-contract": "error",
           // The cross-FILE twin of value-objects-own-contract: a contract may
           // not import or re-export types from another '*.contract.ts' — reach
           // the sibling component through its implementation module, which
@@ -100,12 +100,12 @@ export function createContractLinter(): ESLint {
           // rules put the whole "one identity per value object" concern (ADR
           // 2026-023) at contract-purity; the scaffolder keeps the same refusal
           // as a backstop (ADR 2026-027).
-          "pi-harness-ts/no-cross-contract-type-import": "error",
+          "bounded-ts/no-cross-contract-type-import": "error",
           // The API-service reference set (TN-26-004). A type-erased framework
           // type on a contract surface throws away the typed client (dogfood
           // r22's `ServiceRouter = AnyRouter`); the inferred router type is
           // re-exported from the implementation module instead (ADR 2026-030).
-          "pi-harness-ts/no-erased-router": "error",
+          "bounded-ts/no-erased-router": "error",
           // The other half of the same hole (TN-26-006 A2). no-erased-router
           // refuses a router type that is PRESENT and erased; Run 23 delivered
           // two services green with it simply ABSENT — equally legal, equally
@@ -113,20 +113,20 @@ export function createContractLinter(): ESLint {
           // contract must re-export the inferred type from its implementation
           // module. Fires only where a service-runtime import says the file is
           // a service contract; a domain contract has no router.
-          "pi-harness-ts/router-type-reexported": "error",
+          "bounded-ts/router-type-reexported": "error",
           // zod is the engine inside a value object, never a public identity:
           // nothing from zod may appear in a contract (ADR 2026-031).
-          "pi-harness-ts/no-schema-on-surface": "error",
+          "bounded-ts/no-schema-on-surface": "error",
         },
       },
       // Contributed blocks last — see the note above. Each re-registers the
       // plugin object (the same object, which flat config permits) so a block
-      // naming a `pi-harness-ts/…` rule resolves it without depending on how
+      // naming a `bounded-ts/…` rule resolves it without depending on how
       // ESLint happens to merge plugins across matching blocks.
       ...contributedPurityOverrides().map((override) => ({
         files: [...override.files],
         languageOptions: { parser },
-        plugins: { "pi-harness-ts": plugin as unknown as ESLint.Plugin },
+        plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
         rules: { ...override.rules },
       })),
     ],

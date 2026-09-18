@@ -34,7 +34,7 @@ describe("lintContractSource", () => {
       "x.contract.ts",
     );
     expect(problems).toHaveLength(1);
-    expect(problems[0].ruleId).toBe("pi-harness-ts/declaration-only");
+    expect(problems[0].ruleId).toBe("bounded-ts/declaration-only");
     expect(problems[0].line).toBe(1);
   });
 
@@ -52,9 +52,9 @@ describe("lintContractSource", () => {
       "book.contract.ts",
     );
     expect(problems.map((p) => p.ruleId)).toEqual([
-      "pi-harness-ts/no-naked-primitives",
-      "pi-harness-ts/no-naked-primitives",
-      "pi-harness-ts/no-naked-primitives",
+      "bounded-ts/no-naked-primitives",
+      "bounded-ts/no-naked-primitives",
+      "bounded-ts/no-naked-primitives",
     ]);
     expect(problems[0].message).toMatch(/'isbn' is declared as 'string'/);
     expect(problems[1].message).toMatch(/'authors' is a collection of naked 'string'/);
@@ -68,7 +68,7 @@ describe("lintContractSource", () => {
       "export type CalendarDate = Date;\n",
       "billing.contract.ts",
     );
-    expect(problems.map((p) => p.ruleId)).toEqual(["pi-harness-ts/no-naked-primitives"]);
+    expect(problems.map((p) => p.ruleId)).toEqual(["bounded-ts/no-naked-primitives"]);
     expect(problems[0].message).toMatch(/aliases a built-in object type/);
     expect(problems[0].message).toMatch(/mutable/);
   });
@@ -142,12 +142,12 @@ describe("contributed purity overrides", () => {
       BUTTON_CONTRACT,
       "src/ui/entities/building/status.contract.ts",
     );
-    expect(problems.map((p) => p.ruleId)).toContain("pi-harness-ts/no-naked-primitives");
+    expect(problems.map((p) => p.ruleId)).toContain("bounded-ts/no-naked-primitives");
   });
 
   test("and outside src/ui entirely", async () => {
     const problems = await lintContractSource(BUTTON_CONTRACT, "src/orders/orders.contract.ts");
-    expect(problems.map((p) => p.ruleId)).toContain("pi-harness-ts/no-naked-primitives");
+    expect(problems.map((p) => p.ruleId)).toContain("bounded-ts/no-naked-primitives");
   });
 
   // Relaxing no-naked-primitives alone would have relaxed nothing: a contract
@@ -157,8 +157,8 @@ describe("contributed purity overrides", () => {
       "export declare class Label {\n  readonly text: string;\n}\n",
       "src/ui/shared/ui/label.contract.ts",
     );
-    expect(problems.map((p) => p.ruleId)).not.toContain("pi-harness-ts/value-object-shape");
-    expect(problems.map((p) => p.ruleId)).not.toContain("pi-harness-ts/value-object-documented");
+    expect(problems.map((p) => p.ruleId)).not.toContain("bounded-ts/value-object-shape");
+    expect(problems.map((p) => p.ruleId)).not.toContain("bounded-ts/value-object-documented");
   });
 
   // What is NOT relaxed: a contract under shared/ui is still a contract.
@@ -167,7 +167,7 @@ describe("contributed purity overrides", () => {
       "export const tone = \"primary\";\n",
       "src/ui/shared/ui/tokens.contract.ts",
     );
-    expect(problems.map((p) => p.ruleId)).toContain("pi-harness-ts/declaration-only");
+    expect(problems.map((p) => p.ruleId)).toContain("bounded-ts/declaration-only");
   });
 
   // The base config survives composition: an ordinary contract, matched by no
@@ -189,7 +189,7 @@ describe("formatProblems (one greppable line per problem)", () => {
     const lines = formatProblems(results, process.cwd());
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(
-      /^src\/orders\/orders\.contract\.ts:1:14\s+pi-harness-ts\/declaration-only\s+Contract files are declaration-only/,
+      /^src\/orders\/orders\.contract\.ts:1:14\s+bounded-ts\/declaration-only\s+Contract files are declaration-only/,
     );
   });
 });
@@ -229,14 +229,14 @@ describe("contract-purity CLI", () => {
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(
-      /bad\.contract\.ts:1:1\s+pi-harness-ts\/declaration-only\s+.*'pg' is imported as a value/,
+      /bad\.contract\.ts:1:1\s+bounded-ts\/declaration-only\s+.*'pg' is imported as a value/,
     );
     expect(r.stdout).toMatch(/contract-purity: 1 problem/);
     const events = readGuardLog(dir);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ guard: "contract-purity", verdict: "block" });
     const problems = events[0].detail?.["problems"] as { ruleId: string; message: string }[];
-    expect(problems[0].ruleId).toBe("pi-harness-ts/declaration-only");
+    expect(problems[0].ruleId).toBe("bounded-ts/declaration-only");
     expect(problems[0].message).toMatch(/'pg' is imported as a value/);
   });
 

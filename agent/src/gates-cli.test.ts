@@ -7,19 +7,19 @@ import { readGuardLog } from "../src/guard-log.ts";
 import { makeTempProject, type TempProject } from "../test/support/temp-project.ts";
 import { USAGE_EXIT, main } from "./gates-cli.ts";
 
-// `pi-gates` end to end (ADR 2026-034): spawned, because the launcher, the
+// `bounded-gates` end to end (ADR 2026-034): spawned, because the launcher, the
 // symlink resolution and the exit code ARE the contract a shell sees. The
 // gates chosen are the cheap ones — surface-check and contract-purity spawn
 // nothing; typecheck runs the real tsc once on a one-file project.
 
 const CLI = join(import.meta.dirname, "gates-cli.ts");
-const LAUNCHER = join(import.meta.dirname, "..", "scripts", "pi-gates");
+const LAUNCHER = join(import.meta.dirname, "..", "scripts", "bounded-gates");
 
 const projects: TempProject[] = [];
 afterAll(() => projects.forEach((p) => p.cleanup()));
 
 function project(files: Readonly<Record<string, string>>, nodeModules = false): string {
-  const p = makeTempProject(files, { prefix: "pi-gates-", nodeModules });
+  const p = makeTempProject(files, { prefix: "bounded-gates-", nodeModules });
   projects.push(p);
   return p.dir;
 }
@@ -46,7 +46,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("no gate: usage on stderr, 64", () => {
     const r = run([], dir);
     expect(r.status).toBe(USAGE_EXIT);
-    expect(r.stderr).toMatch(/^usage: pi-gates <gate> \[cwd\] \[--json\] \[flags\]/);
+    expect(r.stderr).toMatch(/^usage: bounded-gates <gate> \[cwd\] \[--json\] \[flags\]/);
     expect(r.stderr).toMatch(/\n  surface-check +Check every/);
     expect(r.stdout).toBe("");
   });
@@ -54,7 +54,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("--help: the same usage on stdout, 0", () => {
     const r = run(["--help"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: pi-gates/);
+    expect(r.stdout).toMatch(/^usage: bounded-gates/);
   });
 
   test("unknown gate → 64, naming it", () => {
@@ -71,14 +71,14 @@ describe("usage (exit 64) and help (exit 0)", () => {
     ]) {
       const r = run(args, dir);
       expect(r.status, args.join(" ")).toBe(USAGE_EXIT);
-      expect(r.stderr, args.join(" ")).toMatch(/usage: pi-gates typecheck \[cwd\]/);
+      expect(r.stderr, args.join(" ")).toMatch(/usage: bounded-gates typecheck \[cwd\]/);
     }
   });
 
   test("<gate> --help prints the whole description and the flags", () => {
     const r = run(["sign-off", "--help"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: pi-gates sign-off \[cwd\] \[--json\] \[flags\]/);
+    expect(r.stdout).toMatch(/^usage: bounded-gates sign-off \[cwd\] \[--json\] \[flags\]/);
     expect(r.stdout).toContain("An EMPTY findings list is a valid and expected answer");
     expect(r.stdout).toMatch(/--findings <json>/);
     expect(r.stdout).toMatch(/--findings-file <string>/);
@@ -87,7 +87,7 @@ describe("usage (exit 64) and help (exit 0)", () => {
   test("--list anywhere in argv lists, and runs no gate", () => {
     const r = run(["typecheck", "--list"], dir);
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^usage: pi-gates/);
+    expect(r.stdout).toMatch(/^usage: bounded-gates/);
     expect(gateEvents(dir)).toEqual([]);
   });
 
@@ -216,12 +216,12 @@ describe("typecheck (runs the real tsc once)", () => {
   // The host hands the CLI its role through the environment (ADR 2026-034);
   // the gate never resolves one itself, because it would resolve it against
   // the TARGET directory — Run 15's hole.
-  test("PI_DEV_STAGE_ROLE scopes typecheck with no --role", () => {
+  test("BOUNDED_DEV_STAGE_ROLE scopes typecheck with no --role", () => {
     const dir = project({ "tsconfig.json": TSCONFIG, "src/a.ts": 'export const x: number = "s";\n' }, true);
     const r = spawnSync(process.execPath, [CLI, "typecheck", "--json"], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, PI_DEV_STAGE_ROLE: "builder" },
+      env: { ...process.env, BOUNDED_DEV_STAGE_ROLE: "builder" },
     });
     expect(r.status).toBe(1);
     expect(parseJson(r.stdout)).toMatchObject({ gate: "typecheck", detail: { scoped: true } });
@@ -267,9 +267,9 @@ describe("through the symlinks (the ~/.pi/agent case)", () => {
     expect(Array.isArray(parseJson(r.stdout))).toBe(true);
   });
 
-  test("the pi-gates launcher resolves itself through a symlink and execs the CLI", () => {
+  test("the bounded-gates launcher resolves itself through a symlink and execs the CLI", () => {
     const dir = project({});
-    const link = join(dir, "pi-gates");
+    const link = join(dir, "bounded-gates");
     symlinkSync(LAUNCHER, link);
     const r = spawnSync(link, ["surface-check", "--json"], { cwd: dir, encoding: "utf8" });
     expect(r.status).toBe(2);
@@ -302,12 +302,12 @@ describe("host declaration (ADR 2026-034)", () => {
     return readGuardLog(dir).filter((e) => e.guard === "host");
   }
 
-  test("a host that named itself (PI_HOST) already declared itself — no `none` line", () => {
-    expect(hostsAfter({ PI_HOST: "claude-code", PI_DEV_STAGE_ROLE: "builder" })).toHaveLength(0);
+  test("a host that named itself (BOUNDED_HOST) already declared itself — no `none` line", () => {
+    expect(hostsAfter({ BOUNDED_HOST: "claude-code", BOUNDED_DEV_STAGE_ROLE: "builder" })).toHaveLength(0);
   });
 
-  test("a role alone is not a host: PI_DEV_STAGE_ROLE by itself still records `none`", () => {
-    const hosts = hostsAfter({ PI_DEV_STAGE_ROLE: "builder" });
+  test("a role alone is not a host: BOUNDED_DEV_STAGE_ROLE by itself still records `none`", () => {
+    const hosts = hostsAfter({ BOUNDED_DEV_STAGE_ROLE: "builder" });
     expect(hosts).toHaveLength(1);
     expect(hosts[0]!.detail).toMatchObject({ host: "none" });
   });

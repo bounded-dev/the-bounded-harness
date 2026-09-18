@@ -44,14 +44,14 @@ reset, set or not, so a run's models are never a guess afterwards.
 
 Then walk into each and paste `PROMPT.md`:
 
-- `~/dev/pi-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
-- `~/dev/pi-harness-dogfood-harnessed` — pi. Gated as the architect
+- `~/dev/bounded-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
+- `~/dev/bounded-harness-dogfood-harnessed` — pi. Gated as the architect
   automatically via `.pi/dev-stage-role`; there is no launcher to remember.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
 — `dogfood-reset` wipes both and starts over, so copy anything worth keeping
 before re-running. Past runs (1–5) live as branches in
-`~/dev/pi-harness-dogfood-archive`.
+`~/dev/bounded-harness-dogfood-archive`.
 
 `dogfood-reset` writes the operational `AGENTS.md` block from a single string
 and then *verifies* both arms got byte-identical prompts and blocks, failing
@@ -258,7 +258,7 @@ frontmatter allowlist binds subagents only, so a session started from
 `.pi/dev-stage-role` gets everything pi offers minus what the path gate blocks.
 *(Closed since, after r14 paid for it again: a bound session now has its
 forbidden tools removed from the visible toolset at `session_start` — logged as
-a `tool-strip` guard event — and `pi-ticket` additionally launches with
+a `tool-strip` guard event — and `bounded-ticket` additionally launches with
 `--exclude-tools`, which drops them from the registry outright. A refusal layer
 stays as a backstop.)*
 
@@ -1113,7 +1113,7 @@ r17, the mid-run pack fix could not reach the running process (module cache); th
 arm needed a restart and then **stalled** — kimi r18 recorded no clean green.
 This same single-file-mega-contract shape is what later motivated ADR 2026-026
 (value objects live in their own contract file), enforced by the
-`pi-harness-ts/value-objects-own-contract` lint rule, so decomposition is now a
+`bounded-ts/value-objects-own-contract` lint rule, so decomposition is now a
 contract-shape rule the architect meets up front rather than a scaffold-time
 surprise.
 
@@ -1242,7 +1242,7 @@ clean — 205 failures, 0 passed — so this is not universal.)
 r21 is the change cycle's first live outing (ADR 2026-028, TN-26-003, issue
 #14), kimi-only (k3 design / k2.7 workers), both halves headless. First a
 fresh **baseline**: the cockpit prompt, prompt-to-deliver in one session. Then
-the tree was committed, the driver opened the run boundary (`pi-change-run`
+the tree was committed, the driver opened the run boundary (`bounded-change-run`
 archived the guard log; manifest, role and tiers survived), and a **new
 architect session** was fed the first change-request prompt
 (`heating-cockpit-change-1-prompt.md`): the single 90% availability gate

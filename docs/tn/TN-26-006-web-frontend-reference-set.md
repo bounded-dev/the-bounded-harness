@@ -151,7 +151,7 @@ SEED (`webAppSeeds` beside `webAppPlan`): unmarked, written when absent, never
 restored, and `app.css` imports it. The token contract is data —
 `requiredThemeTokens` and `contrastPairs` in `contrib.json`, read by the pack's
 own typed reader, never by the core. The two fences are
-`pi-harness-ts-web/tokens-only-styling` (raw palette and hand-written colours
+`bounded-ts-web/tokens-only-styling` (raw palette and hand-written colours
 refused in `src/ui/**`; `bg-[var(--…)]` and non-colour arbitrary values stay
 legal, which the rule header states as a v1 scope) and `theme-check`, which
 rides a NEW socket the ts pack defines — `deliverChecks`, ADR 2026-033 — and

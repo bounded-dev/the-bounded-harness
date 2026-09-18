@@ -6,7 +6,7 @@
 //
 //   <project>/.pi/guard-log.jsonl
 //
-// Always on (PI_GUARD_LOG=off opts out): the value is after-the-fact
+// Always on (BOUNDED_GUARD_LOG=off opts out): the value is after-the-fact
 // inspection of runs you didn't know would be interesting. Blocks show where
 // guards caught drift; passes prove the guard actually ran — "no drift" and
 // "guard never ran" must never be indistinguishable.
@@ -49,7 +49,7 @@ export function guardLogPath(cwd: string): string {
 }
 
 export function logGuardEvent(cwd: string, event: GuardEvent): void {
-  if (process.env["PI_GUARD_LOG"] === "off") return;
+  if (process.env["BOUNDED_GUARD_LOG"] === "off") return;
   try {
     const path = guardLogPath(cwd);
     mkdirSync(dirname(path), { recursive: true });

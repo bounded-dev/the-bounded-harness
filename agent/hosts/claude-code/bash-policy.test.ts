@@ -4,7 +4,7 @@ import { ARTIFACT_GATE_TOOLS, GATE_TOOLS, ROLE_TOOLS, type Role } from "../../sr
 import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-policy.ts";
 
-// ADR 2026-034: in Claude Code, Bash is the carrier for `pi-gates`, and the
+// ADR 2026-034: in Claude Code, Bash is the carrier for `bounded-gates`, and the
 // hook narrows it to exactly the gates in the role's ROLE_TOOLS. Anything else
 // — compound commands, redirects, substitutions — is refused with the role's
 // forbiddenWhy reason. Table-driven over all four roles so a change to
@@ -24,31 +24,31 @@ const only = (...roles: Role[]): Readonly<Record<Role, Verdict>> => ({
 
 const TABLE: readonly Row[] = [
   // The gates, by role — the list IS ROLE_TOOLS.
-  ["pi-gates typecheck", all("allow")],
-  ["pi-gates typecheck --json", all("allow")],
-  ["pi-gates typecheck .", all("allow")],
-  ["pi-gates red-gate", only("architect")],
-  ["pi-gates red_gate", only("architect")], // the pi spelling is accepted too
-  ["pi-gates design-gate", only("architect")],
-  ["pi-gates deliver", only("architect")],
-  ["pi-gates mutation-score", only("architect")],
-  ["pi-gates run-tests", only("builder")],
-  ["pi-gates record-design-review", only("reviewer")],
-  ["pi-gates --list", all("allow")],
-  ["pi-gates --help", all("allow")],
-  ["pi-gates", all("deny")],
-  ["pi-gates nosuch", all("deny")],
-  ["pi-gates read", all("deny")], // a file tool is not a gate
+  ["bounded-gates typecheck", all("allow")],
+  ["bounded-gates typecheck --json", all("allow")],
+  ["bounded-gates typecheck .", all("allow")],
+  ["bounded-gates red-gate", only("architect")],
+  ["bounded-gates red_gate", only("architect")], // the pi spelling is accepted too
+  ["bounded-gates design-gate", only("architect")],
+  ["bounded-gates deliver", only("architect")],
+  ["bounded-gates mutation-score", only("architect")],
+  ["bounded-gates run-tests", only("builder")],
+  ["bounded-gates record-design-review", only("reviewer")],
+  ["bounded-gates --list", all("allow")],
+  ["bounded-gates --help", all("allow")],
+  ["bounded-gates", all("deny")],
+  ["bounded-gates nosuch", all("deny")],
+  ["bounded-gates read", all("deny")], // a file tool is not a gate
   // Host-only flags: the role reaches the CLI through the hook's env prefix.
-  ["pi-gates typecheck --role architect", all("deny")],
-  ["pi-gates typecheck --role=architect", all("deny")],
-  ["pi-gates red-gate --role architect", all("deny")],
-  ["pi-gates record-design-review --findings-file f.json", all("deny")],
-  ["pi-gates --role builder typecheck", all("deny")],
-  ["PI_DEV_STAGE_ROLE=architect pi-gates red-gate", all("deny")], // only the hook adds this
-  ["PI_HOST=claude-code pi-gates red-gate", all("deny")], // and this
-  ["PI_HOST=claude-code PI_DEV_STAGE_ROLE=architect pi-gates red-gate", all("deny")],
-  ["/usr/local/bin/pi-gates typecheck", all("deny")], // only the bare name; a path could be anything
+  ["bounded-gates typecheck --role architect", all("deny")],
+  ["bounded-gates typecheck --role=architect", all("deny")],
+  ["bounded-gates red-gate --role architect", all("deny")],
+  ["bounded-gates record-design-review --findings-file f.json", all("deny")],
+  ["bounded-gates --role builder typecheck", all("deny")],
+  ["BOUNDED_DEV_STAGE_ROLE=architect bounded-gates red-gate", all("deny")], // only the hook adds this
+  ["BOUNDED_HOST=claude-code bounded-gates red-gate", all("deny")], // and this
+  ["BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=architect bounded-gates red-gate", all("deny")],
+  ["/usr/local/bin/bounded-gates typecheck", all("deny")], // only the bare name; a path could be anything
   // git: the architect's alone, and never a way back to a shell.
   ["git status", only("architect")],
   ["git log --oneline -10", only("architect")],
@@ -109,21 +109,21 @@ const TABLE: readonly Row[] = [
   ["", all("deny")],
   ["   ", all("deny")],
   // Compound forms: refused whatever they start with.
-  ["pi-gates typecheck && cat tests/a.test.ts", all("deny")],
-  ["pi-gates typecheck; cat tests/a.test.ts", all("deny")],
-  ["pi-gates typecheck || true", all("deny")],
-  ["pi-gates typecheck | head", all("deny")],
-  ["pi-gates typecheck > out.txt", all("deny")],
-  ["pi-gates typecheck < in.txt", all("deny")],
-  ["pi-gates typecheck &", all("deny")],
-  ["pi-gates $(echo typecheck)", all("deny")],
-  ["pi-gates `echo typecheck`", all("deny")],
-  ["pi-gates typecheck\ncat tests/a.test.ts", all("deny")],
-  ["PATH=/tmp pi-gates typecheck", all("deny")],
-  ["pi-gates typecheck (x)", all("deny")],
-  ["pi-gates {typecheck,deliver}", all("deny")],
-  ["pi-gates 'typecheck", all("deny")], // unterminated quote
-  ["pi-gates typ\\echeck", all("deny")], // backslash escape
+  ["bounded-gates typecheck && cat tests/a.test.ts", all("deny")],
+  ["bounded-gates typecheck; cat tests/a.test.ts", all("deny")],
+  ["bounded-gates typecheck || true", all("deny")],
+  ["bounded-gates typecheck | head", all("deny")],
+  ["bounded-gates typecheck > out.txt", all("deny")],
+  ["bounded-gates typecheck < in.txt", all("deny")],
+  ["bounded-gates typecheck &", all("deny")],
+  ["bounded-gates $(echo typecheck)", all("deny")],
+  ["bounded-gates `echo typecheck`", all("deny")],
+  ["bounded-gates typecheck\ncat tests/a.test.ts", all("deny")],
+  ["PATH=/tmp bounded-gates typecheck", all("deny")],
+  ["bounded-gates typecheck (x)", all("deny")],
+  ["bounded-gates {typecheck,deliver}", all("deny")],
+  ["bounded-gates 'typecheck", all("deny")], // unterminated quote
+  ["bounded-gates typ\\echeck", all("deny")], // backslash escape
 ];
 
 describe("decideBash — the decision table over all four roles", () => {
@@ -148,25 +148,25 @@ describe("refusal reasons — specific, and the pi wording where pi has one", ()
     expect(d).toMatchObject({ allow: false });
     if (!d.allow) {
       expect(d.reason).toBe(
-        "path-gate: builder may not run 'npm': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck — in Claude Code, Bash carries only pi-gates <gate>, rm <path>",
+        "path-gate: builder may not run 'npm': no role holds a shell — use read/grep/find/ls, run_tests, or typecheck — in Claude Code, Bash carries only bounded-gates <gate>, rm <path>",
       );
     }
   });
   test("a gate another role holds is refused with pi's reason for that tool", () => {
-    const d = decideBash("builder", "pi-gates red-gate", CTX);
-    if (!d.allow) expect(d.reason).toBe("path-gate: builder may not run 'pi-gates red-gate': 'red_gate' is the architect's — use read/grep/find/ls, run_tests, or typecheck");
-    const a = decideBash("architect", "pi-gates run-tests", CTX);
+    const d = decideBash("builder", "bounded-gates red-gate", CTX);
+    if (!d.allow) expect(d.reason).toBe("path-gate: builder may not run 'bounded-gates red-gate': 'red_gate' is the architect's — use read/grep/find/ls, run_tests, or typecheck");
+    const a = decideBash("architect", "bounded-gates run-tests", CTX);
     if (!a.allow) expect(a.reason).toContain("run_tests is the builder's blind-safe channel — run red_gate/green_gate instead");
   });
   test("an unknown gate names the role's own gates", () => {
-    const d = decideBash("test-writer", "pi-gates nosuch", CTX);
-    if (!d.allow) expect(d.reason).toBe("path-gate: test-writer may not run 'pi-gates nosuch': no such gate for this role — test-writer's gates are typecheck");
+    const d = decideBash("test-writer", "bounded-gates nosuch", CTX);
+    if (!d.allow) expect(d.reason).toBe("path-gate: test-writer may not run 'bounded-gates nosuch': no such gate for this role — test-writer's gates are typecheck");
   });
   test("a compound command names the construct and the carriers", () => {
-    const d = decideBash("architect", "pi-gates typecheck && cat x", CTX);
+    const d = decideBash("architect", "bounded-gates typecheck && cat x", CTX);
     if (!d.allow) {
       expect(d.reason).toContain("a background/and operator ('&')");
-      expect(d.reason).toContain("Bash here carries only pi-gates <gate>, git …, sleep <1-120>, rm <path>");
+      expect(d.reason).toContain("Bash here carries only bounded-gates <gate>, git …, sleep <1-120>, rm <path>");
     }
   });
   test("a leading git global is refused by name, with the safe set", () => {
@@ -191,8 +191,8 @@ describe("refusal reasons — specific, and the pi wording where pi has one", ()
 
 describe("an allow names its carrier, so the hook knows which to decorate", () => {
   test.each([
-    ["pi-gates typecheck", "pi-gates"],
-    ["pi-gates --list", "pi-gates"],
+    ["bounded-gates typecheck", "bounded-gates"],
+    ["bounded-gates --list", "bounded-gates"],
     ["git status", "git"],
     ["sleep 5", "sleep"],
     ["rm spec.md", "rm"],
@@ -200,8 +200,8 @@ describe("an allow names its carrier, so the hook knows which to decorate", () =
     expect(decideBash("architect", command, CTX)).toEqual({ allow: true, carrier });
   });
   test("a host-only flag is refused by name", () => {
-    const d = decideBash("builder", "pi-gates typecheck --role architect", CTX);
-    if (!d.allow) expect(d.reason).toBe("path-gate: builder may not pass '--role' to pi-gates: the host supplies the role and findings are passed inline");
+    const d = decideBash("builder", "bounded-gates typecheck --role architect", CTX);
+    if (!d.allow) expect(d.reason).toBe("path-gate: builder may not pass '--role' to bounded-gates: the host supplies the role and findings are passed inline");
   });
 });
 
@@ -230,16 +230,16 @@ describe("cliGates — derived from ROLE_TOOLS, never a second list", () => {
     expect(gateCommand("record_design_review")).toBe("record-design-review");
   });
   test("carriers names exactly what each role may put through Bash", () => {
-    expect(carriers("architect")).toBe("pi-gates <gate>, git …, sleep <1-120>, rm <path>");
-    expect(carriers("builder")).toBe("pi-gates <gate>, rm <path>");
-    expect(carriers("reviewer")).toBe("pi-gates <gate>");
+    expect(carriers("architect")).toBe("bounded-gates <gate>, git …, sleep <1-120>, rm <path>");
+    expect(carriers("builder")).toBe("bounded-gates <gate>, rm <path>");
+    expect(carriers("reviewer")).toBe("bounded-gates <gate>");
   });
 });
 
 describe("shellWords — the shell's reading, or the construct that stops it", () => {
   test("plain words and quotes", () => {
     expect(shellWords("git commit -m 'a b' \"c d\"")).toEqual({ ok: true, argv: ["git", "commit", "-m", "a b", "c d"] });
-    expect(shellWords("  pi-gates\ttypecheck  ")).toEqual({ ok: true, argv: ["pi-gates", "typecheck"] });
+    expect(shellWords("  bounded-gates\ttypecheck  ")).toEqual({ ok: true, argv: ["bounded-gates", "typecheck"] });
   });
   test("a comment at word start is refused; '#' inside a word is text", () => {
     expect(shellWords("git log # x")).toMatchObject({ ok: false });

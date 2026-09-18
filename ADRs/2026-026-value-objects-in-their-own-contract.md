@@ -12,7 +12,7 @@ them from the sibling IMPLEMENTATION module (`../ids/ids.js`), exactly the route
 ADR 2026-023 already mandates for cross-component types.
 
 Enforced by a new contract-purity lint rule,
-`pi-harness-ts/value-objects-own-contract`: in a `*.contract.ts`, an exported
+`bounded-ts/value-objects-own-contract`: in a `*.contract.ts`, an exported
 interface, type-alias, function, or const that references a same-file nominal
 value-object class (private `__brand`, private constructor, `static parse`) is
 an error, naming the value object to move. Not a scaffold-time failure: it is a

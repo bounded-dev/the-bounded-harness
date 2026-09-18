@@ -2,7 +2,7 @@
 //
 // Extracted because the two gates were carrying byte-identical copies of it,
 // and a copy is a place two gates can start disagreeing about what a problem
-// looks like. This module deliberately imports NOTHING from the pi-harness-ts
+// looks like. This module deliberately imports NOTHING from the bounded-ts
 // plugin: a BUILD-stage gate must not fail to load because a DESIGN-stage rule
 // is mid-edit, which is the coupling the duplication was avoiding.
 

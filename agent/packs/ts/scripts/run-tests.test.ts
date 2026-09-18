@@ -223,7 +223,7 @@ describe("the default suite invocation ignores .pi/", () => {
 });
 
 // --- the gate (ADR 2026-034) ----------------------------------------------------
-// The builder's `run_tests` tool and `pi-gates run-tests` are this one call:
+// The builder's `run_tests` tool and `bounded-gates run-tests` are this one call:
 // the sanitized run, the convergence nudge read back from the project's own
 // guard log, and the event that feeds the next run's nudge.
 

@@ -174,7 +174,7 @@ describe("contributed rules reach the flat config", () => {
         "export const x = ReportForm;\n",
       "src/ui/shared/ui/button.tsx",
     );
-    expect(problems).toContain("pi-harness-ts-web/fsd-downward-imports");
+    expect(problems).toContain("bounded-ts-web/fsd-downward-imports");
   });
 
   test("and a contributed rule is silent on code that obeys it", async () => {

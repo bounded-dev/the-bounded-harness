@@ -66,7 +66,7 @@ Two gaps are deliberate, not oversights:
 - **The root architect session is not tiered by this mechanism.** A session
   launched into a bound role was never spawned through the `subagent` tool, so
   nothing can patch its model; it is tiered at launch instead
-  (`pi --model <designModel>`, which `pi-ticket` passes through).
+  (`pi --model <designModel>`, which `bounded-ticket` passes through).
 - **`workflowScript` children are moot.** Such a spawn names its children
   inside a JavaScript string, so no role is readable and no tier can be chosen
   — and the phase gate refuses those spawns for pipeline roles anyway.

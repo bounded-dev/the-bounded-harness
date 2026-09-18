@@ -4,12 +4,12 @@
 // Artifact gates answer the same whatever runs them; capability constraints
 // (the tool strip, the path gate, the phase gate on spawns, the role-scoped
 // worker views) only hold where a host cooperates. A run therefore has to
-// say WHICH host it ran under and what that host enforced, or a `pi-gates`
+// say WHICH host it ran under and what that host enforced, or a `bounded-gates`
 // transcript from a bare shell reads exactly like a blind run: same gates,
 // same verdicts, no blindness at all. The declaration is one guard-log event,
 // written by the host adapter as the session binds a role (pi: `session_start`;
 // Claude Code: the first hook call) and by the CLI when nothing declared
-// before it. It is recorded on CHANGE, not once: a bare `pi-gates` before a
+// before it. It is recorded on CHANGE, not once: a bare `bounded-gates` before a
 // pi session starts records `none`, and the session then records `pi`, so
 // the log tells the truth about every stretch of the run.
 //
@@ -43,8 +43,8 @@ export const HOST_GUARD = "host";
 
 /** Env a host adapter sets on a gate process it launches, naming itself —
  *  the CLI records `none` unless this names a host. A person exporting
- *  `PI_DEV_STAGE_ROLE` alone to see a role's view is not a host. */
-export const HOST_ENV = "PI_HOST";
+ *  `BOUNDED_DEV_STAGE_ROLE` alone to see a role's view is not a host. */
+export const HOST_ENV = "BOUNDED_HOST";
 
 /** Parse the env value; anything but a known host is no host. */
 export function hostFromEnv(value: string | undefined): HostName | undefined {

@@ -26,10 +26,10 @@ import { tokensOnlyStyling } from "./eslint/rules/tokens-only-styling.ts";
 export const TS_WEB_PACK = "ts-web";
 
 /** The flat-config namespace this pack's rules are registered under. A pack's
- *  rules live in the pack's own namespace, never in `pi-harness-ts`: two packs
+ *  rules live in the pack's own namespace, never in `bounded-ts`: two packs
  *  sharing one namespace is a name clash waiting to happen, and the rule id a
  *  block prints should say which pack to go and read. */
-export const TS_WEB_PLUGIN = "pi-harness-ts-web";
+export const TS_WEB_PLUGIN = "bounded-ts-web";
 
 export const tsWebPack = definePack({
   name: TS_WEB_PACK,
@@ -105,12 +105,12 @@ export const tsWebPack = definePack({
       {
         files: ["src/ui/shared/ui/**/*.contract.ts"],
         rules: {
-          "pi-harness-ts/no-naked-primitives": "off",
+          "bounded-ts/no-naked-primitives": "off",
           // The two rules that say what must be there INSTEAD of a primitive
           // go with it. Leaving them on would refuse the same contract one
           // message later, which is a relaxation that relaxes nothing.
-          "pi-harness-ts/value-object-shape": "off",
-          "pi-harness-ts/value-object-documented": "off",
+          "bounded-ts/value-object-shape": "off",
+          "bounded-ts/value-object-documented": "off",
         },
         why:
           "The generic UI layer holds no domain: a Button's `label: string` is a string, not a " +

@@ -81,10 +81,10 @@ const SIZE_RULES = new Set(["complexity", "max-lines-per-function", "max-lines",
 // Value objects live in src/**; a test file declares none, so the zod rule
 // would only ever fire on a test HELPER faking one — which the laws own.
 const SRC_ONLY_RULES = new Set([
-  "pi-harness-ts/zod-backed-parse",
+  "bounded-ts/zod-backed-parse",
   // Tests may import the framework freely (asserting a TRPCError is not
   // re-mapping the taxonomy); only src/** is bound to the runtime's one door.
-  "pi-harness-ts/raw-framework-entry",
+  "bounded-ts/raw-framework-entry",
 ]);
 
 /** Every rule id the src gate enforces — exported so guard-doc-drift.test.ts
@@ -101,9 +101,9 @@ export const SRC_RULE_IDS: readonly string[] = [
   "@typescript-eslint/consistent-type-assertions",
   "@typescript-eslint/no-explicit-any",
   "@typescript-eslint/ban-ts-comment",
-  "pi-harness-ts/blessed-stacks-only",
-  "pi-harness-ts/zod-backed-parse",
-  "pi-harness-ts/raw-framework-entry",
+  "bounded-ts/blessed-stacks-only",
+  "bounded-ts/zod-backed-parse",
+  "bounded-ts/raw-framework-entry",
 ];
 
 /** The subset enforced on tests/** (size ceilings excluded). */
@@ -207,7 +207,7 @@ export function createSrcLinter(cwd?: string): ESLint {
         // are structurally incompatible (known upstream friction); runtime fine.
         plugins: {
           "@typescript-eslint": tsPlugin as unknown as ESLint.Plugin,
-          "pi-harness-ts": harnessPlugin as unknown as ESLint.Plugin,
+          "bounded-ts": harnessPlugin as unknown as ESLint.Plugin,
           // Namespaces of packs that depend on ts (TN-26-005). Empty object
           // when nothing was composed — spreading it changes nothing.
           ...contributedPlugins(),
@@ -256,16 +256,16 @@ export function createSrcLinter(cwd?: string): ESLint {
           // imported: the stack is harness policy, and this is the layer of
           // the binding that holds when no skill loaded and no dependency
           // rule intervened. tRPC and zod are the blessed members.
-          "pi-harness-ts/blessed-stacks-only": "error",
+          "bounded-ts/blessed-stacks-only": "error",
           // --- zod inside every value object (ADR 2026-031) ----------------
           // A branded class's static parse must delegate to a zod schema;
           // hand-rolled typeof-chains drift across builders and blunt the
           // generated hostile laws. src/** only (see TEST_RULE_IDS).
-          "pi-harness-ts/zod-backed-parse": "error",
+          "bounded-ts/zod-backed-parse": "error",
           // --- One door to the framework (TN-26-004) -----------------------
           // Runtime imports of @trpc/* belong to the shipped service-runtime
           // alone — the error taxonomy is code there, not convention here.
-          "pi-harness-ts/raw-framework-entry": "error",
+          "bounded-ts/raw-framework-entry": "error",
           // --- Contributed rules (the ts pack's lintSrcRules socket) --------
           // Appended LAST, so a contributed rule can never quietly restate one
           // of the ts pack's own at a lower severity: everything above is

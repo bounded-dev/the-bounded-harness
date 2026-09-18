@@ -17,7 +17,7 @@ function tmp(): string {
 }
 afterEach(() => {
   while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
-  delete process.env["PI_GUARD_LOG"];
+  delete process.env["BOUNDED_GUARD_LOG"];
 });
 
 describe("guard log (TN-26-001: a deterministic system that is opaque when it jams is just a deterministic jam)", () => {
@@ -27,7 +27,7 @@ describe("guard log (TN-26-001: a deterministic system that is opaque when it ja
       guard: "contract-purity",
       verdict: "block",
       summary: "1 problem in 1 file",
-      detail: { file: "src/x.contract.ts", ruleId: "pi-harness-ts/declaration-only" },
+      detail: { file: "src/x.contract.ts", ruleId: "bounded-ts/declaration-only" },
     });
     const raw = readFileSync(guardLogPath(cwd), "utf8");
     expect(GUARD_LOG_RELATIVE).toBe(".pi/guard-log.jsonl");
@@ -57,9 +57,9 @@ describe("guard log (TN-26-001: a deterministic system that is opaque when it ja
     expect(readGuardLog(cwd)).toHaveLength(1);
   });
 
-  test("PI_GUARD_LOG=off opts out", () => {
+  test("BOUNDED_GUARD_LOG=off opts out", () => {
     const cwd = tmp();
-    process.env["PI_GUARD_LOG"] = "off";
+    process.env["BOUNDED_GUARD_LOG"] = "off";
     logGuardEvent(cwd, { guard: "scaffold", verdict: "pass", summary: "ok" });
     expect(readGuardLog(cwd)).toEqual([]);
   });

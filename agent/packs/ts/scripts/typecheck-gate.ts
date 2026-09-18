@@ -1,4 +1,4 @@
-// typecheck gate — the worker `typecheck` tool and `pi-gates typecheck` as one
+// typecheck gate — the worker `typecheck` tool and `bounded-gates typecheck` as one
 // call (ADR 2026-034).
 //
 // typecheck.ts runs tsc and redacts machine paths; typecheck-scope.ts narrows
