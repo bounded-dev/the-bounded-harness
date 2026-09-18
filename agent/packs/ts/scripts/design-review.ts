@@ -43,7 +43,8 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { logGuardEvent } from "../../../src/guard-log.ts";
+import type { GateResult } from "../../../src/gate-result.ts";
 import { computeManifest, hashContract } from "./checksum-gate.ts";
 import { parseFindings, type Finding } from "./sign-off.ts";
 
@@ -64,13 +65,9 @@ export const FREEZABLE_NOW =
 /** How much of a sha256 is worth printing to a human. Full hashes go in the log. */
 const SHORT_HASH = 12;
 
-export interface DesignReviewResult {
-  readonly code: 0 | 2;
-  readonly verdict: GuardVerdict;
-  readonly summary: string;
-  readonly lines: string[];
-  readonly detail: Readonly<Record<string, unknown>>;
-}
+/** The shared contract, with `code` narrowed: a review is recorded (0) or the
+ *  call was misuse (2) — the gate never judges the findings, so it never blocks. */
+export type DesignReviewResult = GateResult & { readonly code: 0 | 2 };
 
 /**
  * The exact bytes reviewed: project-relative posix path → sha256, `spec.md`

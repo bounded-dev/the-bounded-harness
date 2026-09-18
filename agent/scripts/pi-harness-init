@@ -28,7 +28,7 @@ REPO="$(cd -P "$AGENT/.." && pwd)"
 
 # The commands this harness puts on PATH. Adding one here is all it takes —
 # a contributor should not also have to remember to tell people to symlink it.
-COMMANDS=(pi-ticket dogfood-reset pi-harness-init)
+COMMANDS=(pi-ticket pi-gates dogfood-reset pi-harness-init)
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
@@ -100,6 +100,7 @@ cat <<EOF
 Ready. Available now:
 
   pi-ticket        start a pi session gated as the architect (one ticket)
+  pi-gates         run one artifact gate from any shell: pi-gates <gate> [cwd] [--json]
   dogfood-reset    rebuild the two dogfood arms, ready to run
 
 Re-run pi-harness-init after a pull to pick up newly added commands.

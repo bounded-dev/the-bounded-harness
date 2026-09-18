@@ -60,6 +60,7 @@ import { gateTypecheckOptionsFromEnv } from "./red-gate.ts";
 import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
+import { gateVerdictOf, guardVerdictOf, type GateResult } from "../../../src/gate-result.ts";
 
 const GUARD = "design-gate";
 const REVIEW_GUARD = "design-review";
@@ -84,27 +85,14 @@ export interface StepOutcome {
   readonly ms: number;
 }
 
-export interface DesignGateResult {
-  readonly code: 0 | 1 | 2;
-  readonly verdict: GuardVerdict;
-  readonly summary: string;
-  readonly lines: readonly string[];
+export interface DesignGateResult extends GateResult {
   /** Only the steps that actually ran: the sequence stops at the first failure. */
   readonly steps: readonly StepOutcome[];
-  readonly detail: Readonly<Record<string, unknown>>;
 }
 
 /** One decimal second — enough to see which step is costing the round-trip. */
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function stepVerdict(code: number): string {
-  return code === 0 ? "PASS" : code === 1 ? "BLOCK" : "ERROR";
-}
-
-function guardVerdictOf(code: number): GuardVerdict {
-  return code === 0 ? "pass" : code === 1 ? "block" : "error";
 }
 
 /**
@@ -136,7 +124,7 @@ export function classifyDesignGate(steps: readonly StepOutcome[]): {
 } {
   const lines: string[] = [];
   for (const s of steps) {
-    lines.push(...s.lines, `${s.step}: ${stepVerdict(s.code)} (${seconds(s.ms)})`);
+    lines.push(...s.lines, `${s.step}: ${gateVerdictOf(s.code)} (${seconds(s.ms)})`);
   }
   const total = steps.reduce((sum, s) => sum + s.ms, 0);
   const failed = steps.find((s) => s.code !== 0);

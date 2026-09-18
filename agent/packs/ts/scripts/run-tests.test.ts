@@ -10,8 +10,11 @@ import {
   repeatedFailureNudge,
   type RunTestsResult,
   runTests,
+  runTestsGate,
   summarizeResults,
 } from "./run-tests.ts";
+import { readGuardLog } from "../../../src/guard-log.ts";
+import { makeTempProject, type TempProject } from "../../../test/support/temp-project.ts";
 
 // Reuse the sanitizer's REAL vitest fixtures (captured via
 // `vitest run --reporter=json`). See sanitize-test-output.test.ts for the
@@ -216,5 +219,69 @@ describe("the default suite invocation ignores .pi/", () => {
     expect(result.blocked).toBeUndefined();
     expect(result.results.map((r) => r.name)).toEqual(["live"]);
     expect(result.ok).toBe(true);
+  });
+});
+
+// --- the gate (ADR 2026-029) ----------------------------------------------------
+// The builder's `run_tests` tool and `pi-gates run-tests` are this one call:
+// the sanitized run, the convergence nudge read back from the project's own
+// guard log, and the event that feeds the next run's nudge.
+
+describe("runTestsGate", () => {
+  const projects: TempProject[] = [];
+  afterAll(() => projects.forEach((p) => p.cleanup()));
+
+  function project(): string {
+    const p = makeTempProject({}, { prefix: "run-tests-gate-" });
+    projects.push(p);
+    return p.dir;
+  }
+
+  test("passing suite: PASS, counts in the detail, one pass event with no names", async () => {
+    const dir = project();
+    const r = await runTestsGate(dir, { run: fakeRunner(PASSING, "", 0) });
+    expect(r).toMatchObject({ code: 0, verdict: "pass" });
+    expect(r.summary).toMatch(/^\d+ passed, 0 failed, \d+ skipped$/);
+    expect(r.lines[0]).toMatch(/^Tests: \d+ passed, 0 failed/);
+    expect(r.detail).toMatchObject({ ok: true, failed: 0, blocked: false, stuck: false, names: [] });
+    expect(readGuardLog(dir)).toEqual([
+      expect.objectContaining({ guard: "run_tests", verdict: "pass", detail: { names: [] } }),
+    ]);
+  });
+
+  test("failing suite: BLOCK, the failing names logged, nothing from test source", async () => {
+    const dir = project();
+    const r = await runTestsGate(dir, { run: fakeRunner(FAILING, "", 1) });
+    expect(r).toMatchObject({ code: 1, verdict: "block" });
+    expect(r.lines.join("\n")).toContain("✗ math fails an equality check");
+    expect(r.lines.join("\n")).not.toContain("SENTINEL_PATH");
+    const [event] = readGuardLog(dir);
+    expect(event).toMatchObject({ guard: "run_tests", verdict: "block" });
+    expect(event.detail?.["names"]).toContain("math fails an equality check");
+    expect(event.detail?.["stuck"]).toBeUndefined();
+  });
+
+  test("the third identical failure set trips the nudge, from the log alone", async () => {
+    const dir = project();
+    const run = () => runTestsGate(dir, { run: fakeRunner(FAILING, "", 1) });
+    const first = await run();
+    const second = await run();
+    const third = await run();
+    expect(first.detail["stuck"]).toBe(false);
+    expect(second.detail["stuck"]).toBe(false);
+    expect(third.detail["stuck"]).toBe(true);
+    expect(third.lines.join("\n")).toMatch(/3rd consecutive run .* you are not converging/);
+    expect(third.lines.join("\n")).toMatch(/dispute protocol/);
+    const events = readGuardLog(dir).filter((e) => e.guard === "run_tests");
+    expect(events.map((e) => e.detail?.["stuck"])).toEqual([undefined, undefined, true]);
+  });
+
+  test("a suite that produces no report: ERROR, logged as such", async () => {
+    const dir = project();
+    const r = await runTestsGate(dir, { run: fakeRunner("", "Error: cannot find config", 1) });
+    expect(r).toMatchObject({ code: 2, verdict: "error", summary: "suite could not run" });
+    expect(r.lines[0]).toMatch(/suite could not run \(BLOCKED\)/);
+    expect(r.detail).toMatchObject({ blocked: true, total: 0 });
+    expect(readGuardLog(dir)[0]).toMatchObject({ guard: "run_tests", verdict: "error" });
   });
 });

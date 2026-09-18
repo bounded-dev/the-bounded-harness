@@ -39,8 +39,8 @@ import {
   gateOptionsFromEnv,
   gateTypecheckOptionsFromEnv,
   testsTreeHash,
-  type GateResult,
 } from "./red-gate.ts";
+import type { GateResult } from "../../../src/gate-result.ts";
 import { typecheck, type TypecheckResult } from "./typecheck.ts";
 import { mostUpstream, routeTypecheck, typecheckLines, type FixOwner } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog } from "../../../src/guard-log.ts";

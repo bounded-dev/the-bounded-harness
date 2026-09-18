@@ -1,0 +1,182 @@
+// Gate command — how a pack declares a gate to the root (ADR 2026-029).
+//
+// The root names no technology: it discovers `packs/<lang>/gates.ts` by
+// convention and reads a list of these. One entry carries everything BOTH
+// hosts need — the CLI its name and flags, the pi extension its tool name,
+// description and prompt guidance — so a gate's public face is written once
+// and neither host can drift from the other. The `run` is the same function
+// the pack's own script calls from `main`, so a gate cannot differ by how it
+// was invoked.
+//
+// Also here: the flag grammar. A FlagSpec is the CLI's schema the way a
+// TypeBox object is the tool's, and parsing it is a pure function so the
+// registry tests can assert what an invocation means without spawning.
+
+import type { GateResult } from "./gate-result.ts";
+
+export type FlagKind = "boolean" | "string" | "number" | "json";
+
+export interface FlagSpec {
+  /** Long name, without the leading dashes: `pattern` is `--pattern`. */
+  readonly name: string;
+  readonly kind: FlagKind;
+  /** May be given more than once; the parsed value is then a list. */
+  readonly repeatable?: boolean;
+  readonly description: string;
+}
+
+/** Parsed flags, by name. A boolean is `true` when given; a repeatable flag is
+ *  a list; a `json` flag is whatever it parsed to. Read through the `arg*`
+ *  accessors below rather than by hand. */
+export type GateArgs = Readonly<Record<string, unknown>>;
+
+export interface GateCommand {
+  /** The CLI name: `pi-gates <name>`. Also the prefix of the verdict line. */
+  readonly name: string;
+  /** The pi tool name, when the gate is exposed as one. Absent for a gate that
+   *  is CLI-only: a step of a composite (scaffold) or a check the delivered
+   *  project runs on its own (surface-check). */
+  readonly tool?: string;
+  /** The tool description — verbatim what the model reads. */
+  readonly description: string;
+  readonly flags: readonly FlagSpec[];
+  /** Prompt guidance a host may fold into the role's brief. */
+  readonly promptGuidelines?: readonly string[];
+  run(cwd: string, args: GateArgs): Promise<GateResult>;
+}
+
+// --- runtime shape checks (the registry arrives through a dynamic import) ------
+
+function isFlagSpec(x: unknown): x is FlagSpec {
+  if (typeof x !== "object" || x === null) return false;
+  const f: Record<string, unknown> = { ...x };
+  return (
+    typeof f["name"] === "string" &&
+    (f["kind"] === "boolean" || f["kind"] === "string" || f["kind"] === "number" || f["kind"] === "json") &&
+    (f["repeatable"] === undefined || typeof f["repeatable"] === "boolean") &&
+    typeof f["description"] === "string"
+  );
+}
+
+export function isGateCommand(x: unknown): x is GateCommand {
+  if (typeof x !== "object" || x === null) return false;
+  const c: Record<string, unknown> = { ...x };
+  return (
+    typeof c["name"] === "string" &&
+    (c["tool"] === undefined || typeof c["tool"] === "string") &&
+    typeof c["description"] === "string" &&
+    Array.isArray(c["flags"]) &&
+    c["flags"].every(isFlagSpec) &&
+    (c["promptGuidelines"] === undefined ||
+      (Array.isArray(c["promptGuidelines"]) && c["promptGuidelines"].every((g) => typeof g === "string"))) &&
+    typeof c["run"] === "function"
+  );
+}
+
+/** Is `x` the `gates` export of a pack registry? */
+export function isGateRegistry(x: unknown): x is readonly GateCommand[] {
+  return Array.isArray(x) && x.every(isGateCommand);
+}
+
+// --- flag parsing ----------------------------------------------------------------
+
+export type ParsedArgs =
+  | { readonly ok: true; readonly args: GateArgs; readonly positionals: readonly string[] }
+  | { readonly ok: false; readonly error: string };
+
+/** One flag's value, parsed by its kind; a string is the error to report. */
+function parseValue(spec: FlagSpec, raw: string): { readonly value: unknown } | { readonly error: string } {
+  switch (spec.kind) {
+    case "string":
+      return { value: raw };
+    case "number": {
+      const n = Number(raw);
+      return raw.trim() === "" || !Number.isFinite(n)
+        ? { error: `--${spec.name} needs a number (got '${raw}')` }
+        : { value: n };
+    }
+    case "json":
+      try {
+        return { value: JSON.parse(raw) };
+      } catch {
+        return { error: `--${spec.name} is not valid JSON` };
+      }
+    case "boolean":
+      return { error: `--${spec.name} takes no value` };
+  }
+}
+
+/**
+ * Parse `argv` against `specs`. `--name value` and `--name=value` both work;
+ * a boolean flag stands alone. Anything not starting with `--` is a
+ * positional. Strict on purpose: an unknown flag, a missing value, a repeated
+ * non-repeatable flag or a malformed value is an error, never a guess — the
+ * caller turns it into usage (exit 64).
+ */
+export function parseGateArgs(specs: readonly FlagSpec[], argv: readonly string[]): ParsedArgs {
+  const byName = new Map(specs.map((s) => [s.name, s]));
+  const args: Record<string, unknown> = {};
+  const positionals: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (!token.startsWith("--")) {
+      positionals.push(token);
+      continue;
+    }
+    const eq = token.indexOf("=");
+    const name = eq === -1 ? token.slice(2) : token.slice(2, eq);
+    const spec = byName.get(name);
+    if (spec === undefined) return { ok: false, error: `unknown flag --${name}` };
+
+    if (spec.kind === "boolean") {
+      if (eq !== -1) return { ok: false, error: `--${name} takes no value` };
+      args[name] = true;
+      continue;
+    }
+
+    const raw = eq === -1 ? argv[++i] : token.slice(eq + 1);
+    if (raw === undefined) return { ok: false, error: `--${name} needs a value` };
+    const parsed = parseValue(spec, raw);
+    if ("error" in parsed) return { ok: false, error: parsed.error };
+
+    if (spec.repeatable) {
+      const prior = args[name];
+      args[name] = Array.isArray(prior) ? [...prior, parsed.value] : [parsed.value];
+    } else if (name in args) {
+      return { ok: false, error: `--${name} given more than once` };
+    } else {
+      args[name] = parsed.value;
+    }
+  }
+  return { ok: true, args, positionals };
+}
+
+// --- typed access ---------------------------------------------------------------
+// The parser guarantees the shape per kind; these just narrow it for a `run`.
+
+export function argBoolean(args: GateArgs, name: string): boolean {
+  return args[name] === true;
+}
+
+export function argString(args: GateArgs, name: string): string | undefined {
+  const v = args[name];
+  return typeof v === "string" ? v : undefined;
+}
+
+export function argNumber(args: GateArgs, name: string): number | undefined {
+  const v = args[name];
+  return typeof v === "number" ? v : undefined;
+}
+
+/** A repeatable string flag's values, `[]` when it was not given. */
+export function argStrings(args: GateArgs, name: string): readonly string[] {
+  const v = args[name];
+  if (typeof v === "string") return [v];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+/** A json flag's parsed value; `undefined` when it was not given (a given
+ *  `null` is preserved — the parse happened). */
+export function argJson(args: GateArgs, name: string): unknown {
+  return name in args ? args[name] : undefined;
+}
