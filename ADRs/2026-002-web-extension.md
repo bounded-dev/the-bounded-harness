@@ -20,7 +20,7 @@ off-the-shelf `npm:pi-web-access` package.
   become needs.
 - Brave key resolution: `BRAVE_API_KEY` env var overrides the gitignored
   `web-search.json` in the harness root. The file is the reliable path — GUI
-  launchers (Orca) don't inherit shell env, so a key that only lives in
+  launchers don't inherit shell env, so a key that only lives in
   `~/.zshrc` silently goes missing. Any extension needing a key follows the
   same pattern: own gitignored `<name>.json`, env var overrides, never
   committed or logged.

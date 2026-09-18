@@ -1,13 +1,13 @@
-# pi-harness
+# The Bounded Harness
 
-The user's live pi coding-agent config home (`~/.pi/agent` symlinks here). Global scope only: everything here applies to every project on the machine, and the root stays language-agnostic.
+An agent-agnostic coding-agent harness (pi is the reference host; other agent frameworks attach via host adapters). Today it runs in developer mode as the live config home — `~/.pi/agent` symlinks here — a stopgap until the harness ships as packaged per-framework extensions. Global scope only: everything here applies to every project on the machine, and the root stays language-agnostic.
 
 ## Language
 
 ### Structure
 
 **Harness**:
-This repository itself — the global pi configuration, symlinked to `~/.pi/agent`, live the moment it changes.
+This repository itself — the agent-agnostic harness and its global configuration, symlinked to `~/.pi/agent`, live the moment it changes.
 _Avoid_: config, dotfiles, setup
 
 **Pack**:
@@ -36,8 +36,8 @@ _Avoid_: product manager agent, product persona
 The script names every project declares — `check`, `test`, `build`, `lint` — which any agent session looks for first.
 _Avoid_: scripts (unqualified), tasks
 
-**Orca-managed**:
-Files (e.g. `extensions/orca-*.ts`) that Orca rewrites; tracked in git but never hand-edited.
+**Tool-managed**:
+Extension files an external tool installs and rewrites under `extensions/`; untracked runtime state, never hand-edited (ADR 2026-006).
 
 **Technical Note (TN)**:
 The single document primitive for project thinking — numbered, statused, kinded, ticket-linked. The working surface where ideas develop before ratification into ADRs. Conventions live per-repo in `docs/tn/README.md`.
@@ -89,8 +89,8 @@ _Avoid_: manager agent, supervisor, orchestrator
 One of the named tools the architect runs a gate through (`contract_purity`, `design_gate`, `check_drift`, `red_gate`, `green_gate`, `sign_off`, `deliver`). Thin wiring over the same `run*` function the CLI calls, so a gate cannot differ by how it was invoked. They exist because the architect has no `bash`. Where several gates have exactly one legal order they are one tool: `design_gate` is purity → scaffold → typecheck → design-review → freeze. `sleep` and `mutation_score` sit in the same toolset and are **not** gates — one waits out a subagent, one measures the suite before sign-off; neither decides a transition, and firing a real gate to pass the time corrupts the run's own record.
 _Avoid_: gate script (that's the CLI), command
 
-**pi-ticket**:
-The launcher (`agent/scripts/pi-ticket`, symlinked onto PATH as `pi-ticket`) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it, and the architect's forbidden tools are excluded from the session's registry rather than merely refused when called.
+**bounded-ticket**:
+The launcher (`agent/scripts/bounded-ticket`, symlinked onto PATH as `bounded-ticket`) that starts a pi session bound to the architect role. Run it in the project directory instead of `pi`. Role binding happens at launch, from outside the project, so nothing in the session can change it, and the architect's forbidden tools are excluded from the session's registry rather than merely refused when called.
 _Avoid_: wrapper, alias
 
 **Dispute**:
@@ -148,11 +148,11 @@ The agent runtime that loads the harness and runs a session in it — pi today, 
 _Avoid_: platform, runtime (unqualified), IDE
 
 **Host adapter**:
-The thin, per-host layer that binds the harness's capability constraints to that host's own mechanisms — pi's extensions (`pi.setActiveTools`, the `tool_call` hook, `subagentOnlyExtensions`) or Claude Code's `hosts/claude-code/` (a `PreToolUse` hook, generated agent definitions with `tools:` allowlists and per-agent `hooks:`). Wires the same pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`); holds no policy of its own (ADR 2026-029).
+The thin, per-host layer that binds the harness's capability constraints to that host's own mechanisms — pi's extensions (`pi.setActiveTools`, the `tool_call` hook, `subagentOnlyExtensions`) or Claude Code's `hosts/claude-code/` (a `PreToolUse` hook, generated agent definitions with `tools:` allowlists and per-agent `hooks:`). Wires the same pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`); holds no policy of its own (ADR 2026-034).
 _Avoid_: plugin, integration, port
 
 **Artifact gate**:
-A mechanism that inspects what exists in the tree — purity, design, drift, red, green, sign-off, deliver, mutation score, typecheck, the test run, the recorded review, surface check, scaffold — and so is host-independent by construction. Exposed once, as `pi-gates <gate> [cwd] [--json]`, over one result contract; the pi gate tools read the same registry. A CLI does not enforce who may run a gate: that is a capability constraint.
+A mechanism that inspects what exists in the tree — purity, design, drift, red, green, sign-off, deliver, mutation score, typecheck, the test run, the recorded review, surface check, scaffold — and so is host-independent by construction. Exposed once, as `bounded-gates <gate> [cwd] [--json]`, over one result contract; the pi gate tools read the same registry. A CLI does not enforce who may run a gate: that is a capability constraint.
 _Avoid_: check script, Tier A (the tier name is for the ADR, not the prose)
 
 **Capability constraint**:
@@ -160,7 +160,7 @@ A mechanism that shapes what a role *can do* rather than what the tree contains 
 _Avoid_: guard (that is the log's word for any mechanism), Tier B
 
 **Guard log**:
-The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `PI_GUARD_LOG=off` opts out.
+The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `BOUNDED_GUARD_LOG=off` opts out.
 _Avoid_: audit log, telemetry (unqualified)
 
 **Model tier**:
@@ -185,7 +185,7 @@ _Avoid_: brownfield run, incremental run
 
 **Run boundary**:
 The driver-side act that ends one run and arms the next on the same tree:
-`pi-change-run` archives the guard log (run state) while the manifest, role
+`bounded-change-run` archives the guard log (run state) while the manifest, role
 binding and model tiers (tree state) survive. Every log-derived gate — review
 freshness, the phase gate, green-requires-red, timing — is re-armed by it, and
 it refuses to cut through an undelivered run without `--force`.

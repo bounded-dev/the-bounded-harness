@@ -23,7 +23,7 @@ node_modules/
 web-search.json
 
 # Tool-managed files — tools that want in write their own files, untracked
-# (ADR 2026-006; e.g. Orca installs its extensions at runtime)
+# (ADR 2026-006; matched by the installing tool's filename prefix)
 orca-*.ts
 
 *.log

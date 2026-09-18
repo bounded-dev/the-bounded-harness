@@ -1,14 +1,23 @@
 # The Bounded Harness
 
-An open-source coding-agent harness, built in the open and used daily. The
-**`agent/` subdirectory** is the live config home — `~/.pi/agent` symlinks to
-it, so everything in there is in effect for every [pi](https://pi.dev) session
-on the machine, the moment it changes. Claude Code shares the global
-instruction file only: `~/.claude/CLAUDE.md` symlinks to `agent/AGENTS.md`. The
-repo root is the project around that: decisions ([`ADRs/`](ADRs/)), the domain
-glossary (`CONTEXT.md`), and technical notes (`docs/tn/`). Where this is all
-going is [`docs/VISION.md`](docs/VISION.md): the harness, not the codebase, is
-the part you own.
+An open-source, **agent-agnostic** coding-agent harness — CLI-based,
+extremely deterministic, and opinionated — built in the open and used daily.
+The bet ([`docs/VISION.md`](docs/VISION.md)): the model is a component you
+rent, and so is the agent framework driving it; **the harness is the part
+you own.** Any capable agent framework straps in through a thin host
+adapter; today that is [pi](https://pi.dev) — the reference host — and
+Claude Code, with more hook-capable frameworks to follow
+([TN-26-007](docs/tn/TN-26-007-agent-agnostic-harness.md)).
+
+Today the harness runs in **developer mode**: the **`agent/` subdirectory**
+is the live config home, symlinked straight into the frameworks —
+`~/.pi/agent` points at it, so everything in there is in effect for every pi
+session the moment it changes, and Claude Code shares the instruction file
+(`~/.claude/CLAUDE.md` → `agent/AGENTS.md`). The symlink setup is a
+stopgap, not the architecture: the destination is the harness shipped as a
+packaged extension per framework, with a proper install. The repo root is
+the project around the config home: decisions ([`ADRs/`](ADRs/)), the
+domain glossary (`CONTEXT.md`), and technical notes (`docs/tn/`).
 
 ## How it works
 
@@ -27,29 +36,31 @@ the part you own.
   `developer-stage` pipeline below, plus third-party skills like
   `flight-status` **vendored** into the repo and synced by hand — a
   sibling-repo pointer can't survive the `~/.pi/agent` symlink (ADR 2026-012).
-- **Extensions.** `agent/extensions/*.ts` auto-load on session start: a web
-  search/fetch tool, and Orca-managed status hooks. `npm run check` in
-  `agent/` typechecks the hand-written ones; CI enforces it.
-  Tool-managed files (like Orca's `orca-*.ts`) are **untracked** runtime
-  state — tools that want into the config home install their own files
-  (ADR 2026-006).
+- **Extensions.** `agent/extensions/*.ts` auto-load on pi session start: a
+  web search/fetch tool and the harness's capability constraints for the pi
+  host. `npm run check` in `agent/` typechecks the hand-written ones; CI
+  enforces it. External tools that want into the config home install their
+  own **untracked** files — runtime state, never hand-edited (ADR 2026-006).
 - **Packs.** Language-specific capability lives in `packs/<lang>/` as
   on-demand skills and scaffolder scripts — never extensions, never root
   config (ADR 2026-007). `packs/ts` is the first and the substantial one: the
   contract-authoring skill, the zone lint rules, the scaffolder, and every gate
   script the developer stage runs.
 
-- **Hosts.** The harness's logic never depends on which agent runtime loads
-  it; only a thin **host adapter** does (ADR 2026-034). Every *artifact gate*
-  — purity, design, drift, red, green, sign-off, deliver, mutation score,
-  typecheck, the test run — is one CLI, `pi-gates <gate> [dir] [--json]`,
-  callable from any agent, from CI, or by hand; the pi gate tools read the
-  same registry. The *capability constraints* — tool strip, path gate, phase
-  gate, scoped worker views — need host cooperation and live per host:
-  `agent/extensions/` for pi, `agent/hosts/claude-code/` for Claude Code (a
-  `PreToolUse` hook plus generated agent definitions). A run's guard log
-  says which host it ran under and what that host enforced, so a gates-only
-  transcript is never mistaken for a blind one.
+- **Hosts.** The harness's logic never depends on which agent framework
+  loads it; only a thin **host adapter** does (ADR 2026-034). Every
+  *artifact gate* — purity, design, drift, red, green, sign-off, deliver,
+  mutation score, typecheck, the test run — is one CLI,
+  `bounded-gates <gate> [dir] [--json]`, callable from any agent, from CI,
+  or by hand; the pi gate tools read the same registry. The *capability
+  constraints* — tool strip, path gate, phase gate, scoped worker views —
+  need host cooperation and live per host: `agent/extensions/` for pi,
+  `agent/hosts/claude-code/` for Claude Code (a `PreToolUse` hook plus
+  generated agent definitions). The bar for a supported host is
+  **deterministic enforcement** — tools removed rather than refused, writes
+  blocked rather than discouraged — and a run's guard log says which host it
+  ran under and what that host enforced, so a gates-only transcript is never
+  mistaken for a blind one.
 
 Packages are pinned via `pi install` (recorded in `agent/settings.json`),
 secrets and session state stay uncommitted, and work happens in worktrees on
@@ -89,17 +100,23 @@ Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 [docs/dogfooding.md](docs/dogfooding.md), current plan in
 [issue #13](https://github.com/bounded-dev/pi-harness/issues/13).
 
-## Bootstrap a new machine
+## Bootstrap a new machine (developer mode)
+
+This is the stopgap install — symlinks into the frameworks' config homes,
+until the harness ships as packaged per-framework extensions.
 
 ```bash
 git clone git@github.com:bounded-dev/pi-harness.git
-ln -s "$PWD/pi-harness/agent" ~/.pi/agent   # create ~/.pi first if needed
-ln -s "$PWD/pi-harness/agent/AGENTS.md" ~/.claude/CLAUDE.md   # Claude Code
-ln -s ~/.pi/agent/scripts/pi-ticket /usr/local/bin/pi-ticket   # the gated launcher, anywhere on PATH
-ln -s ~/.pi/agent/scripts/pi-gates /usr/local/bin/pi-gates     # every artifact gate as a command
-pi update --extensions                      # install packages from settings.json
-cd pi-harness/agent && npm ci && npm run check
+cd pi-harness && agent/scripts/bounded-init
 ```
+
+`bounded-init` does the rest, and is idempotent — re-run it after a pull to
+pick up newly added commands. It symlinks `~/.pi/agent` to `agent/` (the
+live pi config home) and `~/.claude/CLAUDE.md` to `agent/AGENTS.md`, puts
+the harness's commands on PATH (`bounded-gates`, `bounded-ticket`,
+`bounded-change-run`, `dogfood-reset`, `bounded-init` itself), then runs
+`npm ci` and the harness's own test suite. It never overwrites a real file —
+only its own symlinks.
 
 Then log in (`pi` → `/login`) to recreate `auth.json`, and add the Brave
 Search API key as `web-search.json` (`{"BRAVE_API_KEY": "..."}`) in `agent/`
@@ -110,8 +127,7 @@ adapter into the project: `node ~/.pi/agent/hosts/claude-code/install.ts
 <project>` writes the four role definitions to `<project>/.claude/agents/`
 and the ambient path-gate hook to `<project>/.claude/settings.json`. See
 [`agent/hosts/claude-code/README.md`](agent/hosts/claude-code/README.md) for
-what it enforces, what it does not, and its honest limits — it is verified
-by fixture; the first live run is a dogfood entry.
+what it enforces, what it does not, and its honest limits.
 
 ## Conventions
 

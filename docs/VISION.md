@@ -39,6 +39,29 @@ briefs agents read are an index; the gates are the body. (This repo enforces
 that relationship itself: a drift test fails the build if a gate is not named
 in the brief of the role it binds.)
 
+## No agent owns the harness
+
+The model is a rented component — and so is the agent framework that drives
+it. The harness is therefore **agent-agnostic by construction**
+([TN-26-007](tn/TN-26-007-agent-agnostic-harness.md), ADR 2026-034).
+Everything that judges the tree is one deterministic CLI, `bounded-gates` —
+the same verdict from CI, a bare shell, or any agent. Everything that shapes
+what a role *can do* — tools stripped from the toolset, writes blocked by a
+path gate, spawns gated by phase — is a thin per-framework adapter over the
+same decision cores, wired through that framework's hook surface. The bar
+for a supported host is deterministic enforcement, not cooperation: a
+framework that can only be asked nicely can still run the gates, and the
+guard log will record that that is all it did.
+
+The harness targets the few key hook-capable frameworks rather than all of
+them — pi and Claude Code today, with Codex-class runtimes as candidates —
+and **pi is the reference host**: its system prompt is minimal, so the
+harness's rulebook is nearly all the model reads, and what is measured in a
+dogfood run is the harness rather than a vendor's prompt. Distribution
+follows the same grain: the harness ships to each framework as a packaged
+extension with a real install; the symlinked config home used today is
+developer scaffolding, not the design.
+
 ## A many-layered cake
 
 Harnesses compose in layers, each more opinionated than the one below:
