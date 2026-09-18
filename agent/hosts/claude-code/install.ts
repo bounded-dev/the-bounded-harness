@@ -2,28 +2,52 @@
 //
 //   node install.ts <targetDir> [--harness-root <dir>]
 //
-// Writes the four rendered subagent definitions to <target>/.claude/agents/
-// and merges the ambient path-gate hook into <target>/.claude/settings.json.
-// Idempotent: a second run changes nothing and says so per file.
+// Writes the four rendered subagent definitions to <target>/.claude/agents/,
+// links the developer-stage skill into <target>/.claude/skills/ (the
+// architect's brief opens by loading it, and Claude Code reads skills from
+// the project's .claude/skills, not from ~/.pi/agent/skills), and merges the
+// ambient path-gate hook into <target>/.claude/settings.json. Idempotent: a
+// second run changes nothing and says so per file.
 //
-// Two things it refuses to do, loudly, because both would be a silent loss:
+// Three things it refuses to do, loudly, because each would be a silent loss:
 //   · overwrite an agent file that does not carry the generated marker — that
 //     is someone's hand-written definition, not an older render of ours;
+//   · replace a real `.claude/skills/developer-stage` directory that is not
+//     our own copy (no marker file inside) — that is someone's skill;
 //   · rewrite a settings.json it cannot parse, or one whose `hooks.PreToolUse`
 //     is not a list. Other keys are never dropped; our entry is added once,
 //     recognised by its command naming path-gate-hook.ts.
 //
-// Exit 0 done · 1 refused (nothing partial: agents are checked before any is
-// written) · 2 usage.
+// Exit 0 done · 1 refused (nothing partial: every destination is checked
+// before any is written) · 2 usage.
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
+import { isMainModule } from "../../src/is-main-module.ts";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
-import { defaultHarnessRoot, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
+import { defaultHarnessRoot, GENERATED_MARKER, hookCommandFor, isGenerated, renderAllAgents } from "./render-agents.ts";
 
 export const AGENTS_DIR = join(".claude", "agents");
 export const SETTINGS_FILE = join(".claude", "settings.json");
+/** Where Claude Code reads a project's skills; the developer-stage skill is
+ *  linked here from `<harnessRoot>/skills/developer-stage`. */
+export const SKILLS_DIR = join(".claude", "skills");
+export const DEV_STAGE_SKILL = "developer-stage";
+/** Written inside a COPIED skill directory (symlink refused by the platform),
+ *  so a later run knows the copy is ours to refresh. */
+export const SKILL_COPY_MARKER = ".pi-harness-generated";
 
 /** What identifies our entry in settings.json, whatever path it was installed from. */
 const HOOK_SCRIPT_NAME = "path-gate-hook.ts";
@@ -82,6 +106,52 @@ function put(path: string, content: string): void {
   process.stdout.write(`wrote ${path}\n`);
 }
 
+/** What the skill destination is right now. */
+type SkillState =
+  | { readonly kind: "absent" }
+  | { readonly kind: "linked"; readonly target: string }
+  | { readonly kind: "our-copy" }
+  | { readonly kind: "foreign" };
+
+function skillState(dest: string): SkillState {
+  let st: ReturnType<typeof lstatSync>;
+  try {
+    st = lstatSync(dest);
+  } catch {
+    return { kind: "absent" };
+  }
+  if (st.isSymbolicLink()) return { kind: "linked", target: readlinkSync(dest) };
+  if (st.isDirectory() && existsSync(join(dest, SKILL_COPY_MARKER))) return { kind: "our-copy" };
+  return { kind: "foreign" };
+}
+
+/**
+ * Link `<harnessRoot>/skills/developer-stage` at `<target>/.claude/skills/
+ * developer-stage`. A symlink first — the skill then tracks the harness — and
+ * a copy, with a marker file, only where the platform refuses the link. The
+ * caller has already checked the destination is ours or absent.
+ */
+function linkSkill(source: string, dest: string): void {
+  const state = skillState(dest);
+  if (state.kind === "linked" && resolve(dest, "..", state.target) === source) {
+    process.stdout.write(`unchanged ${dest}\n`);
+    return;
+  }
+  mkdirSync(join(dest, ".."), { recursive: true });
+  if (state.kind === "linked") unlinkSync(dest);
+  if (state.kind === "our-copy") rmSync(dest, { recursive: true, force: true });
+  try {
+    symlinkSync(source, dest, "dir");
+    process.stdout.write(`linked ${dest} -> ${source}\n`);
+  } catch (err) {
+    cpSync(source, dest, { recursive: true });
+    writeFileSync(join(dest, SKILL_COPY_MARKER), `${GENERATED_MARKER} from ${source}\n`);
+    process.stdout.write(
+      `copied ${dest} (symlink refused: ${err instanceof Error ? err.message : String(err)}; re-run install.ts after editing the skill)\n`,
+    );
+  }
+}
+
 export function main(argv: readonly string[]): number {
   let target: string | undefined;
   let harnessRoot: string | undefined;
@@ -119,6 +189,19 @@ export function main(argv: readonly string[]): number {
     }
   }
 
+  const skillSource = resolve(root, "skills", DEV_STAGE_SKILL);
+  const skillDest = join(target, SKILLS_DIR, DEV_STAGE_SKILL);
+  if (!existsSync(join(skillSource, "SKILL.md"))) {
+    process.stderr.write(`refused: no ${DEV_STAGE_SKILL} skill under ${root} (expected ${join(skillSource, "SKILL.md")})\n`);
+    return 1;
+  }
+  if (skillState(skillDest).kind === "foreign") {
+    process.stderr.write(
+      `refused ${skillDest}: not a symlink and carries no ${SKILL_COPY_MARKER} marker — someone's own skill; move it aside first\n`,
+    );
+    refused++;
+  }
+
   const settingsPath = join(target, SETTINGS_FILE);
   let settings: Json = {};
   if (existsSync(settingsPath)) {
@@ -144,18 +227,9 @@ export function main(argv: readonly string[]): number {
 
   mkdirSync(agentsDir, { recursive: true });
   for (const role of PIPELINE_ROLES) put(join(agentsDir, `${role}.md`), rendered[role]);
+  linkSkill(skillSource, skillDest);
   put(settingsPath, JSON.stringify(merged.value, null, 2) + "\n");
   return 0;
 }
 
-function isMainModule(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isMainModule()) process.exit(main(process.argv.slice(2)));
+if (isMainModule(import.meta.url)) process.exit(main(process.argv.slice(2)));

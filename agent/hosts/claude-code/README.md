@@ -25,11 +25,11 @@ this README makes.
 
 | file | what |
 |---|---|
-| `path-gate-hook.ts` | The `PreToolUse` hook. Reads the call as JSON on stdin; prints a deny decision, an allow that rewrites an allowed `pi-gates …` to `PI_DEV_STAGE_ROLE=<role> pi-gates …`, or nothing. `--role <role>` binds; without it the role comes from `.pi/dev-stage-role`. |
+| `path-gate-hook.ts` | The `PreToolUse` hook. Reads the call as JSON on stdin; prints a deny decision, an allow that rewrites an allowed `pi-gates …` to `PI_HOST=claude-code PI_DEV_STAGE_ROLE=<role> pi-gates …`, or nothing. `--role <role>` binds; without it the role comes from `.pi/dev-stage-role`. |
 | `tool-map.ts` | Claude Code tool call → pi tool call(s): `Read {file_path}` → `read {path}`, `Agent {subagent_type}` → `subagent {agent}`, and so on. |
 | `bash-policy.ts` | What a role may put through Bash: `pi-gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>` where the role holds the pi tool. Everything else refused. |
 | `render-agents.ts` | Generates `.claude/agents/<role>.md` from `agents/<role>.md`: `tools:` from `ROLE_TOOLS`, `hooks:` binding the role, the pi brief verbatim under a host preamble. |
-| `install.ts` | Writes the four agents and merges the ambient hook into `.claude/settings.json`. |
+| `install.ts` | Writes the four agents, links the `developer-stage` skill into `.claude/skills/`, and merges the ambient hook into `.claude/settings.json`. |
 
 ## What it enforces
 
@@ -41,6 +41,14 @@ this README makes.
 - **Phase gate** on `Agent`: an `Agent` call with `subagent_type: builder` is
   a `subagent` launch of the builder, judged by `checkSubagentCall()` against
   the project's guard log — no contracts, no spec, no design gate, no spawn.
+  Before that, the `subagent_type` itself is judged: only the four generated
+  definitions carry a tool strip and a bound hook, so a commission of
+  anything else — `general-purpose`, `Explore`, a user's own agent, pi's
+  `delegate`, or no `subagent_type` at all — is refused as an unbound
+  subagent, in the phase gate's own words, and logged as its
+  `spawn-refused` block. Without this, `Agent {subagent_type:
+  "general-purpose"}` would be a full-toolset, hook-free proxy for the
+  architect, which is exactly what pi's `delegate` refusal prevents.
 - **Tool strip**, as `tools:` in the generated agent definitions: a worker
   never sees `Agent`; the reviewer never sees `Write` or `Edit`. Pinned to
   `ROLE_TOOLS` by `render-agents.test.ts`, the way `agent-config-drift.test.ts`
@@ -55,7 +63,12 @@ this README makes.
     `run-tests` and `typecheck`, the architect every gate, the reviewer
     `record-design-review` and `typecheck`; `pi-gates --list|--help` always;
   - `git …` for roles holding `git` (the architect), minus git's known ways of
-    running another program (see limits);
+    running another program (see limits). The subcommand is the first word
+    after the four global options the policy passes (`--no-pager`, `-P`,
+    `--no-optional-locks`, `--literal-pathspecs`); any other leading option
+    is refused by name, because a global that takes a value (`-C <dir>`,
+    `--git-dir <dir>`) would put its value where the subcommand is read and
+    slip `config core.hooksPath …` or `bisect run …` past the checks;
   - `sleep <1-120>` for roles holding `sleep` (the architect);
   - `rm <one literal path>` judged as a pi `remove`, so the write zones apply.
   A refusal is one line: `path-gate: <role> may not run '<cmd>': <why> — …`,
@@ -63,16 +76,18 @@ this README makes.
   `--findings-file` are refused anywhere in a `pi-gates` argv: the host
   supplies the role, and findings are passed inline. Gate names are
   hyphenated (`pi-gates red-gate`); the pi spelling (`red_gate`) is accepted.
-- **The bound role reaches the gate process.** An allowed `pi-gates …` is
-  answered with `permissionDecision: "allow"` and an `updatedInput` whose
-  command is `PI_DEV_STAGE_ROLE=<role> <original command>`; the rest of the
-  tool input is kept. `sessionRole()` reads that variable before the
-  `.pi/dev-stage-role` file, so a gate that scopes its output by role
-  (`typecheck`) sees the role the definition bound, whatever file the project
-  holds. The policy has already refused every construct that could make the
-  prefix anything but an env assignment, and a prefix the model types itself
-  is refused. `git`, `sleep` and `rm` are allowed silently — nothing in them
-  reads a role.
+- **The bound role and the host reach the gate process.** An allowed
+  `pi-gates …` is answered with `permissionDecision: "allow"` and an
+  `updatedInput` whose command is `PI_HOST=claude-code PI_DEV_STAGE_ROLE=<role>
+  <original command>`; the rest of the tool input is kept. `sessionRole()`
+  reads the role variable before the `.pi/dev-stage-role` file, so a gate
+  that scopes its output by role (`typecheck`) sees the role the definition
+  bound, whatever file the project holds; and the CLI records `host
+  claude-code` in the guard log rather than `host none`, which is what a
+  `pi-gates` with no `PI_HOST` records. The policy has already refused every
+  construct that could make the prefix anything but an env assignment, and a
+  prefix the model types itself — either variable — is refused. `git`,
+  `sleep` and `rm` are allowed silently — nothing in them reads a role.
 - **Role binding by which definition loads.** `.claude/agents/<role>.md`
   carries the hook with `--role <role>` in its own `hooks:`; those fire only
   inside that subagent. The model cannot change its role: `.claude/**` is in
@@ -82,10 +97,15 @@ this README makes.
   call, once — the log is the latch, since each hook run is a fresh process),
   and every hook error land in `<project>/.pi/guard-log.jsonl`, the same file
   and the same event shapes pi writes.
-- **Fails open, loudly.** Malformed stdin, an unreadable project, a bug: the
-  call is allowed, one line goes to stderr, and an `error` event goes to the
-  guard log. A hook that could brick a session would be disabled, and a
-  disabled gate is worse than a visible gap.
+- **Fails open for reads, closed for writes — loudly either way.** Malformed
+  stdin, an unreadable project, a bug: one line goes to stderr and an `error`
+  event goes to the guard log. Then, if the payload named a tool that
+  mutates (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Agent`,
+  `Task`), the call is denied with a reason that says the hook errored; a
+  read, or a payload too broken to name a tool, is allowed. A hook that
+  could brick a session would be disabled, and a disabled gate is worse
+  than a visible gap — but a gate that waves a write through on its own
+  error is not a gate.
 
 ## What it does not enforce (honest limits)
 
@@ -108,8 +128,11 @@ this README makes.
 - **git is a denylist.** git is a large program with many ways to run
   another: the policy refuses `-c`, `--config-env`, `--exec-path`, `!`
   alias bodies, `bisect run`, `rebase --exec`, `submodule foreach`,
-  `filter-branch`, the `*tool`/GUI subcommands, and every `git config` that
-  is not a `--get`/`--list`. A denylist is incomplete by construction. An
+  `filter-branch`, the `*tool`/GUI subcommands, every `git config` that
+  is not a `--get`/`--list`, and every global option before the subcommand
+  except `--no-pager`, `-P`, `--no-optional-locks` and `--literal-pathspecs`
+  (so `git -C . config core.hooksPath …` cannot hide its subcommand behind
+  `-C`). A denylist is incomplete by construction. An
   alias or `core.hooksPath` that ALREADY exists in the repository's or the
   user's git config is honoured by `git commit`, and a `pre-commit` hook the
   project ships runs as the project's own tooling. pi's git tool is
@@ -128,17 +151,30 @@ this README makes.
   as the role its definition bound, once as the file's role — and confined to
   the intersection (dogfood Run 6's bug, on this host). The gate CLI is no
   longer affected: the env prefix beats the file for `sessionRole()`, so
-  `pi-gates` always runs as the bound role. A bound run should still leave no
-  role file in the project; the installer adds the ambient hook so the
-  direct-session case works, and this is the cost.
+  `pi-gates` always runs as the bound role. **Mitigation, unverified live:**
+  if a subagent's `PreToolUse` payload carries the subagent's identity
+  (`agent_type` or `agent_id` — the SubagentStart payload does; whether
+  PreToolUse does is not documented and has not been observed), the ambient
+  hook stands down for that call: allow, nothing logged, and the
+  definition's own bound hook is the only judge. A bound hook never stands
+  down. If PreToolUse carries neither field, the stack is exactly as
+  described above, and a bound run should leave no role file in the
+  project; the installer adds the ambient hook so the direct-session case
+  works, and this is the cost.
 - **Lexical paths, as in pi.** The gate normalises paths without resolving
   symlinks. No role can create one (no `ln`, no shell), so the surface is the
   same as pi's.
 - **`pi-gates` is resolved on PATH.** The policy accepts the bare name only,
   and no role's write zone is on a normal PATH, but a PATH that includes a
   project directory would let a role's own `pi-gates` be the one that runs.
-- **Claude Code's own permission prompts still apply** after an allow; a deny
-  from the hook is final. The hook never widens what Claude Code would ask.
+- **`pi-gates` is auto-approved by design; everything else keeps Claude
+  Code's own prompts.** An explicit `permissionDecision: "allow"` bypasses
+  Claude Code's permission prompt, and an allowed `pi-gates …` is answered
+  that way on purpose: the policy has already proved the argv is one plain
+  command naming a gate the role holds, and the rewrite is the only way to
+  hand it the role. Every other allow — `git`, `sleep`, `rm`, the file
+  tools, anything unmapped — is silent (no output), so Claude Code's own
+  prompts stay in place for it. A deny from the hook is final.
 
 ## Install
 
@@ -149,32 +185,67 @@ Requires Node 22.18+ (`node` runs `.ts` directly) and `pi-gates` on PATH
 node <harness>/hosts/claude-code/install.ts <project>
 ```
 
-Writes `<project>/.claude/agents/{architect,test-writer,builder,reviewer}.md`
-and adds the ambient hook to `<project>/.claude/settings.json`, creating it if
-absent and touching nothing else in it. Idempotent; prints one line per file.
-It refuses to overwrite an agent file that lacks the
-`# generated by pi-harness` marker (exit 1, nothing written), and a
-`settings.json` it cannot parse. Re-run it after editing `agents/<role>.md`
-or `ROLE_TOOLS`: the rendered files are derived and carry no hand edits.
+Writes `<project>/.claude/agents/{architect,test-writer,builder,reviewer}.md`,
+links `<harness>/skills/developer-stage` at
+`<project>/.claude/skills/developer-stage` (the architect's brief opens by
+loading that skill, and Claude Code reads skills from the project's
+`.claude/skills/`, not from `~/.pi/agent/skills`), and adds the ambient hook
+to `<project>/.claude/settings.json`, creating it if absent and touching
+nothing else in it. Idempotent; prints one line per file: `wrote`,
+`unchanged`, `linked <path> -> <target>`, or — where the platform refuses a
+symlink — `copied <path> (symlink refused: …)`, in which case the copy
+carries a `.pi-harness-generated` marker file and must be re-installed after
+the skill changes. It refuses to overwrite an agent file that lacks the
+`# generated by pi-harness` marker, a real `.claude/skills/developer-stage`
+directory that is not a symlink and lacks that marker file (someone's own
+skill), and a `settings.json` it cannot parse — exit 1, nothing written.
+Re-run it after editing `agents/<role>.md` or `ROLE_TOOLS`: the rendered
+files are derived and carry no hand edits.
+
+The installer writes an **absolute harness path** into `settings.json`, into
+each agent file's `hooks:` command, and into the skill symlink. `.claude/` in
+a pipeline project is therefore generated per machine and belongs in that
+project's `.gitignore`, next to `.pi/`; a clone re-runs the installer.
 
 ## Running a ticket
 
-1. Install as above. Delete any `.pi/dev-stage-role` in the project (see
-   "one role source at a time").
-2. Start Claude Code in the project and commission the architect:
-   `Use the architect subagent to take ticket … through the developer stage.`
-   The architect's definition loads the `--role architect` hook; its brief is
-   pi's, under a preamble that says every gate is `pi-gates <gate>` through
-   Bash and how each pi tool is reached here.
+**The end-to-end flow is UNVERIFIED.** Each piece is asserted by fixture;
+nobody has yet taken a ticket through the developer stage on Claude Code.
+Two obstacles are known before the first attempt:
+
+- **Claude Code subagents cannot spawn subagents.** The architect's job is
+  to commission the reviewer, the test-writer and the builder through
+  `Agent`, so the architect cannot be a subagent itself — it has to be the
+  main session: the ambient hook from `.claude/settings.json` with
+  `.pi/dev-stage-role` saying `architect`. That session holds every Claude
+  Code tool (no strip; the hook refuses what it maps and ignores the rest).
+- **Then the stack applies to the workers.** With the ambient hook installed
+  AND that role file present, every worker the architect commissions is
+  judged by two hooks — its own definition's (`--role builder`) and the
+  ambient one (the file's `architect`) — and confined to the intersection,
+  unless the worker's PreToolUse payload carries `agent_type` or `agent_id`,
+  in which case the ambient hook stands down (see "honest limits": this is
+  the unverified mitigation).
+
+With that understood:
+
+1. Install as above. Write `architect` to `<project>/.pi/dev-stage-role`.
+2. Start Claude Code in the project as the architect: load the
+   `developer-stage` skill (installed under `.claude/skills/`) and give it
+   the ticket. Every gate is `pi-gates <gate>` through Bash; the hook
+   rewrites an allowed one to run as the architect on this host.
 3. The architect commissions the reviewer, then (after `pi-gates
-   design-gate`) the test-writer and the builder, through `Agent`; each
-   child's definition binds its own role. The phase gate refuses a commission
-   whose preconditions the guard log does not show.
+   design-gate`) the test-writer and the builder, through `Agent` with
+   `subagent_type` naming the role; each child's definition binds its own
+   role. The phase gate refuses a commission whose preconditions the guard
+   log does not show, and refuses any `subagent_type` that is not a pipeline
+   role.
 4. Read `<project>/.pi/guard-log.jsonl` afterwards. Blocks show where the
    gate caught something; `run-start` is the architect's first call; an
-   `error` event with `host: claude-code` means a call went ungated and says
-   why.
+   `error` event with `host: claude-code` says a hook run failed and whether
+   the call was refused or allowed. Delete the role file when the run is
+   over.
 
-To drive a single role directly instead, write the role name to
+To drive a single worker role directly instead, write that role's name to
 `.pi/dev-stage-role` and use plain Claude Code: the ambient hook picks it up,
 with the limits above.

@@ -20,17 +20,20 @@
 // commands this role may run instead, because a refused command costs a turn
 // and a vague refusal costs several.
 //
-// An allowed `pi-gates` call is also where the bound role crosses into the
-// CLI process: the hook rewrites the command with a `PI_DEV_STAGE_ROLE=<role>`
-// prefix (`updatedInput`), which `sessionRole()` reads before the role file,
-// so a role-scoped gate view (typecheck) sees the role the definition bound
-// rather than whatever file the project holds. This module only refuses the
-// model's own attempts at the same thing — an env prefix it typed, a `--role`
-// it passed — and reports the carrier, so the hook knows which allow to
-// decorate. Pure: no fs, no process, no logging. The hook logs.
+// An allowed `pi-gates` call is also where the bound role and the host cross
+// into the CLI process: the hook rewrites the command with a
+// `PI_HOST=claude-code PI_DEV_STAGE_ROLE=<role>` prefix (`updatedInput`).
+// `sessionRole()` reads the role before the role file, so a role-scoped gate
+// view (typecheck) sees the role the definition bound rather than whatever
+// file the project holds, and the CLI records which host ran it. This module
+// only refuses the model's own attempts at the same thing — an env prefix it
+// typed, of either name, a `--role` it passed — and reports the carrier, so
+// the hook knows which allow to decorate. Pure: no fs, no process, no
+// logging. The hook logs.
 
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
 import {
+  ARTIFACT_GATE_TOOLS,
   decide,
   forbiddenWhy,
   ROLE_TOOLS,
@@ -38,6 +41,7 @@ import {
   type Decision,
   type Role,
 } from "../../src/path-policy.ts";
+import { isSleepSeconds, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 
 /** Which sanctioned carrier an allowed command is. The hook needs to know:
  *  a `pi-gates` call is handed the bound role through `updatedInput`, the
@@ -53,28 +57,18 @@ const allow = (carrier: Carrier): BashDecision => ({ allow: true, carrier });
 const block = (reason: string): BashDecision => ({ allow: false, reason });
 
 /**
- * pi tools that are NOT reached through `pi-gates`: the file tools have a
- * Claude Code tool of their own (see render-agents.ts), and `remove`, `git`
- * and `sleep` have their own bash carriers below. Everything else in a role's
- * ROLE_TOOLS is a gate command.
+ * The pi tools reached through `pi-gates`: exactly ARTIFACT_GATE_TOOLS
+ * (src/path-policy.ts). Everything else in a role's ROLE_TOOLS is a host
+ * capability — the file tools have a Claude Code tool of their own (see
+ * render-agents.ts), and `remove`, `git` and `sleep` have their own bash
+ * carriers below. Derived, so a new gate in the registry is a CLI gate here
+ * without a second list to update.
  */
-const NOT_A_GATE: ReadonlySet<string> = new Set([
-  "read",
-  "grep",
-  "find",
-  "ls",
-  "write",
-  "edit",
-  "remove",
-  "subagent",
-  "git",
-  "sleep",
-  "bash",
-]);
+const CLI_GATE_TOOLS: ReadonlySet<string> = new Set(ARTIFACT_GATE_TOOLS);
 
 /** The pi tool names a role reaches through `pi-gates <gate>`. */
 export function cliGates(role: Role): readonly string[] {
-  return ROLE_TOOLS[role].filter((tool) => !NOT_A_GATE.has(tool));
+  return ROLE_TOOLS[role].filter((tool) => CLI_GATE_TOOLS.has(tool));
 }
 
 /** Every gate any role holds — the CLI's vocabulary, for "no such gate". */
@@ -91,11 +85,6 @@ export function gateCommand(tool: string): string {
 function gateTool(arg: string): string {
   return arg.replace(/-/g, "_");
 }
-
-/** Bounds of the pi `sleep` tool (extensions/architect-tools.ts), restated
- *  rather than imported: this module must stay free of pi imports. */
-const SLEEP_MIN_SECONDS = 1;
-const SLEEP_MAX_SECONDS = 120;
 
 /** What this role may put through Bash — the tail of every refusal. */
 export function carriers(role: Role): string {
@@ -213,6 +202,14 @@ const GIT_CONFIG_READS: ReadonlySet<string> = new Set([
   "--show-scope",
 ]);
 
+/** The only global options allowed BEFORE the subcommand. Every other one is
+ *  refused unseen, because a global that takes a value (`-C <dir>`,
+ *  `--git-dir <dir>`, `--work-tree`, `--namespace`, …) puts its value where
+ *  the subcommand is looked for, and `git -C . config core.hooksPath x` would
+ *  read as the subcommand `.` — past every check below. None of these four
+ *  takes a value or changes what git runs. */
+const SAFE_GIT_GLOBALS: ReadonlySet<string> = new Set(["--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs"]);
+
 /**
  * The known ways git runs a program of the caller's choosing, refused because
  * the shell is present here and pi's git tool — unrestricted by design, for
@@ -220,12 +217,22 @@ const GIT_CONFIG_READS: ReadonlySet<string> = new Set([
  * on any call; `!` alias bodies; `bisect run`, `rebase --exec`, `submodule
  * foreach` and the tool-launching subcommands; and any `git config` WRITE,
  * because `core.hooksPath` pointed at a writable directory turns the next
- * `git commit` into a shell. A denylist, so incomplete by nature; the README
- * says so.
+ * `git commit` into a shell. The subcommand is the first word after the safe
+ * globals, and any other leading option is refused by name. A denylist, so
+ * incomplete by nature; the README says so.
  */
 function gitEscape(argv: readonly string[]): string | undefined {
   const args = argv.slice(1);
-  const sub = args.find((a) => !a.startsWith("-"));
+  let sub: string | undefined;
+  for (const arg of args) {
+    if (!arg.startsWith("-")) {
+      sub = arg;
+      break;
+    }
+    if (!SAFE_GIT_GLOBALS.has(arg)) {
+      return `git '${arg}' before the subcommand is a global option this host does not pass (only ${[...SAFE_GIT_GLOBALS].join(", ")})`;
+    }
+  }
   for (const arg of args) {
     if (arg === "-c" || arg.startsWith("--config-env")) {
       return `git '${arg}' sets configuration for one call, which can alias a command to a shell`;
@@ -338,8 +345,7 @@ function decideSleep(role: Role, argv: readonly string[], shown: string): BashDe
   if (argv.length !== 2 || arg === undefined || !/^\d+$/.test(arg)) {
     return block(`path-gate: ${role} may not run '${shown}': sleep takes one whole number of seconds`);
   }
-  const n = Number(arg);
-  if (n < SLEEP_MIN_SECONDS || n > SLEEP_MAX_SECONDS) {
+  if (!isSleepSeconds(Number(arg))) {
     return block(
       `path-gate: ${role} may not run '${shown}': sleep is bounded to ${SLEEP_MIN_SECONDS}-${SLEEP_MAX_SECONDS} seconds`,
     );

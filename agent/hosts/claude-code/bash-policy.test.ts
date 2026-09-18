@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
-import { GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
+import { ARTIFACT_GATE_TOOLS, GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
+import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS } from "../../src/sleep-bounds.ts";
 import { carriers, cliGates, decideBash, gateCommand, shellWords } from "./bash-policy.ts";
 
 // ADR 2026-029: in Claude Code, Bash is the carrier for `pi-gates`, and the
@@ -45,6 +46,8 @@ const TABLE: readonly Row[] = [
   ["pi-gates record-design-review --findings-file f.json", all("deny")],
   ["pi-gates --role builder typecheck", all("deny")],
   ["PI_DEV_STAGE_ROLE=architect pi-gates red-gate", all("deny")], // only the hook adds this
+  ["PI_HOST=claude-code pi-gates red-gate", all("deny")], // and this
+  ["PI_HOST=claude-code PI_DEV_STAGE_ROLE=architect pi-gates red-gate", all("deny")],
   ["/usr/local/bin/pi-gates typecheck", all("deny")], // only the bare name; a path could be anything
   // git: the architect's alone, and never a way back to a shell.
   ["git status", only("architect")],
@@ -57,6 +60,14 @@ const TABLE: readonly Row[] = [
   ["git --exec-path=/tmp/evil status", all("deny")],
   ["git config alias.t '!npm test'", all("deny")],
   ["git config core.hooksPath scratch/hooks", all("deny")], // then `git commit` would be a shell
+  // A leading global that takes a value hides the subcommand: refused by name.
+  ["git -C . config core.hooksPath scratch/hooks", all("deny")],
+  ["git --git-dir .git config core.hooksPath scratch/hooks", all("deny")],
+  ["git -C . bisect run npm test", all("deny")],
+  ["git -C . rebase -x npm HEAD~3", all("deny")],
+  ["git --work-tree=/tmp status", all("deny")],
+  ["git --no-pager log", only("architect")],
+  ["git -P --no-optional-locks status", only("architect")],
   ["git config --get core.hooksPath", only("architect")],
   ["git config --list", only("architect")],
   ["git bisect run npm test", all("deny")],
@@ -158,6 +169,14 @@ describe("refusal reasons — specific, and the pi wording where pi has one", ()
       expect(d.reason).toContain("Bash here carries only pi-gates <gate>, git …, sleep <1-120>, rm <path>");
     }
   });
+  test("a leading git global is refused by name, with the safe set", () => {
+    const d = decideBash("architect", "git -C . config core.hooksPath scratch/hooks", CTX);
+    if (!d.allow) {
+      expect(d.reason).toBe(
+        "path-gate: architect may not run 'git -C . config core.hooksPath scratch/hooks': git '-C' before the subcommand is a global option this host does not pass (only --no-pager, -P, --no-optional-locks, --literal-pathspecs)",
+      );
+    }
+  });
   test("rm outside the zone gets decide()'s own zone reason", () => {
     const d = decideBash("builder", "rm tests/a.test.ts", CTX);
     if (!d.allow) expect(d.reason).toBe("path-gate: builder may not write 'tests/a.test.ts': outside builder write zones — the builder's writable surface is src/**");
@@ -195,6 +214,16 @@ describe("cliGates — derived from ROLE_TOOLS, never a second list", () => {
   });
   test("the architect holds every GATE_TOOLS entry as a CLI gate", () => {
     for (const gate of GATE_TOOLS) expect(cliGates("architect")).toContain(gate);
+  });
+  test("the CLI gates are exactly ROLE_TOOLS ∩ ARTIFACT_GATE_TOOLS (derived, not restated)", () => {
+    for (const role of PIPELINE_ROLES) {
+      expect(cliGates(role)).toEqual(ROLE_TOOLS[role].filter((t) => ARTIFACT_GATE_TOOLS.includes(t)));
+    }
+  });
+  test("the sleep bounds are the shared ones", () => {
+    expect(decideBash("architect", `sleep ${SLEEP_MIN_SECONDS}`, CTX)).toEqual({ allow: true, carrier: "sleep" });
+    expect(decideBash("architect", `sleep ${SLEEP_MAX_SECONDS}`, CTX)).toEqual({ allow: true, carrier: "sleep" });
+    expect(decideBash("architect", `sleep ${SLEEP_MAX_SECONDS + 1}`, CTX)).toMatchObject({ allow: false });
   });
   test("the CLI spelling is hyphenated", () => {
     expect(gateCommand("red_gate")).toBe("red-gate");

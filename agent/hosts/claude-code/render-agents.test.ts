@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
-import { GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
+import { ARTIFACT_GATE_TOOLS, GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { cliGates, gateCommand } from "./bash-policy.ts";
 import {
   claudeTools,
@@ -57,6 +57,7 @@ describe("PI_TO_CLAUDE_TOOLS — the one mapping", () => {
   });
   test("every gate, and every bash carrier, maps to Bash", () => {
     for (const gate of GATE_TOOLS) expect(PI_TO_CLAUDE_TOOLS[gate]).toBe("Bash");
+    for (const gate of ARTIFACT_GATE_TOOLS) expect(PI_TO_CLAUDE_TOOLS[gate]).toBe("Bash");
     for (const role of PIPELINE_ROLES) for (const gate of cliGates(role)) expect(PI_TO_CLAUDE_TOOLS[gate]).toBe("Bash");
     for (const carrier of ["remove", "git", "sleep"]) expect(PI_TO_CLAUDE_TOOLS[carrier]).toBe("Bash");
   });
@@ -119,6 +120,7 @@ describe("rendered Claude Code agent definitions", () => {
           if (!ROLE_TOOLS[role].includes(gate)) expect(preamble).not.toContain(`\`pi-gates ${gateCommand(gate)}\``);
         }
         expect(preamble).toContain("Bash is refused for anything else");
+        expect(preamble).toContain("the hook prefixes `PI_HOST=claude-code PI_DEV_STAGE_ROLE=<role>` itself");
       });
 
       // (b2) `subagent` and `git` belong to the architect alone: no worker

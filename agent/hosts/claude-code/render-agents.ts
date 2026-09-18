@@ -24,14 +24,21 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
+import { HOST_ENV } from "../../src/host.ts";
+import { ARTIFACT_GATE_TOOLS, ROLE_TOOLS, type Role } from "../../src/path-policy.ts";
 import { carriers, cliGates, gateCommand } from "./bash-policy.ts";
+
+/** The pi tools with a bash carrier of their own (bash-policy.ts), beside
+ *  the gates. */
+const BASH_CARRIER_TOOLS = ["remove", "git", "sleep"] as const;
 
 /**
  * The ONE mapping from pi's tool vocabulary to Claude Code's. A pi tool with a
  * Claude Code tool of its own maps to it; everything the pi extension
- * registers as a named tool — the gates, git, sleep, remove — is reached
- * through Bash here and narrowed by the bash policy.
+ * registers as a named tool — every artifact gate, git, sleep, remove — is
+ * reached through Bash here and narrowed by the bash policy. The Bash rows
+ * are derived from ARTIFACT_GATE_TOOLS, so a new gate maps without a hand
+ * edit here.
  */
 export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, string>> = {
   read: "Read",
@@ -41,14 +48,7 @@ export const PI_TO_CLAUDE_TOOLS: Readonly<Record<string, string>> = {
   write: "Write",
   edit: "Edit",
   subagent: "Agent",
-  remove: "Bash",
-  git: "Bash",
-  sleep: "Bash",
-  typecheck: "Bash",
-  run_tests: "Bash",
-  record_design_review: "Bash",
-  mutation_score: "Bash",
-  ...Object.fromEntries(GATE_TOOLS.map((gate) => [gate, "Bash"])),
+  ...Object.fromEntries([...BASH_CARRIER_TOOLS, ...ARTIFACT_GATE_TOOLS].map((tool) => [tool, "Bash"])),
 };
 
 /** The harness root this host lives under: <root>/hosts/claude-code/. Derived
@@ -164,7 +164,7 @@ export function renderPreamble(role: Role): string {
     "",
     ...lines,
     "",
-    "Every gate is a command — `pi-gates <gate> [dir] [--json]`, run through Bash as one plain command: no `&&`, `;`, pipes, redirects or `$(…)`. Do not add an env prefix or pass `--role`: the hook prefixes `PI_DEV_STAGE_ROLE=<role>` itself, so the gate runs as the role this definition bound. `pi-gates --list` names them all.",
+    `Every gate is a command — \`pi-gates <gate> [dir] [--json]\`, run through Bash as one plain command: no \`&&\`, \`;\`, pipes, redirects or \`$(…)\`. Do not add an env prefix or pass \`--role\`: the hook prefixes \`${HOST_ENV}=claude-code PI_DEV_STAGE_ROLE=<role>\` itself, so the gate runs as the role this definition bound and records this host. \`pi-gates --list\` names them all.`,
     "",
     `Bash is refused for anything else — no \`npm\`, \`npx\`, \`cat\`, \`ls\`, \`find\` — and a refusal says why in one line. For this role Bash carries only: ${carriers(role)}. The path gate is a PreToolUse hook bound to this role, and every refusal is recorded in \`.pi/guard-log.jsonl\`.`,
   ].join("\n");
