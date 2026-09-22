@@ -116,3 +116,4 @@ gets a new file and a row here.
 | 24 | [The first web-frontend run](dogfood/runs/run-24-the-first-web-frontend-run.md) |
 | 25 | [The first Claude Code harness run](dogfood/runs/run-25-the-first-claude-code-harness-run.md) |
 | 26 | [Two accidentally-bare arms — the loader bug run](dogfood/runs/run-26-two-accidentally-bare-arms.md) |
+| 27 | [opus/sonnet vs kimi, both harnessed — the gates hold under a weak worker](dogfood/runs/run-27-opus-vs-kimi-both-harnessed.md) |
