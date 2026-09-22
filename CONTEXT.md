@@ -221,6 +221,14 @@ in every run, so only the genuine design decisions vary. First instance: the
 API-service set (TN-26-004).
 _Avoid_: template, boilerplate, starter
 
+**Reference component**:
+One complete worked example — contract, value objects, tests, implementation
+— in a neutral domain, built through the real gates in CI so it can never
+demonstrate what the gates reject. Skills point an agent at it to copy the
+shape (not the content) when a build begins; being gate-verified is what
+keeps the example and the enforcement from drifting (TN-26-008).
+_Avoid_: sample, snippet, fixture (that's a test's input)
+
 **Blessed stack**:
 The one framework a pack binds to a capability (tRPC for typed frontend
 access, zod as schema engine), pack-pinned and pack-installed. Tickets name

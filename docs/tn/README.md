@@ -25,3 +25,4 @@ note, born from a GitHub issue.
 | [TN-26-005](TN-26-005-pack-composition.md) | Pack composition — sockets in the core, contributions from packs | draft |
 | [TN-26-006](TN-26-006-web-frontend-reference-set.md) | The web-frontend reference set — FSD layers, shadcn, typed client | draft |
 | [TN-26-007](TN-26-007-agent-agnostic-harness.md) | The agent-agnostic harness — one deterministic CLI, any agent framework | draft |
+| [TN-26-008](TN-26-008-gate-verified-reference-components.md) | Gate-verified reference components — what "good" looks like, as code the agent copies | draft |
