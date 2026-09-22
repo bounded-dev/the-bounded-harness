@@ -39,8 +39,9 @@
 - Existing project trees carry `.pi/` state; a `bounded dogfood-reset` (or a
   fresh design run) recreates it as `.bounded/`. No migration shim — the
   arms are disposable and no delivered tree predates this.
-- pi loads extensions from both `hosts/pi/extensions/` and the drop zone
-  (`package.json` → `pi.extensions`).
+- pi's global scan reaches the adapter through the loader shim
+  `extensions/bounded/package.json` (see change log); the drop zone
+  otherwise holds only tool-managed files.
 
 ## Change log
 
