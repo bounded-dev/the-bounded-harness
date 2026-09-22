@@ -3,7 +3,7 @@
 > **Historical snapshot — superseded.** Written after dogfood Run 5; the
 > numbers and conclusions below are that day's evidence, not the current
 > state. For where the harness stands now see the six-cell experiment
-> (Runs 10–12) in [dogfooding.md](dogfooding.md#runs-1012-2026-09-03-the-six-cell-experiment)
+> (Runs 10–12) in [the six-cell experiment](dogfood/runs/runs-10-12-the-six-cell-experiment.md)
 > and [TN-26-002](tn/TN-26-002-mechanism-vs-guidance.md), which measure
 > mechanism against guidance across model tiers. Kept because
 > [TN-26-001](tn/TN-26-001-developer-stage-pipeline.md) cites it as evidence.
