@@ -61,6 +61,29 @@ The two model flags set the harnessed arm's tiers — the judgment seats
 writing `.bounded/dev-stage-models.json` (ADR 2026-022). Both are printed on every
 reset, set or not, so a run's models are never a guess afterwards.
 
+**Validate a model is DEPLOYABLE before setting a run on it — not just that
+it is listed.** `pi --list-models <pattern>` shows the provider's whole
+*catalog*, and a catalog entry is not a served endpoint: Run 28's first two
+attempts set the tiers to `fireworks/…/models/deepseek-v4-pro` /
+`-flash`, which listed fine but returned **404 (not deployed)** the moment a
+seat was actually spawned — wasting two resets. The fix, and the rule:
+- Prefer the provider's **served endpoints** over raw catalog paths. On
+  fireworks that is `accounts/fireworks/routers/<family>-latest` (the pi
+  model picker marks the resolvable one with a ✓), not
+  `accounts/fireworks/models/<id>`.
+- The tier check (`patternIsKnown`, src/model-tier.ts) only confirms the
+  pattern is in the registry list, **not** that it serves — so a
+  listed-but-undeployed model passes every gate and fails only at the
+  runtime spawn. Until that check is tightened, a one-shot smoke spawn (or
+  a trivial `pi -p` call on the pattern) is the cheap way to surface a 404
+  in seconds rather than mid-run.
+
+When a broken tier IS reached at runtime, the architect cannot paper over
+it: `.bounded/` is read-only for every role, so an agent that tries to
+rewrite `dev-stage-models.json` to route around a dead model is refused and
+must escalate it as an environment/owner issue (Run 28 attempt 2). That is
+working as intended — run provenance is not the agent's to edit.
+
 Then walk into each and paste `PROMPT.md`:
 
 - `~/dev/bounded-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
