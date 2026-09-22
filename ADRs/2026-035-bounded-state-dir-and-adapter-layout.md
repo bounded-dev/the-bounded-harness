@@ -41,3 +41,14 @@
   arms are disposable and no delivered tree predates this.
 - pi loads extensions from both `hosts/pi/extensions/` and the drop zone
   (`package.json` → `pi.extensions`).
+
+## Change log
+
+- 2026-09-22 — the layout as first shipped did not load: pi's global
+  discovery scans `~/.pi/agent/extensions/` only (direct files, or a
+  subdirectory whose own package.json declares `pi.extensions`) and never
+  reads the agent dir's package.json. One dogfood arm ran fully ungated
+  before this was caught. The drop zone now carries the loader shim
+  `extensions/bounded/package.json` pointing at the adapter's real files,
+  and `hosts/pi/discovery.test.ts` runs pi's own loader against the layout
+  so discovery is pinned by test, not assumption.
