@@ -30,6 +30,25 @@ What that still does **not** cover, said plainly:
 Read the guard log (`<project>/.bounded/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
+**Every run's write-up answers three questions from that log, not from
+impressions:**
+
+1. **Where did a deterministic gate correct the run?** List every `block`
+   that changed the agent's course, with timestamp and what followed. The
+   canonical shape, from the first Claude Code harness run: `design-gate
+   BLOCK — design-review missing` with everything else green, followed 17s
+   later by `commissioned reviewer` — the gate forced the review into
+   existence. A pass proves a guard ran; a block that redirected the agent
+   is the product earning its keep.
+2. **What did the model probe?** Deliberate boundary tests (that same run:
+   a test-writer write to `/nonexistent-probe-path`, refused) are evidence
+   the walls are load-bearing, not decorative. Record them.
+3. **Was anything circumvented?** Anything that should have blocked and
+   didn't, tracked adapter config touched mid-run (`.claude/`, the role
+   binding, the hook), or a write on disk in a zone with no matching guard
+   line. None observed to date; the first one found is a bug issue with the
+   log excerpt attached, not a passing note.
+
 ## Running one
 
 ```bash
