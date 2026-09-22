@@ -11,7 +11,7 @@
 // BOUNDED_DEV_STAGE_ROLE=<role> …` — the one place the bound role and the host
 // cross into the gate's own process, where `sessionRole()` reads the role
 // before any role file and the CLI records which host ran it.
-// It is the analogue of pi's `tool_call` hook (extensions/path-gate.ts), and
+// It is the analogue of pi's `tool_call` hook (hosts/pi/extensions/path-gate.ts), and
 // like that hook it is thin wiring: the whole decision is the shared cores —
 // decide() through evaluatePathGate(), checkSubagentCall() for a spawn, and
 // this host's bash policy for the one tool pi forbids and Claude Code needs.
@@ -23,7 +23,7 @@
 // `subagentOnlyExtensions`). The role is decided by WHICH definition loaded,
 // from outside the project, and nothing the model does can change it.
 //
-// Ambient, from `.pi/dev-stage-role` (or BOUNDED_DEV_STAGE_ROLE), when installed
+// Ambient, from `.bounded/dev-stage-role` (or BOUNDED_DEV_STAGE_ROLE), when installed
 // project-wide in `.claude/settings.json` with no `--role`. That is the same
 // weaker fallback pi has, for a session the user drives directly. Neither
 // source ⇒ the gate is inactive and every call passes.
@@ -201,7 +201,7 @@ export function gateEnvPrefix(role: Role): string {
  *  strip, this hook is the path and phase gate, and the role env prefix gives
  *  the gates their scoped views. */
 const CLAUDE_CODE_BOUND = declareHost("claude-code", CONSTRAINTS);
-/** An ambient session (role from `.pi/dev-stage-role`) has no allowlist — the
+/** An ambient session (role from `.bounded/dev-stage-role`) has no allowlist — the
  *  hook judges what it maps and the rest of the toolset stays. */
 const CLAUDE_CODE_AMBIENT = declareHost("claude-code", ["path-gate", "phase-gate", "scoped-views"]);
 

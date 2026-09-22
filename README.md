@@ -36,11 +36,12 @@ domain glossary (`CONTEXT.md`), and technical notes (`docs/tn/`).
   `developer-stage` pipeline below, plus third-party skills like
   `flight-status` **vendored** into the repo and synced by hand — a
   sibling-repo pointer can't survive the `~/.pi/agent` symlink (ADR 2026-012).
-- **Extensions.** `agent/extensions/*.ts` auto-load on pi session start: a
-  web search/fetch tool and the harness's capability constraints for the pi
-  host. `npm run check` in `agent/` typechecks the hand-written ones; CI
-  enforces it. External tools that want into the config home install their
-  own **untracked** files — runtime state, never hand-edited (ADR 2026-006).
+- **Extensions.** The pi adapter, `agent/hosts/pi/extensions/*.ts`,
+  auto-loads on pi session start: a web search/fetch tool and the harness's
+  capability constraints for the pi host. `npm run check` in `agent/`
+  typechecks it; CI enforces it. `agent/extensions/` is the drop zone where
+  external tools install their own **untracked** files — runtime state,
+  never hand-edited (ADR 2026-006).
 - **Packs.** Language-specific capability lives in `packs/<lang>/` as
   on-demand skills and scaffolder scripts — never extensions, never root
   config (ADR 2026-007). `packs/ts` is the first and the substantial one: the
@@ -54,9 +55,12 @@ domain glossary (`CONTEXT.md`), and technical notes (`docs/tn/`).
   `bounded gates <gate> [dir] [--json]`, callable from any agent, from CI,
   or by hand; the pi gate tools read the same registry. The *capability
   constraints* — tool strip, path gate, phase gate, scoped worker views —
-  need host cooperation and live per host: `agent/extensions/` for pi,
-  `agent/hosts/claude-code/` for Claude Code (a `PreToolUse` hook plus
-  generated agent definitions). The bar for a supported host is
+  need host cooperation and live per host under `agent/hosts/<host>/`:
+  `hosts/pi/` (extensions) and `hosts/claude-code/` (a `PreToolUse` hook
+  plus generated agent definitions), each with its own install script that
+  `bounded init` runs. Harness state in a project lives under `.bounded/`
+  (the guard log, the role binding, the frozen manifest) — no host owns it.
+  The bar for a supported host is
   **deterministic enforcement** — tools removed rather than refused, writes
   blocked rather than discouraged — and a run's guard log says which host it
   ran under and what that host enforced, so a gates-only transcript is never

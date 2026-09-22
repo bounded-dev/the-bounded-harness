@@ -6,14 +6,14 @@
 #
 # Does everything the README used to ask you to do by hand:
 #
-#   1. ~/.pi/agent            → this repo's agent/   (the live pi config home)
-#   2. ~/.claude/CLAUDE.md    → agent/AGENTS.md      (Claude Code shares it)
-#   3. the harness's commands onto PATH
-#   4. npm ci, then the harness's own test suite
+#   1. every host adapter's machine-level install (`hosts/<host>/install`) —
+#      the core stays agnostic; each adapter wires its own framework
+#   2. the `bounded` command onto PATH
+#   3. npm ci, then the harness's own test suite
 #
 # Idempotent: safe to re-run after a pull, and re-running is how you pick up a
-# newly added command. It never overwrites a real file — only its own symlinks,
-# and it says so when it finds something in the way.
+# newly added command or adapter. It never overwrites a real file — only its
+# own symlinks, and it says so when it finds something in the way.
 
 set -euo pipefail
 
@@ -30,32 +30,18 @@ REPO="$(cd -P "$AGENT/.." && pwd)"
 # a contributor should not also have to remember to tell people to symlink it.
 COMMANDS=(bounded)
 
-ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
-warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
-
-# Point `link` at `target`, but never clobber a real file or a foreign symlink.
-link() {
-  local target="$1" link="$2" what="$3"
-  mkdir -p "$(dirname "$link")"
-  if [ -L "$link" ]; then
-    local current; current="$(readlink "$link")"
-    if [ "$(readlink -f "$link" 2>/dev/null)" = "$(readlink -f "$target")" ]; then
-      ok "$what already linked"; return
-    fi
-    warn "$what points elsewhere ($current) — leaving it alone"; return
-  elif [ -e "$link" ]; then
-    warn "$what exists and is a real file — leaving it alone, link it yourself if you meant to"
-    return
-  fi
-  ln -s "$target" "$link"
-  ok "$what → $target"
-}
+. "$AGENT/scripts/lib/install-helpers.sh"
 
 echo "bounded init: $REPO"
 echo
-echo "Config home"
-link "$AGENT" "$HOME/.pi/agent" "~/.pi/agent"
-link "$AGENT/AGENTS.md" "$HOME/.claude/CLAUDE.md" "~/.claude/CLAUDE.md"
+echo "Host adapters"
+# Each adapter wires its own framework; the core only walks the roster.
+for inst in "$AGENT"/hosts/*/install; do
+  [ -f "$inst" ] || continue
+  chmod +x "$inst"
+  echo "  $(basename "$(dirname "$inst")"):"
+  "$inst" | sed 's/^/  /'
+done
 
 echo
 echo "Commands"
@@ -70,12 +56,14 @@ if [ -z "$BINDIR" ]; then
   mkdir -p "$BINDIR"
   warn "no writable PATH dir found — installed to $BINDIR; add it to your PATH"
 fi
+# Through ~/.pi/agent when the pi adapter created it (the command then tracks
+# whatever the config home points at); the clone path otherwise.
+CMDBASE="$AGENT"
+[ -L "$HOME/.pi/agent" ] && CMDBASE="$HOME/.pi/agent"
 for cmd in "${COMMANDS[@]}"; do
   [ -f "$AGENT/scripts/$cmd" ] || { warn "$cmd missing from agent/scripts — skipped"; continue; }
   chmod +x "$AGENT/scripts/$cmd"
-  # Through ~/.pi/agent, not the clone path, so the command tracks whatever the
-  # config home points at rather than pinning one checkout.
-  link "$HOME/.pi/agent/scripts/$cmd" "$BINDIR/$cmd" "$cmd"
+  link "$CMDBASE/scripts/$cmd" "$BINDIR/$cmd" "$cmd"
 done
 
 echo

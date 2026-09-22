@@ -87,7 +87,7 @@
 //   parameter IS forwarded to workflow children as their default, but with no
 //   readable role there is no tier to choose, so those spawns are left alone.
 // * A ROOT session that is itself a pipeline role — `pi` in a directory whose
-//   `.pi/dev-stage-role` says `architect`, which is how the dogfood harnessed
+//   `.bounded/dev-stage-role` says `architect`, which is how the dogfood harnessed
 //   arm runs — was never spawned through this tool, so its model is whatever
 //   the session was launched with. Only spawned seats are tiered.
 

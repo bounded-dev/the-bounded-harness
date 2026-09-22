@@ -32,13 +32,13 @@
  * a normal session to trip (it never loads those files).
  *
  * Example agent frontmatter (agents/architect.md):
- *   subagentOnlyExtensions: <harness>/extensions/path-gate/architect.ts
+ *   subagentOnlyExtensions: <harness>/hosts/pi/extensions/path-gate/architect.ts
  *
  * ── Fallback (documented limitation) ─────────────────────────────────────
- * This file also auto-loads ambiently (extensions/*.ts). Its default export
+ * This file also auto-loads ambiently (hosts/pi/extensions/*.ts). Its default export
  * binds NO role, so it is inert unless a role is found via the fallbacks:
  *   1. BOUNDED_DEV_STAGE_ROLE env var, then
- *   2. a `.pi/dev-stage-role` file in the project cwd.
+ *   2. a `.bounded/dev-stage-role` file in the project cwd.
  * Both are PROCESS/CWD-global: they cannot distinguish two roles operating in
  * the same project at once, and env leaks to nested children. They exist only
  * so the gate can be exercised without a full subagent launch; the
@@ -58,12 +58,12 @@ import {
   markBoundRoleInstalled,
   planToolStrip,
   recordToolStrip,
-} from "../src/path-gate.ts";
-import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../src/host.ts";
-import type { Role } from "../src/path-policy.ts";
+} from "../../../src/path-gate.ts";
+import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../../src/host.ts";
+import type { Role } from "../../../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
 
-// This file lives at <harness>/extensions/path-gate.ts, so the harness root is
+// This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness root is
 // its parent's parent. Derived rather than configured: it must stay correct
 // through the ~/.pi/agent symlink and in any checkout.
 const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -94,7 +94,7 @@ function makeFallbackResolver(): (cwd: string) => Role | undefined {
 export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   // A bound role claims the process, which makes the ambient hook inert — see
   // the registry in src/path-gate.ts. Without this, a subagent gets its
-  // parent's role (read from the shared `.pi/dev-stage-role`) applied on top of
+  // parent's role (read from the shared `.bounded/dev-stage-role`) applied on top of
   // its own and is confined to the intersection of the two zones. That
   // deadlocked dogfood Run 6 at its first worker: the test-writer was refused
   // permission to write its own tests as "architect".

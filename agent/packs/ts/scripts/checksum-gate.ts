@@ -8,7 +8,7 @@
 // drift apart under the orchestrator's feet. This gate proves the project's
 // *.contract.ts files are byte-for-byte (newline-normalized) unchanged since
 // they were recorded: sha256 per file, sorted by project-relative path, stored
-// in .pi/contract-checksums.json.
+// in .bounded/contract-checksums.json.
 //
 // --write records the manifest (run once the DESIGN stage's contracts are
 // frozen). Default verifies and reports drift: changed / added / removed
@@ -16,7 +16,7 @@
 //
 // Exit 0 no drift (or manifest written) · 1 drift · 2 misuse (no manifest to
 // verify, no contract files, bad invocation). Logs one guard event to the
-// target's .pi/guard-log.jsonl.
+// target's .bounded/guard-log.jsonl.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
 
 const GUARD = "checksum-gate";
-const MANIFEST_RELATIVE = ".pi/contract-checksums.json";
+const MANIFEST_RELATIVE = ".bounded/contract-checksums.json";
 const CONTRACT_SUFFIX = ".contract.ts";
 // `scratch` is the architect's sanctioned throwaway zone (src/path-policy.ts):
 // a top-level directory nothing but the architect may write, and nothing may
@@ -33,7 +33,7 @@ const CONTRACT_SUFFIX = ".contract.ts";
 // it — so `findContractFiles`, the checksum/freeze manifest, the scaffolder's
 // contract discovery and its orphan sync all ignore a scratch/*.contract.ts by
 // construction, and a stray probe cannot be scaffolded, frozen, or ship.
-const IGNORE_DIRS = new Set(["node_modules", ".git", ".pi", "scratch"]);
+const IGNORE_DIRS = new Set(["node_modules", ".git", ".bounded", "scratch"]);
 
 export interface Manifest {
   readonly files: Readonly<Record<string, string>>;

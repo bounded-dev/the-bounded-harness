@@ -2,9 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import installAmbientPathGate from "../extensions/path-gate.ts";
-import installArchitectPathGate from "../extensions/path-gate/architect.ts";
-import installBuilderPathGate from "../extensions/path-gate/builder.ts";
+import installAmbientPathGate from "../hosts/pi/extensions/path-gate.ts";
+import installArchitectPathGate from "../hosts/pi/extensions/path-gate/architect.ts";
+import installBuilderPathGate from "../hosts/pi/extensions/path-gate/builder.ts";
 import { readGuardLog, RUN_START_GUARD } from "./guard-log.ts";
 import { makeRunStartRecorder, resetPathGateRegistry } from "./path-gate.ts";
 import { phaseDurations } from "./phase-durations.ts";
@@ -55,8 +55,8 @@ function project(role?: Role): string {
   const dir = mkdtempSync(join(tmpdir(), "path-gate-run-start-"));
   dirs.push(dir);
   if (role !== undefined) {
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "dev-stage-role"), `${role}\n`);
+    mkdirSync(join(dir, ".bounded"), { recursive: true });
+    writeFileSync(join(dir, ".bounded", "dev-stage-role"), `${role}\n`);
   }
   return dir;
 }
@@ -127,7 +127,7 @@ describe("the run-start marker", () => {
     expect(runStarts(cwd)).toHaveLength(0);
   });
 
-  test("the ambient hook marks a role bound through .pi/dev-stage-role", async () => {
+  test("the ambient hook marks a role bound through .bounded/dev-stage-role", async () => {
     const cwd = project("architect");
     const fake = fakePi();
     installAmbientPathGate(fake.pi as never);
@@ -137,7 +137,7 @@ describe("the run-start marker", () => {
 
   test("a worker subagent stamps nothing even though the ambient hook sees the parent's architect role", async () => {
     // A subagent loads its bound loader AND the ambient extension. The child
-    // shares the PARENT's `.pi/dev-stage-role` (architect), so without the
+    // shares the PARENT's `.bounded/dev-stage-role` (architect), so without the
     // ambient hook standing down it would stamp an architect run-start from
     // INSIDE a worker's process — exactly the spurious driving-session marker
     // r16 must not produce. The bound builder is not driving (marks nothing)

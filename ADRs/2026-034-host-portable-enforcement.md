@@ -19,7 +19,8 @@ implied:
   the path gate, the phase gate on spawns, the sanitized worker views. They
   need host cooperation and are exposed **per host**, as a thin adapter over
   the pure cores (`decide()`, `checkSubagentCall()`, `sessionRole()`):
-  pi's extensions today, `hosts/claude-code/` hooks as the second host.
+  the pi adapter (`hosts/pi/extensions/`) today, `hosts/claude-code/`
+  hooks as the second host (adapter layout: ADR 2026-035).
 
 A host declares which constraints it enforces, and the guard log records it
 once per run. A run whose host enforces nothing — `bounded gates` from a bare

@@ -28,8 +28,8 @@
 //
 // The VALUES are per-project, because which model is worth its price depends
 // on the codebase, the budget, and what the provider offers this week. They
-// live in `<project>/.pi/dev-stage-models.json`, next to `.pi/dev-stage-role`
-// and the guard log — the same per-project `.pi/` directory every other piece
+// live in `<project>/.bounded/dev-stage-models.json`, next to `.bounded/dev-stage-role`
+// and the guard log — the same per-project `.bounded/` directory every other piece
 // of run state already uses.
 //
 //   { "designModel": "anthropic/claude-opus-4:high",
@@ -59,7 +59,7 @@ import { join } from "node:path";
 import type { Role } from "./path-policy.ts";
 
 /** Where a project states its tier values, relative to the project root. */
-export const DEV_STAGE_MODELS_RELATIVE = ".pi/dev-stage-models.json";
+export const DEV_STAGE_MODELS_RELATIVE = ".bounded/dev-stage-models.json";
 
 /** The two tiers: judgment and production. */
 export type ModelTier = "design" | "worker";

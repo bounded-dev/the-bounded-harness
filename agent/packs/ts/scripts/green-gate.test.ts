@@ -218,7 +218,7 @@ function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   writeFileSync(join(dir, "tsc.txt"), tscOutput);
   // Green refuses without a red pass since the last freeze (Run 10). Seed the
   // normal history: frozen, then a valid red.
-  mkdirSync(join(dir, ".pi"), { recursive: true });
+  mkdirSync(join(dir, ".bounded"), { recursive: true });
   seedRedPass(dir);
   return dir;
 }
@@ -228,7 +228,7 @@ function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
  *  bound to BOTH (the contracts it was frozen for and the tests it proved). */
 function seedRedPass(dir: string, testsHash: string = testsTreeHash(dir)): void {
   writeFileSync(
-    join(dir, ".pi", "guard-log.jsonl"),
+    join(dir, ".bounded", "guard-log.jsonl"),
     [
       JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
       JSON.stringify({
@@ -236,7 +236,7 @@ function seedRedPass(dir: string, testsHash: string = testsTreeHash(dir)): void 
         guard: "red-gate",
         verdict: "pass",
         summary: "RED OK (5 NotImplemented failures, 0 passed)",
-        detail: { shadow: ".pi/shadow-red", testsTreeHash: testsHash },
+        detail: { shadow: ".bounded/shadow-red", testsTreeHash: testsHash },
       }),
     ].join("\n") + "\n",
   );
@@ -558,7 +558,7 @@ describe("green-gate CLI: a surviving red-phase skeleton (r16)", () => {
 describe("green requires a red for the CURRENT contracts", () => {
   test("no red at all → green refuses before running anything", () => {
     const dir = fixtureRepo("green-nored-", vitestJson([{ name: "ok", status: "passed" }]));
-    writeFileSync(join(dir, ".pi", "guard-log.jsonl"), "");
+    writeFileSync(join(dir, ".bounded", "guard-log.jsonl"), "");
     const r = runGate(dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/no red-gate pass since the contracts were last frozen/);
@@ -568,7 +568,7 @@ describe("green requires a red for the CURRENT contracts", () => {
   test("a red pass BEFORE the latest freeze is stale — refused", () => {
     const dir = fixtureRepo("green-stalered-", vitestJson([{ name: "ok", status: "passed" }]));
     writeFileSync(
-      join(dir, ".pi", "guard-log.jsonl"),
+      join(dir, ".bounded", "guard-log.jsonl"),
       [
         JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),
         JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (2 contract files)" }),
@@ -691,7 +691,7 @@ describe("green-gate CLI: the tests must be the ones the red proved", () => {
   test("a red from before the binding existed records no hash and is refused", () => {
     const dir = withTests("green-unbound-", "// the tests the red ran against\n");
     writeFileSync(
-      join(dir, ".pi", "guard-log.jsonl"),
+      join(dir, ".bounded", "guard-log.jsonl"),
       [
         JSON.stringify({ ts: "2026-09-04T00:00:00.000Z", guard: "checksum-gate", verdict: "pass", summary: "wrote manifest (1 contract file)" }),
         JSON.stringify({ ts: "2026-09-04T00:01:00.000Z", guard: "red-gate", verdict: "pass", summary: "RED OK (5 NotImplemented failures, 0 passed)" }),

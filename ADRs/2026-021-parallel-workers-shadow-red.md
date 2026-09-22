@@ -11,7 +11,7 @@ two against each other. The builder's old "red_gate has not passed" refusal is
 removed.
 
 Ordering is unnecessary because the red no longer depends on the live tree:
-`red_gate` proves red in a shadow project it rebuilds itself (`.pi/shadow-red`
+`red_gate` proves red in a shadow project it rebuilds itself (`.bounded/shadow-red`
 — contracts, regenerated skeletons, a copy of `tests/`), so a builder writing
 `src/` at the same moment cannot contaminate it. `green_gate` then requires a
 red since the last freeze **and** over the current `tests/` hash, so ADR
@@ -56,7 +56,7 @@ children is traceable to the call that started it.
 The architect's only remaining ordering duty is freeze-before-workers. It
 commissions both, and reacts to whichever returns first.
 
-`deliver` removes `.pi/shadow-red/` — it is a second copy of the tests beside
+`deliver` removes `.bounded/shadow-red/` — it is a second copy of the tests beside
 the real one, reproducible at any time by running `red_gate` again. Dogfood
-arms are scaffolded with `.pi/` gitignored from birth, so an archive never
+arms are scaffolded with `.bounded/` gitignored from birth, so an archive never
 commits a shadow tree or a guard log.

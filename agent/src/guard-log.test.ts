@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("guard log (TN-26-001: a deterministic system that is opaque when it jams is just a deterministic jam)", () => {
-  test("writes one JSON line per event, creating .pi/ in the target project", () => {
+  test("writes one JSON line per event, creating .bounded/ in the target project", () => {
     const cwd = tmp();
     logGuardEvent(cwd, {
       guard: "contract-purity",
@@ -30,7 +30,7 @@ describe("guard log (TN-26-001: a deterministic system that is opaque when it ja
       detail: { file: "src/x.contract.ts", ruleId: "bounded-ts/declaration-only" },
     });
     const raw = readFileSync(guardLogPath(cwd), "utf8");
-    expect(GUARD_LOG_RELATIVE).toBe(".pi/guard-log.jsonl");
+    expect(GUARD_LOG_RELATIVE).toBe(".bounded/guard-log.jsonl");
     const event = JSON.parse(raw.trim());
     expect(event.guard).toBe("contract-purity");
     expect(event.verdict).toBe("block");

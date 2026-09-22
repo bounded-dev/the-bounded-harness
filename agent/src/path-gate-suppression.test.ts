@@ -18,10 +18,10 @@ import {
 // A subagent installs TWO path-gate hooks, and neither knows about the other:
 //
 //   1. the BOUND hook, from its frontmatter `subagentOnlyExtensions`
-//      (extensions/path-gate/test-writer.ts → installPathGate(pi, "test-writer"))
-//   2. the AMBIENT hook, because extensions/path-gate.ts auto-loads in EVERY
+//      (hosts/pi/extensions/path-gate/test-writer.ts → installPathGate(pi, "test-writer"))
+//   2. the AMBIENT hook, because hosts/pi/extensions/path-gate.ts auto-loads in EVERY
 //      pi session — including a child — and resolves its role from
-//      `.pi/dev-stage-role` in the project cwd, which the child SHARES with
+//      `.bounded/dev-stage-role` in the project cwd, which the child SHARES with
 //      its parent.
 //
 // So when the parent session is gated as `architect` through that file, the
@@ -69,7 +69,7 @@ describe("ambient path gate suppression", () => {
     expect(evaluatePathGate({ role: "test-writer", ...write("tests/start.test.ts") })).toBeUndefined();
 
     // ...and the ambient hook, which would otherwise apply the PARENT's
-    // architect role from .pi/dev-stage-role, no longer fires. Before the fix
+    // architect role from .bounded/dev-stage-role, no longer fires. Before the fix
     // this returned a block reading "architect may not write
     // 'tests/start.test.ts'" and deadlocked the pipeline at its first worker.
     expect(evaluateAmbientPathGate({ role: "architect", ...write("tests/start.test.ts") })).toBeUndefined();
@@ -145,8 +145,8 @@ describe("sessionRole", () => {
     const dir = mkdtempSync(join(tmpdir(), "session-role-"));
     dirs.push(dir);
     if (role !== undefined) {
-      mkdirSync(join(dir, ".pi"), { recursive: true });
-      writeFileSync(join(dir, ".pi", "dev-stage-role"), `${role}\n`);
+      mkdirSync(join(dir, ".bounded"), { recursive: true });
+      writeFileSync(join(dir, ".bounded", "dev-stage-role"), `${role}\n`);
     }
     return dir;
   };

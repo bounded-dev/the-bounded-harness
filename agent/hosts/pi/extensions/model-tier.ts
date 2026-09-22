@@ -5,7 +5,7 @@
  * so each pipeline seat runs on its project's tier: architect and reviewer on
  * `designModel`, test-writer and builder on `workerModel`. Every other agent —
  * scout, product-expert, delegate, anything unmapped — is untouched, and so is
- * every session whose project has no `.pi/dev-stage-models.json`.
+ * every session whose project has no `.bounded/dev-stage-models.json`.
  *
  * All of the decision lives in ../src/model-tier.ts (which is testable without
  * pi) and ../src/dev-stage-models.ts (the config reader). This file is the
@@ -28,7 +28,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { applyModelTier, type KnownModel } from "../src/model-tier.ts";
+import { applyModelTier, type KnownModel } from "../../../src/model-tier.ts";
 
 /**
  * The session's available models, as bare `{provider, id}` pairs.

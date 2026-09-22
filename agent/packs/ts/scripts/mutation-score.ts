@@ -322,7 +322,7 @@ function tsFilesUnder(root: string, dir: string): string[] {
     for (const entry of readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = join(d, entry.name);
       if (entry.isDirectory()) {
-        if (!["node_modules", ".git", ".pi"].includes(entry.name)) walk(full);
+        if (!["node_modules", ".git", ".bounded"].includes(entry.name)) walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".ts")) {
         out.push(toPosix(relative(root, full)));
       }

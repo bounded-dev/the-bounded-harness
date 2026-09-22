@@ -42,7 +42,7 @@
 // "design-gate", carrying every step's outcome and wall-clock duration.
 //
 // Exit 0 pass · 1 block · 2 misuse (a step could not run at all). Logs to the
-// target's .pi/guard-log.jsonl.
+// target's .bounded/guard-log.jsonl.
 //
 // NOTE: the purity step's globs resolve from the PROCESS cwd (ESLint's own
 // default, shared with the `contract_purity` tool) — run this in the project

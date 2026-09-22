@@ -110,7 +110,7 @@ const GATED_TOOLS = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
 // That last one closes a drift rather than adding a rule: ROLE_TOOLS has always
 // said run_tests is builder-only, but nothing enforced it, because run_tests is
 // not a PATH tool and the gate only inspected those. The frontmatter allowlist
-// binds subagents; a session launched from `.pi/dev-stage-role` has none, so
+// binds subagents; a session launched from `.bounded/dev-stage-role` has none, so
 // there the allowlist was documentation and Run 6's architect duly called it.
 //   · `record_design_review` — the REVIEWER's alone, for the same reason
 //     run_tests is the builder's: it is one role's channel, and handing it to
@@ -139,7 +139,7 @@ const REVIEWER_ONLY_TOOLS = ["record_design_review"] as const;
 /**
  * Tools each role may not call — the backup layer, and now also the input to
  * the STRIP: a bound session removes exactly this set from the model's visible
- * toolset at session start (src/path-gate.ts, extensions/path-gate.ts), so the
+ * toolset at session start (src/path-gate.ts, hosts/pi/extensions/path-gate.ts), so the
  * refusals below are a backstop rather than the working mechanism.
  */
 export const FORBIDDEN_TOOLS: Record<Role, ReadonlySet<string>> = {
@@ -276,13 +276,13 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
 // Denied for every role, both directions.
 const ALWAYS_DENY = [".git", ".git/**"] as const;
 
-// Denied for every role on WRITE only. `.pi/` holds the guard log and the
+// Denied for every role on WRITE only. `.bounded/` holds the guard log and the
 // contract-checksum manifest — the audit trail and the drift evidence. Every
 // role must be able to READ them (diagnosing a jam, citing the log when
 // escalating) and none may WRITE them, or the record of what happened becomes
 // something the accused can edit. The gates write these files through plain
 // `fs`, which never passes through the tool hook, so they are unaffected.
-const ALWAYS_WRITE_DENY = [".pi", ".pi/**"] as const;
+const ALWAYS_WRITE_DENY = [".bounded", ".bounded/**"] as const;
 
 // Denied for every role on WRITE, the test-writer included — and the test-writer
 // is the whole reason this is stated rather than inherited, because `tests/**`
@@ -304,7 +304,7 @@ const GENERATED_WRITE_DENY = ["tests/generated", "tests/generated/**"] as const;
 function alwaysWriteDenied(path: string): { readonly reason: string } | null {
   if (matchesAny(ALWAYS_WRITE_DENY, path)) {
     return {
-      reason: "'.pi' is the guard log and checksum manifest — read-only for every role",
+      reason: "'.bounded' is the guard log and checksum manifest — read-only for every role",
     };
   }
   if (matchesAny(GENERATED_WRITE_DENY, path)) {

@@ -13,7 +13,7 @@
 //                     it (ts-morph, not grep). A surviving import of
 //                     NotImplementedError is a BLOCK: an unimplemented export
 //                     reached delivery. Imports from tests/ only ⇒ keep it.
-//   2. shadow         remove .pi/shadow-red/, the throwaway project red_gate
+//   2. shadow         remove .bounded/shadow-red/, the throwaway project red_gate
 //                     rebuilds to prove red in. It is a second copy of the
 //                     contracts, the skeletons and the whole tests tree — a
 //                     reader who found it would reasonably wonder which copy
@@ -32,7 +32,7 @@
 //                     pin ts-morph (the pack's own version) AND install it.
 //                     A pin nobody installed is a repo whose check dies with
 //                     ERR_MODULE_NOT_FOUND, so a failed install is a BLOCK.
-//   6. gitignore      ensure `.pi/` is ignored.
+//   6. gitignore      ensure `.bounded/` is ignored.
 //   7. README         add a "## Contracts" section for a reader who has
 //                     never seen the convention.
 //   8. timing         READ-ONLY: print where the run's minutes went, from the
@@ -323,7 +323,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
 
   // --- 2. the red-phase shadow project ---
   //
-  // red_gate proves red in a project it builds itself at `.pi/shadow-red/` —
+  // red_gate proves red in a project it builds itself at `.bounded/shadow-red/` —
   // contracts, regenerated skeletons and a copy of the tests tree — so the
   // proof never depends on the live `src/`, and the builder may work in
   // parallel without touching it. Once the run is over that copy is confusing
@@ -537,12 +537,12 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   {
     const ignoreAbs = join(cwd, ".gitignore");
     const current = existsSync(ignoreAbs) ? readFileSync(ignoreAbs, "utf8") : "";
-    const ignored = current.split("\n").some((l) => l.trim() === ".pi/" || l.trim() === ".pi");
+    const ignored = current.split("\n").some((l) => l.trim() === ".bounded/" || l.trim() === ".bounded");
     if (ignored) {
-      pass("gitignore", false, ".pi/ already ignored");
+      pass("gitignore", false, ".bounded/ already ignored");
     } else {
-      writeFileSync(ignoreAbs, (current === "" || current.endsWith("\n") ? current : current + "\n") + ".pi/\n");
-      pass("gitignore", true, "added .pi/ to .gitignore");
+      writeFileSync(ignoreAbs, (current === "" || current.endsWith("\n") ? current : current + "\n") + ".bounded/\n");
+      pass("gitignore", true, "added .bounded/ to .gitignore");
     }
   }
 
@@ -563,7 +563,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
 
   // --- 8. phase timing (issue #13) ---
   //
-  // Every gate already timestamps itself into .pi/guard-log.jsonl, so the
+  // Every gate already timestamps itself into .bounded/guard-log.jsonl, so the
   // shape of the run — which phase cost the minutes, where it bounced and to
   // whom — is recorded and was simply never read back. Delivery is the one
   // moment the whole run is over and someone is reading the output, so this

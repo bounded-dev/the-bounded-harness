@@ -73,7 +73,7 @@ ARCHITECT (a pi session bound to the role at launch, via bounded ticket)
 
 DESIGN is the only phase; TEST and BUILD are two workers, so the critical path
 is max(TEST, BUILD) rather than their sum. What makes that safe is where the
-red gate runs: it copies contracts, tests and config into `.pi/shadow-red`,
+red gate runs: it copies contracts, tests and config into `.bounded/shadow-red`,
 regenerates the skeletons there and runs that, copying no implementation file
 at all. Green is bound to the red in both directions — the contract manifest
 and a hash of the `tests/` tree — so a contract revision and a test edit each

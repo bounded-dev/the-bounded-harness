@@ -291,7 +291,7 @@ describe("a broken config costs speed, never the run", () => {
   test("the guard log stays one JSON object per line", () => {
     const cwd = project(BOTH);
     applyModelTier({ toolName: "subagent", input: { agent: "builder" }, cwd, known: REGISTRY });
-    const raw = readFileSync(join(cwd, ".pi", "guard-log.jsonl"), "utf8").trimEnd();
+    const raw = readFileSync(join(cwd, ".bounded", "guard-log.jsonl"), "utf8").trimEnd();
     expect(raw.split("\n")).toHaveLength(1);
     expect(JSON.parse(raw).guard).toBe("model-tier");
   });
@@ -323,13 +323,13 @@ async function installed(): Promise<FakeHook> {
       throw new Error("model-tier registers no tools");
     },
   };
-  const install = (await import("../extensions/model-tier.ts")).default;
+  const install = (await import("../hosts/pi/extensions/model-tier.ts")).default;
   install(pi as never);
   if (hooks.length !== 1) throw new Error(`expected one tool_call hook, got ${hooks.length}`);
   return hooks[0]!;
 }
 
-describe("extensions/model-tier.ts", () => {
+describe("hosts/pi/extensions/model-tier.ts", () => {
   test("installs exactly one tool_call hook and registers no tools", async () => {
     await expect(installed()).resolves.toBeTypeOf("function");
   });

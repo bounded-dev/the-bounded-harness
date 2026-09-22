@@ -3,7 +3,7 @@
 //   node render-screenshot.ts [targetDir]
 //
 // Builds a web target, serves the build output on an ephemeral port,
-// screenshots it, and writes `.pi/render/<timestamp>.png` into the target.
+// screenshots it, and writes `.bounded/render/<timestamp>.png` into the target.
 //
 // ADVISORY, ALWAYS. It never blocks anything and it exits 0 whatever happens —
 // a missing browser, a failing build, a project that is not a frontend at all
@@ -39,10 +39,10 @@ import type { AddressInfo } from "node:net";
 
 const GUARD = "render-screenshot";
 
-/** Where a rendered screen lands, relative to the target. Under `.pi/`, which
+/** Where a rendered screen lands, relative to the target. Under `.bounded/`, which
  *  deliver already teaches every project to gitignore — a PNG per wrap is run
  *  evidence, not a repo artifact. */
-export const RENDER_DIR = ".pi/render";
+export const RENDER_DIR = ".bounded/render";
 
 /** Vite's default build output. Not configurable here on purpose: the vite
  *  config is pack-generated (template.ts) and says `dist`. */
@@ -119,7 +119,7 @@ export interface RenderOptions {
 }
 
 /**
- * Where this render lands: `.pi/render/2026-09-17T16-42-05-123Z.png`.
+ * Where this render lands: `.bounded/render/2026-09-17T16-42-05-123Z.png`.
  *
  * Colons are legal in a POSIX filename and poison on Windows, and a dot before
  * the extension is one dot too many for a reader skimming a directory — so the

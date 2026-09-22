@@ -246,8 +246,8 @@ describe("runDeliver", () => {
     expect(pkg.scripts["check:surface"]).toBe("node --experimental-strip-types scripts/surface-check.ts");
     expect(pkg.scripts.check).toContain("npm run check:surface");
     expect(pkg.devDependencies["ts-morph"]).toMatch(/^\d+\.\d+\.\d+$/);
-    // 5. .pi/ ignored
-    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toMatch(/^\.pi\/$/m);
+    // 5. .bounded/ ignored
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toMatch(/^\.bounded\/$/m);
     // 6. README
     const readme = readFileSync(join(dir, "README.md"), "utf8");
     expect(readme).toContain("## Contracts");
@@ -361,8 +361,8 @@ void NotImplementedError;
     for (const [rel, content] of snapshot) {
       expect(readFileSync(join(dir, rel), "utf8")).toBe(content);
     }
-    // .pi/ not duplicated in .gitignore
-    const ignoreLines = readFileSync(join(dir, ".gitignore"), "utf8").split("\n").filter((l) => l === ".pi/");
+    // .bounded/ not duplicated in .gitignore
+    const ignoreLines = readFileSync(join(dir, ".gitignore"), "utf8").split("\n").filter((l) => l === ".bounded/");
     expect(ignoreLines).toHaveLength(1);
   });
 
@@ -382,7 +382,7 @@ void NotImplementedError;
   });
 });
 
-// The red-phase shadow project (ADR 2026-021). red_gate rebuilds `.pi/shadow-red/`
+// The red-phase shadow project (ADR 2026-021). red_gate rebuilds `.bounded/shadow-red/`
 // from the contracts, regenerated skeletons and a copy of the tests tree, so the
 // red is proven without ever reading the live `src/`. That copy is the run's
 // scaffolding, not the deliverable: left behind, it is a duplicate of the tests
@@ -469,39 +469,39 @@ export function Badge(props: BadgeProps): ReactElement {
 });
 
 describe("runDeliver: the red-phase shadow", () => {
-  test("removes .pi/shadow-red/ and says so", () => {
+  test("removes .bounded/shadow-red/ and says so", () => {
     const dir = proj({
-      ".pi/shadow-red/package.json": "{}\n",
-      ".pi/shadow-red/tests/orders.test.ts": "// a copy of the real suite\n",
+      ".bounded/shadow-red/package.json": "{}\n",
+      ".bounded/shadow-red/tests/orders.test.ts": "// a copy of the real suite\n",
     });
     const r = deliver(dir);
     expect(r.code).toBe(0);
-    expect(existsSync(join(dir, ".pi/shadow-red"))).toBe(false);
-    expect(r.lines).toContain("deliver: shadow — removed .pi/shadow-red/ (red_gate rebuilds it on demand)");
+    expect(existsSync(join(dir, ".bounded/shadow-red"))).toBe(false);
+    expect(r.lines).toContain("deliver: shadow — removed .bounded/shadow-red/ (red_gate rebuilds it on demand)");
   });
 
   test("the removal is logged as its own guard event", () => {
-    const dir = proj({ ".pi/shadow-red/package.json": "{}\n" });
+    const dir = proj({ ".bounded/shadow-red/package.json": "{}\n" });
     deliver(dir);
     const event = readGuardLog(dir).find(
       (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "shadow",
     );
     expect(event?.verdict).toBe("pass");
-    expect(event?.summary).toContain("removed .pi/shadow-red/");
+    expect(event?.summary).toContain("removed .bounded/shadow-red/");
   });
 
   test("idempotent: a project with no shadow is untouched and applies no step", () => {
     const dir = proj();
     const first = deliver(dir);
-    expect(first.lines).toContain("deliver: shadow — no .pi/shadow-red/ to remove");
+    expect(first.lines).toContain("deliver: shadow — no .bounded/shadow-red/ to remove");
     const second = deliver(dir);
     expect(second.lines.at(-1)).toBe("deliver: OK — 0 steps applied");
   });
 
-  test("the rest of .pi/ survives — the guard log is the run's record", () => {
-    const dir = proj({ ".pi/shadow-red/package.json": "{}\n" });
+  test("the rest of .bounded/ survives — the guard log is the run's record", () => {
+    const dir = proj({ ".bounded/shadow-red/package.json": "{}\n" });
     deliver(dir);
-    expect(existsSync(join(dir, ".pi"))).toBe(true);
+    expect(existsSync(join(dir, ".bounded"))).toBe(true);
     expect(readGuardLog(dir).length).toBeGreaterThan(0);
   });
 });
@@ -510,7 +510,7 @@ describe("runDeliver: the red-phase shadow", () => {
 // was already in the guard log — delivery is where it finally gets read back.
 describe("runDeliver: phase timing", () => {
   test("prints the phase block from the project's own guard log", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG });
     const r = deliver(dir);
     expect(r.code).toBe(0);
     const out = r.lines.join("\n");
@@ -530,7 +530,7 @@ describe("runDeliver: phase timing", () => {
   // in the way, and r14 ended a run with 17 of them without any single line
   // ever saying so. The guard breakdown is what points at the fix.
   test("the friction line totals the unrouted blocks and names the guards", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": FRICTION_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": FRICTION_GUARD_LOG });
     const r = deliver(dir);
     expect(r.code).toBe(0);
     expect(r.lines).toContain("  friction: 3 refusals (path-gate 2, phase-gate 1) — target 0");
@@ -552,7 +552,7 @@ describe("runDeliver: phase timing", () => {
   });
 
   test("the structured summary rides along in the deliver guard event's detail", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG });
     deliver(dir);
     const event = readGuardLog(dir).find(
       (e) => e.guard === "deliver" && (e.detail as { step?: string } | undefined)?.step === "timing",
@@ -566,7 +566,7 @@ describe("runDeliver: phase timing", () => {
   });
 
   test("timing is read-only: it applies no step and the second run reports again", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG });
     const stub = surfaceStub();
     const npm = fakeNpm();
     runDeliver(dir, { surfaceCheckSource: stub, run: npm.run });
@@ -675,7 +675,7 @@ describe("runDeliver: the project's own check (final step)", () => {
   });
 
   test("it is last of deliver's OWN steps: it sees the delivered tree, after the timing block", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG });
     const npm = fakeNpm();
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: npm.run });
     // the barrel — the last mutating step's output — existed when check ran
@@ -694,7 +694,7 @@ describe("runDeliver: the project's own check (final step)", () => {
   });
 
   test("BLOCK when the project's own check is red, with the failing tail", () => {
-    const dir = proj({ ".pi/guard-log.jsonl": SEEDED_GUARD_LOG });
+    const dir = proj({ ".bounded/guard-log.jsonl": SEEDED_GUARD_LOG });
     const npm = fakeNpm({
       check: {
         code: 1,

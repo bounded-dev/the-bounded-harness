@@ -54,7 +54,7 @@ export function tsFilesUnder(root: string, dir: string): string[] {
     if (!existsSync(d)) return;
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (!["node_modules", ".git", ".pi"].includes(entry.name)) walk(join(d, entry.name));
+        if (!["node_modules", ".git", ".bounded"].includes(entry.name)) walk(join(d, entry.name));
       } else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
         out.push(toPosix(relative(root, join(d, entry.name))));
       }

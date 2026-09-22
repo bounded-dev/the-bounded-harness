@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import installAmbientPathGate from "../extensions/path-gate.ts";
-import installArchitectPathGate from "../extensions/path-gate/architect.ts";
-import installBuilderPathGate from "../extensions/path-gate/builder.ts";
+import installAmbientPathGate from "../hosts/pi/extensions/path-gate.ts";
+import installArchitectPathGate from "../hosts/pi/extensions/path-gate/architect.ts";
+import installBuilderPathGate from "../hosts/pi/extensions/path-gate/builder.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { NO_HOST, recordHostDeclaration } from "./host.ts";
 import { planToolStrip, resetPathGateRegistry } from "./path-gate.ts";
@@ -22,7 +22,7 @@ import { FORBIDDEN_TOOLS, ROLE_TOOLS, type Role } from "./path-policy.ts";
 // A subagent never pays this. Its frontmatter `tools:` allowlist removes the
 // tool at spawn, before the model is shown anything — which is exactly why the
 // refusal text calls the allowlist the primary layer. A session launched
-// DIRECTLY (`.pi/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
+// DIRECTLY (`.bounded/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
 // frontmatter, so there the allowlist was documentation and the gate was
 // paying a turn per attempt.
 //
@@ -85,8 +85,8 @@ function project(role?: Role): string {
   const dir = mkdtempSync(join(tmpdir(), "path-gate-strip-"));
   dirs.push(dir);
   if (role !== undefined) {
-    mkdirSync(join(dir, ".pi"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "dev-stage-role"), `${role}\n`);
+    mkdirSync(join(dir, ".bounded"), { recursive: true });
+    writeFileSync(join(dir, ".bounded", "dev-stage-role"), `${role}\n`);
   }
   return dir;
 }
@@ -184,7 +184,7 @@ describe("the strip at session start", () => {
     expect(fake.active()).toContain("red_gate");
   });
 
-  test("the ambient gate strips a role bound through .pi/dev-stage-role — the gap this closes", () => {
+  test("the ambient gate strips a role bound through .bounded/dev-stage-role — the gap this closes", () => {
     // A plain `pi` in the dogfood harnessed arm: no launcher, no frontmatter,
     // and until now no strip either.
     const cwd = project("architect");
@@ -197,7 +197,7 @@ describe("the strip at session start", () => {
   });
 
   test("a session with no role keeps every tool — the gate is inactive, not restrictive", () => {
-    const cwd = project(); // no .pi/dev-stage-role
+    const cwd = project(); // no .bounded/dev-stage-role
     const fake = fakePi(FULL_TOOLSET);
     installAmbientPathGate(fake.pi as never);
     fake.start(cwd);

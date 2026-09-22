@@ -696,7 +696,7 @@ export function boundaryRemedyLines(violation: BoundaryViolation): string[] {
 // IO — the thin wrapper that collects the files the pure checkers consume
 // =================================================================================
 
-const IGNORE_DIRS = new Set(["node_modules", ".git", ".pi", "dist", "build", "coverage"]);
+const IGNORE_DIRS = new Set(["node_modules", ".git", ".bounded", "dist", "build", "coverage"]);
 const TEST_FILE = /\.(?:test|spec)\.tsx?$/;
 /** Machine-generated laws must not satisfy a human obligation. */
 const GENERATED_TESTS = /(?:^|\/)tests\/generated\//;

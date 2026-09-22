@@ -5,7 +5,7 @@
 ## Decision
 
 The developer stage has four seats and two kinds of work, so it gets two model
-parameters, not four. `<project>/.pi/dev-stage-models.json` names them:
+parameters, not four. `<project>/.bounded/dev-stage-models.json` names them:
 
 ```json
 { "designModel": "<pi model pattern>", "workerModel": "<pi model pattern>" }

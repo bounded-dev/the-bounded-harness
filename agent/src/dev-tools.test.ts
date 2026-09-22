@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import installDevTools from "../extensions/dev-tools.ts";
+import installDevTools from "../hosts/pi/extensions/dev-tools.ts";
 import { readGuardLog } from "./guard-log.ts";
 import { ROLE_TOOLS } from "./path-policy.ts";
 

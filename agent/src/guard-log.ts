@@ -4,7 +4,7 @@
 // Every deterministic guard — path gate, contract-purity, scaffolder,
 // red/green gates — appends one JSONL event here, in the TARGET project:
 //
-//   <project>/.pi/guard-log.jsonl
+//   <project>/.bounded/guard-log.jsonl
 //
 // Always on (BOUNDED_GUARD_LOG=off opts out): the value is after-the-fact
 // inspection of runs you didn't know would be interesting. Blocks show where
@@ -34,7 +34,7 @@ export interface GuardEvent {
 
 export type LoggedGuardEvent = GuardEvent & { readonly ts: string };
 
-export const GUARD_LOG_RELATIVE = ".pi/guard-log.jsonl";
+export const GUARD_LOG_RELATIVE = ".bounded/guard-log.jsonl";
 
 /**
  * The guard name of the run-start marker: the first gated tool call of a

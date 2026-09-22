@@ -30,17 +30,17 @@
  * `<gate>: PASS|BLOCK|ERROR` from src/gate-result.ts.
  *
  * This file lives in `extensions/lib/` because pi auto-loads only the
- * top-level `extensions/*.ts`; a subdirectory is plain code, never an
- * extension (`extensions/path-gate/` is the standing proof — its per-role
+ * top-level `hosts/pi/extensions/*.ts`; a subdirectory is plain code, never an
+ * extension (`hosts/pi/extensions/path-gate/` is the standing proof — its per-role
  * loaders are reached only by frontmatter, never auto-loaded).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type TObject, type TOptional, type TSchema, type TString } from "typebox";
-import type { FlagSpec, GateArgs, GateCommand } from "../../src/gate-command.ts";
-import { verdictLine } from "../../src/gate-result.ts";
-import { sessionRole } from "../../src/path-gate.ts";
-import { targetCwd } from "../../src/target-cwd.ts";
+import type { FlagSpec, GateArgs, GateCommand } from "../../../../src/gate-command.ts";
+import { verdictLine } from "../../../../src/gate-result.ts";
+import { sessionRole } from "../../../../src/path-gate.ts";
+import { targetCwd } from "../../../../src/target-cwd.ts";
 
 /** The one parameter every gate tool takes, worded once. */
 export const CWD_DESCRIPTION =

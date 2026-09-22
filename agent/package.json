@@ -1,7 +1,7 @@
 {
   "name": "bounded-harness",
   "version": "0.1.0",
-  "description": "The Bounded Harness — a coding-agent harness: extensions, skills, packs, and gates",
+  "description": "The Bounded Harness \u2014 a coding-agent harness: extensions, skills, packs, and gates",
   "private": true,
   "type": "module",
   "keywords": [
@@ -9,6 +9,7 @@
   ],
   "pi": {
     "extensions": [
+      "./hosts/pi/extensions",
       "./extensions"
     ]
   },

@@ -7,7 +7,7 @@
 // pipeline is inspectable ("a deterministic system that is opaque when it
 // jams is just a deterministic jam"). Pure cores never log; this layer does.
 //
-// The extension (extensions/path-gate.ts) sources the role at runtime and
+// The extension (hosts/pi/extensions/path-gate.ts) sources the role at runtime and
 // calls evaluatePathGate(); everything decision-shaped lives here so it can
 // be unit-tested without spawning pi.
 
@@ -34,9 +34,9 @@ export function asRole(value: unknown): Role | undefined {
 // --- Bound-role registry (dogfood Run 6) ------------------------------------
 //
 // A subagent installs TWO hooks and neither knows about the other: the BOUND
-// one its frontmatter names, and the AMBIENT one, because extensions/*.ts
+// one its frontmatter names, and the AMBIENT one, because hosts/pi/extensions/*.ts
 // auto-load in every pi session — a child included — and the ambient gate
-// resolves its role from `.pi/dev-stage-role` in the project cwd, which the
+// resolves its role from `.bounded/dev-stage-role` in the project cwd, which the
 // child SHARES with its parent.
 //
 // So a parent gated as `architect` through that file silently applied
@@ -99,14 +99,14 @@ export function resetPathGateRegistry(): void {
   delete (globalThis as GlobalWithRegistry)[BOUND_ROLE_VALUE_KEY];
 }
 
-/** The ambient fallback role: env var first, then `.pi/dev-stage-role` in the
- *  project. Both are process/cwd-global — see extensions/path-gate.ts for why
+/** The ambient fallback role: env var first, then `.bounded/dev-stage-role` in the
+ *  project. Both are process/cwd-global — see hosts/pi/extensions/path-gate.ts for why
  *  they are a fallback and not the mechanism. */
 export function ambientRole(cwd: string): Role | undefined {
   const fromEnv = asRole(process.env["BOUNDED_DEV_STAGE_ROLE"]);
   if (fromEnv) return fromEnv;
   try {
-    return asRole(readFileSync(join(cwd, ".pi", "dev-stage-role"), "utf8").trim());
+    return asRole(readFileSync(join(cwd, ".bounded", "dev-stage-role"), "utf8").trim());
   } catch {
     return undefined; // no role file ⇒ no role
   }
@@ -119,7 +119,7 @@ export function ambientRole(cwd: string): Role | undefined {
  * restrictions must never leak downward from a parent to its children.
  *
  * This is the single answer every role-sensitive tool must ask for. Used by
- * the `typecheck` worker tool to scope its diagnostics (extensions/dev-tools.ts).
+ * the `typecheck` worker tool to scope its diagnostics (hosts/pi/extensions/dev-tools.ts).
  */
 export function sessionRole(cwd: string): Role | undefined {
   const bound = boundRole();
@@ -138,7 +138,7 @@ export function sessionRole(cwd: string): Role | undefined {
 // Subagent-spawned roles never had this problem — their frontmatter `tools:`
 // allowlist strips the toolset before the model is ever shown it, which is why
 // the refusal text calls the allowlist the primary layer. A DIRECTLY launched
-// session (`.pi/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
+// session (`.bounded/dev-stage-role` + plain `pi`, or `bounded-ticket`) has no
 // frontmatter, so the allowlist is documentation there and the gate was doing
 // all the work by refusing calls the model had every reason to make.
 //
@@ -289,7 +289,7 @@ export interface GateInput {
 
 /**
  * Decide whether a tool call is allowed for the given role, logging a
- * `path-gate` block to <cwd>/.pi/guard-log.jsonl on denial.
+ * `path-gate` block to <cwd>/.bounded/guard-log.jsonl on denial.
  *
  * Returns `undefined` (allow / inactive) or `{ block, reason }` (deny).
  */
@@ -394,7 +394,7 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
  * stands down entirely once a bound role has claimed this process.
  *
  * The ambient hook exists so a session the user starts themselves can be gated
- * from a `.pi/dev-stage-role` file. That file lives in the project, which every
+ * from a `.bounded/dev-stage-role` file. That file lives in the project, which every
  * subagent shares — so without this check the parent's role is applied to each
  * child on top of its own, and the child is confined to the intersection.
  */
@@ -438,7 +438,7 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
 /** Project-relative *.contract.ts paths, skipping the obvious noise. */
 function findContracts(root: string): string[] {
   const out: string[] = [];
-  const skip = new Set(["node_modules", ".git", ".pi", "dist", "build"]);
+  const skip = new Set(["node_modules", ".git", ".bounded", "dist", "build"]);
   const walk = (dir: string, depth: number): void => {
     if (depth > 8) return;
     let entries: import("node:fs").Dirent[];

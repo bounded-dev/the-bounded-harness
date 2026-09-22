@@ -42,7 +42,7 @@ the other has to queue behind — so the critical path is max(TEST, BUILD) rathe
 than the sum.
 
 What makes that safe is where the red gate runs. It no longer inspects the live
-tree: every call rebuilds a **shadow project** at `.pi/shadow-red` — contracts,
+tree: every call rebuilds a **shadow project** at `.bounded/shadow-red` — contracts,
 tests and config copied in, the skeletons *regenerated* there from the frozen
 contracts, `node_modules` symlinked — and proves the red in there
 (`redGateProjectPlan` in `red-gate.ts` copies no implementation file, on
@@ -189,10 +189,10 @@ removes it at the end of the run.
 
 5. **DELIVER** — after sign-off, run `deliver`. Nine steps, in order, each
    printing one line: strip the red-phase scaffolding (the unused shared errors
-   module, the `__conformance` blobs); remove `.pi/shadow-red`; write the
+   module, the `__conformance` blobs); remove `.bounded/shadow-red`; write the
    `src/index.ts` barrel; ship `scripts/surface-check.ts` with a `check:surface`
    npm script, folded into `check`, **pinned to ts-morph and installed**;
-   gitignore `.pi/`; add a README section explaining the contract convention;
+   gitignore `.bounded/`; add a README section explaining the contract convention;
    print the timing block; and finally **run the target's own
    `npm run check`**. Idempotent — a second run applies 0 steps, since the last
    two only read. The output of this stage is a repo you would hand a
@@ -302,7 +302,7 @@ project's guard log. A deterministic system that is opaque when it jams is just
 a deterministic jam — keep the log readable and cite it when escalating.
 
 **The seats may run on different models.** Where a project carries
-`.pi/dev-stage-models.json`, a spawn of a judgment seat (architect, reviewer)
+`.bounded/dev-stage-models.json`, a spawn of a judgment seat (architect, reviewer)
 takes its `designModel` and a spawn of a production seat (test-writer, builder)
 takes its `workerModel`, injected as the spawn happens and recorded as a
 `model-tier` guard event (ADR 2026-022). That line in the log is the tier being

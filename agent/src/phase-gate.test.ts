@@ -630,7 +630,7 @@ describe("a configured tier the registry cannot resolve refuses the spawn", () =
   test("the refusal names the config file, the key, the bad pattern and the fix", () => {
     const v = checkSubagentCall({ agent: "reviewer", task: "read it" }, tiered(BAD));
     if (v.kind !== "block") throw new Error("expected a block");
-    expect(v.reason).toContain(".pi/dev-stage-models.json");
+    expect(v.reason).toContain(".bounded/dev-stage-models.json");
     expect(v.reason).toContain("designModel");
     expect(v.reason).toContain("kimi-k3:high");
     expect(v.reason).toContain("pi --list-models");

@@ -6,7 +6,7 @@
 #   bounded change-run --force [targetDir]     boundary even though the last run
 #                                         never delivered (abandoning it)
 #
-# The developer stage keeps two kinds of state under `.pi/`:
+# The developer stage keeps two kinds of state under `.bounded/`:
 #
 #   · TREE state — the contract manifest, the role binding, the model tiers.
 #     These describe the project and survive across runs.
@@ -48,14 +48,14 @@ done
 TARGET="${TARGET:-$PWD}"
 [ -d "$TARGET" ] || { echo "bounded change-run: '$TARGET' is not a directory" >&2; exit 2; }
 
-MANIFEST="$TARGET/.pi/contract-checksums.json"
-LOG="$TARGET/.pi/guard-log.jsonl"
+MANIFEST="$TARGET/.bounded/contract-checksums.json"
+LOG="$TARGET/.bounded/guard-log.jsonl"
 
 # A change run re-enters a tree the stage has delivered before. No manifest
 # means no frozen design to change: that is a FIRST run, which needs no
 # boundary — just launch it.
 if [ ! -f "$MANIFEST" ]; then
-  echo "bounded change-run: no frozen manifest at .pi/contract-checksums.json — this tree has" >&2
+  echo "bounded change-run: no frozen manifest at .bounded/contract-checksums.json — this tree has" >&2
   echo "  never been through the developer stage, so there is no run to close. A first" >&2
   echo "  run needs no boundary: launch the architect directly." >&2
   exit 2
@@ -72,11 +72,11 @@ if [ -f "$LOG" ]; then
     fi
     echo "bounded change-run: --force — abandoning an undelivered run"
   fi
-  ARCHIVE_DIR="$TARGET/.pi/guard-log-archive"
+  ARCHIVE_DIR="$TARGET/.bounded/guard-log-archive"
   mkdir -p "$ARCHIVE_DIR"
   STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
   mv "$LOG" "$ARCHIVE_DIR/guard-log-$STAMP.jsonl"
-  echo "bounded change-run: archived the run log to .pi/guard-log-archive/guard-log-$STAMP.jsonl"
+  echo "bounded change-run: archived the run log to .bounded/guard-log-archive/guard-log-$STAMP.jsonl"
 else
   echo "bounded change-run: no guard log to archive — already at a boundary"
 fi
@@ -84,9 +84,9 @@ fi
 # The shadow is run state too: deliver removes it, but an abandoned run may
 # have left one, and a red proven for the OLD design must not be lying around
 # looking like evidence for the new one.
-if [ -d "$TARGET/.pi/shadow-red" ]; then
-  rm -rf "$TARGET/.pi/shadow-red"
-  echo "bounded change-run: removed the previous run's .pi/shadow-red"
+if [ -d "$TARGET/.bounded/shadow-red" ]; then
+  rm -rf "$TARGET/.bounded/shadow-red"
+  echo "bounded change-run: removed the previous run's .bounded/shadow-red"
 fi
 
 cat <<EOF

@@ -233,7 +233,7 @@ for a good screen — r24's was perfect and the screen was a text file.
 
 What the pipeline gives you instead of a gate is *pixels*: the driver can run
 `node packs/ts-web/scripts/render-screenshot.ts <project>` at wrap, which builds
-the app, photographs it, and leaves `.pi/render/<timestamp>.png` for a human to
+the app, photographs it, and leaves `.bounded/render/<timestamp>.png` for a human to
 look at. Advisory, always — it exits 0 whatever happens, and on a machine with
 no browser it prints one "unavailable" line and gets out of the way. It is a
 shell command, so it belongs to whoever has a shell, not to the architect's

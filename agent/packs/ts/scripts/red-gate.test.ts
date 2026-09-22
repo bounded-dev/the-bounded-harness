@@ -443,10 +443,10 @@ describe("materializeShadowProject", () => {
   const shadow = materializeShadowProject(live, redGateProjectPlan(collectRedGateSources(live)));
   afterAll(() => rmSync(live, { recursive: true, force: true }));
 
-  test("builds inside the project's own .pi, which delivery already gitignores", () => {
-    expect(shadow).toBe(join(live, ".pi", "shadow-red"));
+  test("builds inside the project's own .bounded, which delivery already gitignores", () => {
+    expect(shadow).toBe(join(live, ".bounded", "shadow-red"));
     expect(shadowProjectDir(live)).toBe(shadow);
-    expect(SHADOW_RELATIVE).toBe(".pi/shadow-red");
+    expect(SHADOW_RELATIVE).toBe(".bounded/shadow-red");
   });
 
   test("regenerates the skeleton instead of copying the implementation", () => {
@@ -810,11 +810,11 @@ describe("testsTreeHash", () => {
     expect(testsTreeHash(lf)).toBe(testsTreeHash(crlf));
   });
 
-  test("the shadow project under .pi cannot hash itself", () => {
+  test("the shadow project under .bounded cannot hash itself", () => {
     const dir = treeWithTests({ "tests/a.test.ts": "x\n" });
     const before = testsTreeHash(dir);
-    mkdirSync(join(dir, ".pi", "shadow-red", "tests"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "shadow-red", "tests", "a.test.ts"), "x\n");
+    mkdirSync(join(dir, ".bounded", "shadow-red", "tests"), { recursive: true });
+    writeFileSync(join(dir, ".bounded", "shadow-red", "tests", "a.test.ts"), "x\n");
     expect(testsTreeHash(dir)).toBe(before);
   });
 
@@ -835,7 +835,7 @@ describe("the red-gate event carries the inputs the verdict is about", () => {
     expect(Object.keys(detail.contractManifest ?? {})).toEqual(["src/money/money.contract.ts"]);
     expect(detail.contractManifest!["src/money/money.contract.ts"]).toMatch(/^[0-9a-f]{64}$/);
     expect(detail.testsTreeHash).toBe(testsTreeHash(dir));
-    expect(detail.shadow).toBe(".pi/shadow-red");
+    expect(detail.shadow).toBe(".bounded/shadow-red");
   });
 
   test("a blocked red records them too — a bounce is worth auditing as much as a pass", () => {

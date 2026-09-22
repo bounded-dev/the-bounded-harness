@@ -15,7 +15,7 @@
 # pi's model pattern and carries the thinking level with it, so one string
 # sets both — `anthropic/claude-opus-4:high`, `fireworks/kimi-k3-fast:medium`.
 # Either flag may be given alone; whichever is omitted leaves that tier on the
-# session default. Both are written to `.pi/dev-stage-models.json` in the
+# session default. Both are written to `.bounded/dev-stage-models.json` in the
 # harnessed arm and echoed in the summary, so the run's configuration is
 # visible rather than remembered — and both are VERIFIED against the live model
 # registry before the reset is declared done, because a pattern that resolves
@@ -33,14 +33,14 @@
 #   …and paste the canonical prompt from docs/dogfood/ into either.
 #
 # The harnessed arm binds the architect role itself through
-# `.pi/dev-stage-role`, so plain `pi` is gated — read anything, write only
+# `.bounded/dev-stage-role`, so plain `pi` is gated — read anything, write only
 # spec.md and *.contract.ts, no bash. Nothing to launch specially, and no
 # per-arm tool config: the path-gate extension REMOVES the architect's
 # forbidden tools from the session's toolset at session start, so the arm
 # gets the same "the tool was never there" property a subagent gets from its
 # frontmatter allowlist. (pi has no settings key for this — `defaultTools`
 # covers built-in tools only and leaves extension tools enabled — which is
-# why it is done in the extension rather than written into the arm's `.pi/`.)
+# why it is done in the extension rather than written into the arm's `.bounded/`.)
 #
 # Both arms get an identical operational AGENTS.md. The prompt lives ONLY in
 # docs/dogfood/ — the arms carry no copy, so there is nothing to drift and
@@ -168,7 +168,7 @@ autosave() {
   fi
 }
 
-# `.pi/dev-stage-models.json` — the per-project model tiers the harness reads
+# `.bounded/dev-stage-models.json` — the per-project model tiers the harness reads
 # at every subagent spawn (agent/src/dev-stage-models.ts). A key that is not
 # set is simply absent: the reader treats a missing key as "no override", and
 # an empty string as a malformed value it warns about.
@@ -304,13 +304,13 @@ EOF
   # prompt in docs/dogfood/. A per-arm copy (or symlink) was one more thing to
   # keep identical, and deleting it here without deleting it there meant every
   # reset resurrected it.
-  # `.pi/` from birth: a run leaves a guard log and red_gate's shadow project
+  # `.bounded/` from birth: a run leaves a guard log and red_gate's shadow project
   # under it, and an archive that committed either would be carrying a copy of
   # the tests plus the harness's own bookkeeping into the record.
   # `scratch/` from birth too: the architect's sanctioned throwaway zone
   # (src/path-policy.ts) — a type-probe it may write but nothing scaffolds,
   # freezes, or ships. Gitignored so a stray probe is absent from the record.
-  printf 'node_modules/\n.pi/\nscratch/\n' > "$dir/.gitignore"
+  printf 'node_modules/\n.bounded/\nscratch/\n' > "$dir/.gitignore"
   touch "$dir/src/.gitkeep" "$dir/tests/.gitkeep"
 
   ( cd "$dir" && npm install --silent >/dev/null 2>&1 )
@@ -362,21 +362,21 @@ if [ "$WHICH" != "bare" ]; then
     # The composition record (TN-26-005): v1 is a sidecar file; folding it
     # into pi's settings.json is the recorded direction once pi packages and
     # harness packs converge.
-    mkdir -p "$HARNESSED/.pi"
-    python3 -c "import json,sys; print(json.dumps({'composedPacks': ['ts'] + sys.argv[1:]}))" "${COMPOSE_PACKS[@]}" > "$HARNESSED/.pi/composed-packs.json"
+    mkdir -p "$HARNESSED/.bounded"
+    python3 -c "import json,sys; print(json.dumps({'composedPacks': ['ts'] + sys.argv[1:]}))" "${COMPOSE_PACKS[@]}" > "$HARNESSED/.bounded/composed-packs.json"
     ( cd "$HARNESSED" && git add -A && git commit -q -m "Compose packs: ${COMPOSE_PACKS[*]}" )
   fi
   # Only the harnessed arm is gated. The role is read from this file at session
   # start, so a plain `pi` in this directory IS the architect — no launcher, no
   # flag, nothing to remember — and the same read strips bash, run_tests and
   # record_design_review out of the toolset before the first turn.
-  mkdir -p "$HARNESSED/.pi"
-  printf 'architect\n' > "$HARNESSED/.pi/dev-stage-role"
-  # The model tiers live beside the role, read from the same `.pi/` at spawn
+  mkdir -p "$HARNESSED/.bounded"
+  printf 'architect\n' > "$HARNESSED/.bounded/dev-stage-role"
+  # The model tiers live beside the role, read from the same `.bounded/` at spawn
   # time. Written only when asked for: an absent file means every seat runs on
   # the session default, which is the pre-#13 behaviour and a valid arm.
   if [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; then
-    write_models_json "$HARNESSED/.pi/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
+    write_models_json "$HARNESSED/.bounded/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
     # Written, then verified against the live registry: a pattern that resolves
     # to nothing is refused here rather than discovered at the first spawn.
     check_model_pattern --design-model "$DESIGN_MODEL"

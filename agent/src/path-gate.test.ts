@@ -369,7 +369,7 @@ describe("a tier the registry cannot resolve", () => {
   function tiered(config: string): string {
     const cwd = readyProject();
     const path = devStageModelsPath(cwd);
-    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    mkdirSync(join(cwd, ".bounded"), { recursive: true });
     writeFileSync(path, config);
     return cwd;
   }
@@ -384,7 +384,7 @@ describe("a tier the registry cannot resolve", () => {
       known: REGISTRY,
     });
     expect(result?.block).toBe(true);
-    expect(result!.reason).toContain(".pi/dev-stage-models.json");
+    expect(result!.reason).toContain(".bounded/dev-stage-models.json");
     expect(result!.reason).toContain("kimi-k3:high");
     expect(phaseEvents(cwd).at(-1)).toMatchObject({
       verdict: "block",

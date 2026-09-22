@@ -19,7 +19,7 @@ A folder with a `SKILL.md` of on-demand instructions, loaded only when its descr
 _Avoid_: prompt, command, macro
 
 **Extension**:
-A TypeScript file in `extensions/` that auto-loads on session start to add tools or behaviour.
+A TypeScript file in `hosts/pi/extensions/` (the pi adapter) that auto-loads on pi session start to add tools or behaviour.
 _Avoid_: plugin, hook
 
 ### Working method
@@ -110,7 +110,7 @@ The generated sibling implementation (`foo.ts`) whose every export throws `NotIm
 _Avoid_: stub (use for a single throwing member), contract
 
 **Shadow project**:
-The throwaway project at `<project>/.pi/shadow-red` the red gate builds and runs in — contracts, tests and config copied from the live tree, skeletons regenerated there, `node_modules` symlinked, no implementation file copied at all. Wiped and rebuilt on every red and left behind afterwards as postmortem evidence, until `deliver` removes it at the end of the run. It is what makes a valid red establishable at any moment, and therefore what makes the two workers parallel.
+The throwaway project at `<project>/.bounded/shadow-red` the red gate builds and runs in — contracts, tests and config copied from the live tree, skeletons regenerated there, `node_modules` symlinked, no implementation file copied at all. Wiped and rebuilt on every red and left behind afterwards as postmortem evidence, until `deliver` removes it at the end of the run. It is what makes a valid red establishable at any moment, and therefore what makes the two workers parallel.
 _Avoid_: sandbox, temp project, pristine project (retired)
 
 **Tests-tree hash**:
@@ -160,11 +160,11 @@ A mechanism that shapes what a role *can do* rather than what the tree contains 
 _Avoid_: guard (that is the log's word for any mechanism), Tier B
 
 **Guard log**:
-The append-only JSONL at `<project>/.pi/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `BOUNDED_GUARD_LOG=off` opts out.
+The append-only JSONL at `<project>/.bounded/guard-log.jsonl` where every deterministic guard records blocks (drift caught) and passes (guard ran). Always on; `BOUNDED_GUARD_LOG=off` opts out.
 _Avoid_: audit log, telemetry (unqualified)
 
 **Model tier**:
-One of the two per-project model settings in `<project>/.pi/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event, and it beats a model the spawn call passed explicitly — the tier is policy, and the discarded value is recorded. An absent or malformed config only means "no override" and never stops anything; a tier the project DID set and the harness cannot resolve makes the phase gate refuse the spawn. A resume cannot be tiered at all — the tool refuses a model override — so a resumed seat keeps the tier of its launch and logs a note (ADR 2026-022).
+One of the two per-project model settings in `<project>/.bounded/dev-stage-models.json` — `designModel` for the judgment seats (architect, reviewer), `workerModel` for the production seats (test-writer, builder). Injected as a spawn happens and logged as a `model-tier` guard event, and it beats a model the spawn call passed explicitly — the tier is policy, and the discarded value is recorded. An absent or malformed config only means "no override" and never stops anything; a tier the project DID set and the harness cannot resolve makes the phase gate refuse the spawn. A resume cannot be tiered at all — the tool refuses a model override — so a resumed seat keeps the tier of its launch and logs a note (ADR 2026-022).
 _Avoid_: model override, per-agent model
 
 **Friction**:

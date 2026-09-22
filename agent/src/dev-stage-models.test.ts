@@ -102,10 +102,10 @@ describe("a valid config", () => {
     expect(parseDevStageModels('{"workerModel": "  x/y:medium  "}').worker).toBe("x/y:medium");
   });
 
-  test("it is read from .pi/, beside the role file and the guard log", () => {
-    expect(DEV_STAGE_MODELS_RELATIVE).toBe(".pi/dev-stage-models.json");
+  test("it is read from .bounded/, beside the role file and the guard log", () => {
+    expect(DEV_STAGE_MODELS_RELATIVE).toBe(".bounded/dev-stage-models.json");
     const dir = project('{"designModel": "a/b:high"}');
-    expect(devStageModelsPath(dir)).toBe(join(dir, ".pi", "dev-stage-models.json"));
+    expect(devStageModelsPath(dir)).toBe(join(dir, ".bounded", "dev-stage-models.json"));
     expect(readDevStageModels(dir).design).toBe("a/b:high");
   });
 });

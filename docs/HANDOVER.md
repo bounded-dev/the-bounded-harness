@@ -140,7 +140,7 @@ defect that shipped green in r15. Set the arms with
 changes landed, all with tests, all motivated by a numbered finding in
 [dogfooding.md](dogfooding.md) (Runs 13–14 section):
 
-1. **Red runs in a shadow project.** `red_gate` rebuilds `.pi/shadow-red` from
+1. **Red runs in a shadow project.** `red_gate` rebuilds `.bounded/shadow-red` from
    the contracts, tests and config, regenerates the skeletons there and proves
    red in it — never reading live `src/`. A valid red is therefore
    establishable at any moment.
@@ -155,7 +155,7 @@ changes landed, all with tests, all motivated by a numbered finding in
 4. **Forbidden tools are stripped, not refused.** A bound session loses them
    from the visible toolset at `session_start` (`tool-strip` guard event);
    `bounded ticket` also excludes them at launch.
-5. **Two model tiers.** `.pi/dev-stage-models.json` names `designModel`
+5. **Two model tiers.** `.bounded/dev-stage-models.json` names `designModel`
    (architect, reviewer) and `workerModel` (test-writer, builder), injected at
    spawn time, logged as `model-tier`, never fatal (ADR 2026-022).
 6. **Scaffolder syncs, re-freezes fail fast, friction is printed.** Deleting a

@@ -37,9 +37,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { lstatSync, rmSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { Type } from "typebox";
-import { gates } from "../packs/ts/gates.ts";
-import { logGuardEvent } from "../src/guard-log.ts";
-import { targetCwd } from "../src/target-cwd.ts";
+import { gates } from "../../../packs/ts/gates.ts";
+import { logGuardEvent } from "../../../src/guard-log.ts";
+import { targetCwd } from "../../../src/target-cwd.ts";
 import { registerGateTools } from "./lib/gate-tools.ts";
 
 export default function (pi: ExtensionAPI): void {

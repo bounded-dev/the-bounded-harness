@@ -93,7 +93,7 @@ const TABLE: readonly Row[] = [
   ["rm /proj/src/x.ts", only("builder")],
   ["rm src/x.contract.ts", only("architect")],
   ["rm spec.md", only("architect")],
-  ["rm .pi/guard-log.jsonl", all("deny")],
+  ["rm .bounded/guard-log.jsonl", all("deny")],
   ["rm -rf src", all("deny")],
   ["rm src/*.ts", all("deny")],
   ["rm 'src/*.ts'", all("deny")], // a pattern is refused even when quoted

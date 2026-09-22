@@ -541,6 +541,6 @@ Landlocked domain types skip `toJSON` and skip the law.
 
 ## The guard log
 
-Every gate and the scaffolder append to `.pi/guard-log.jsonl` in the project —
+Every gate and the scaffolder append to `.bounded/guard-log.jsonl` in the project —
 blocks (where a guard caught drift) and passes (proof it ran). Don't edit it;
 it's the after-the-fact record of where determinism did its job.

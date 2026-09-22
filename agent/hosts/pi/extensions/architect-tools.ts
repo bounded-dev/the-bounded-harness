@@ -67,12 +67,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { gates } from "../packs/ts/gates.ts";
-import { logGuardEvent } from "../src/guard-log.ts";
-import { GATE_TOOLS } from "../src/path-policy.ts";
-import { targetCwd } from "../src/target-cwd.ts";
+import { gates } from "../../../packs/ts/gates.ts";
+import { logGuardEvent } from "../../../src/guard-log.ts";
+import { GATE_TOOLS } from "../../../src/path-policy.ts";
+import { targetCwd } from "../../../src/target-cwd.ts";
 import { cwdParam, registerGateTools } from "./lib/gate-tools.ts";
-import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS, clampSleepSeconds } from "../src/sleep-bounds.ts";
+import { SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS, clampSleepSeconds } from "../../../src/sleep-bounds.ts";
 
 export default function (pi: ExtensionAPI): void {
   registerGateTools(pi, gates, new Set([...GATE_TOOLS, "mutation_score"]));
@@ -170,7 +170,7 @@ export {
   SLEEP_MAX_SECONDS,
   SLEEP_MIN_SECONDS,
   clampSleepSeconds,
-} from "../src/sleep-bounds.ts";
+} from "../../../src/sleep-bounds.ts";
 
 /** Wait `seconds`, returning early (and reporting the truth) if aborted. */
 function sleepSeconds(seconds: number, signal?: AbortSignal): Promise<number> {

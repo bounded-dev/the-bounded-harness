@@ -9,7 +9,7 @@
 # the loader when it spawns them). A session YOU start does not, unless it is
 # started this way.
 #
-# The alternative was a `.pi/dev-stage-role` marker file inside the project,
+# The alternative was a `.bounded/dev-stage-role` marker file inside the project,
 # which is a strictly weaker trust class: it lives where the agents work, and a
 # checkout could restore a different one. This keeps one mechanism for every
 # role in the pipeline.
@@ -40,7 +40,7 @@ while [ -L "$SOURCE" ]; do
 done
 HARNESS="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 
-GATE="$HARNESS/extensions/path-gate/architect.ts"
+GATE="$HARNESS/hosts/pi/extensions/path-gate/architect.ts"
 if [ ! -f "$GATE" ]; then
   echo "bounded ticket: cannot find the architect path-gate loader at $GATE" >&2
   exit 2

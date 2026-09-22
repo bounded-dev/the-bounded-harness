@@ -31,7 +31,7 @@
 // while red elsewhere never renders as "OK", or a worker ships on a false
 // clean.
 //
-// Pure: no fs, no spawn, no logging. The tool wiring (extensions/dev-tools.ts)
+// Pure: no fs, no spawn, no logging. The tool wiring (hosts/pi/extensions/dev-tools.ts)
 // resolves the role and writes the guard event.
 
 import { decide, ownerOfPath, type Role } from "../../../src/path-policy.ts";

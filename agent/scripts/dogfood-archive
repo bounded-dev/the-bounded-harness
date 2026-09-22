@@ -59,7 +59,7 @@ mkdir -p .run/transcripts
 # directory name rather than guessing a scheme. Newest session per root, plus
 # any subagent artifacts beside it.
 ARM_BASE="$(basename "$ARM_DIR")"
-for ROOT in "$HOME/.pi/agent/sessions" "$HOME/.pi-vanilla/agent/sessions" "$HOME/.claude/projects"; do
+for ROOT in "$HOME/.pi/agent/sessions" "$HOME/.bounded-vanilla/agent/sessions" "$HOME/.claude/projects"; do
   [ -d "$ROOT" ] || continue
   for D in "$ROOT"/*"$ARM_BASE"*; do
     [ -d "$D" ] || continue
@@ -69,7 +69,7 @@ for ROOT in "$HOME/.pi/agent/sessions" "$HOME/.pi-vanilla/agent/sessions" "$HOME
     LATEST="$(find "$D" -maxdepth 1 -name "*.jsonl" -newer "$ARM_DIR/package.json" 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1 || true)"
     [ -n "$LATEST" ] || continue
     case "$ROOT" in
-      *".pi-vanilla"*) TAG="pi-vanilla" ;;
+      *".bounded-vanilla"*) TAG="pi-vanilla" ;;
       *".claude"*)     TAG="claude-code" ;;
       *)               TAG="pi" ;;
     esac

@@ -26,7 +26,7 @@
 // and why the r13/r14 runs jammed with an implemented tree and no way back to
 // red short of re-freezing the contracts to wipe src/. `scaffold` is
 // deterministic and the contracts are checksum-frozen, so the skeleton can be
-// reproduced at will: the gate rebuilds one at `<project>/.pi/shadow-red/`
+// reproduced at will: the gate rebuilds one at `<project>/.bounded/shadow-red/`
 // from the contracts, the tests and the config, and runs every check there.
 // The verdict then holds regardless of what src/ contains, so the test-writer
 // and the builder are PARALLEL workers over disjoint write zones (tests/ and
@@ -34,7 +34,7 @@
 //
 // Exit 0 valid red · 1 invalid red (one greppable line each) · 2 misuse
 // (target unrunnable / bad invocation). Logs one guard event to the target's
-// .pi/guard-log.jsonl, carrying the contract manifest and the tests-tree hash
+// .bounded/guard-log.jsonl, carrying the contract manifest and the tests-tree hash
 // the verdict was made against — green binds itself to both (green-gate.ts).
 //
 // The suite and tsc commands are injectable for testing via BOUNDED_GATE_TEST_CMD /
@@ -329,7 +329,7 @@ function walkTs(root: string, dir: string, out: string[] = []): string[] {
 
 /** Project-relative paths, POSIX separators, of every file under `dir`.
  *  `node_modules` and dot entries are skipped — the latter so that the shadow
- *  project under `.pi/`, which holds a copy of these very files, can never
+ *  project under `.bounded/`, which holds a copy of these very files, can never
  *  find its way into the hash of the tree it was built from. */
 function walkFiles(root: string, dir: string, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
@@ -383,14 +383,14 @@ export function collectRedGateSources(cwd: string): RedGateSources {
 }
 
 /** Where the shadow project lives, relative to the target project. Inside
- *  `.pi/`, which delivery already gitignores, so a shadow can never reach a
+ *  `.bounded/`, which delivery already gitignores, so a shadow can never reach a
  *  commit. */
-export const SHADOW_RELATIVE = ".pi/shadow-red";
+export const SHADOW_RELATIVE = ".bounded/shadow-red";
 
 /** Absolute path of the shadow project for `cwd`. Absolute deliberately: the
  *  suite and the type checker are spawned WITH this as their working
  *  directory, and vitest refuses a relative one — so `red-gate.ts .` must not
- *  hand them `./.pi/shadow-red`. */
+ *  hand them `./.bounded/shadow-red`. */
 export function shadowProjectDir(cwd: string): string {
   return resolve(cwd, SHADOW_RELATIVE);
 }
@@ -548,7 +548,7 @@ function redInputs(cwd: string): Record<string, unknown> {
  *  The `red_gate` tool and the CLI below are both thin wrappers over this, so
  *  there is exactly one implementation of "is this a valid red".
  *
- *  Every check runs in the SHADOW PROJECT at `.pi/shadow-red/`, rebuilt from
+ *  Every check runs in the SHADOW PROJECT at `.bounded/shadow-red/`, rebuilt from
  *  the contracts, the tests and the config on each invocation — not the live
  *  tree. A valid red asserts every failure is NotImplementedError, which is
  *  only measurable against an unimplemented skeleton — running against the live

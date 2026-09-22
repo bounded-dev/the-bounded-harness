@@ -51,7 +51,7 @@ hit this constantly.
 
 ## The gaps a change needs that greenfield does not
 
-1. **Re-baseline entry point.** `deliver` gitignores `.pi/`, so a delivered
+1. **Re-baseline entry point.** `deliver` gitignores `.bounded/`, so a delivered
    repo carries *no* frozen manifest. To change it you must first re-freeze the
    existing contracts to establish the drift baseline. There is no "adopt /
    resume an existing project" command — every path assumes an empty tree.

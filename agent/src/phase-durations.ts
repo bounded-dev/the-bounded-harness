@@ -125,7 +125,7 @@
 //   written before the marker existed) the first event of a run is whichever
 //   gate the architect happened to call first, indistinguishable from any
 //   other event, and the headline says so. A project that puts two tickets
-//   through the pipeline without clearing `.pi/` still gets one merged report;
+//   through the pipeline without clearing `.bounded/` still gets one merged report;
 //   the DESIGN rule above absorbs the common case (revision inside one
 //   ticket), and a genuine second ticket shows as an implausible total, which
 //   is a visible symptom rather than a silent wrong answer.

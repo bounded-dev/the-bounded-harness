@@ -143,7 +143,7 @@ describe("serveBuild", () => {
 // --- the whole thing, with the tools faked -----------------------------------
 
 describe("renderScreenshot", () => {
-  test("builds, serves, shoots, and writes the PNG under .pi/render", async () => {
+  test("builds, serves, shoots, and writes the PNG under .bounded/render", async () => {
     const dir = project({ "index.html": "<!doctype html>\n" });
     const tools = fakeTools();
     const result = await renderScreenshot(dir, { run: tools.run, now: FIXED_CLOCK });

@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { describe, expect, test } from "vitest";
-import installArchitectTools from "../extensions/architect-tools.ts";
-import installDevTools from "../extensions/dev-tools.ts";
+import installArchitectTools from "../hosts/pi/extensions/architect-tools.ts";
+import installDevTools from "../hosts/pi/extensions/dev-tools.ts";
 import { gates } from "../packs/ts/gates.ts";
 import { DESIGN_STEPS } from "../packs/ts/scripts/design-gate.ts";
 import { ARCHITECT_UTILITY_TOOLS, GATE_TOOLS, ROLE_TOOLS } from "./path-policy.ts";

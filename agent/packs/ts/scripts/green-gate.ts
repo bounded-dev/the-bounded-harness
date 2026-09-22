@@ -27,7 +27,7 @@
 //
 // Exit 0 green · 1 not green (one greppable line each) · 2 misuse (target
 // unrunnable / bad invocation). Logs one guard event to the target's
-// .pi/guard-log.jsonl.
+// .bounded/guard-log.jsonl.
 //
 // The suite and tsc commands are injectable for testing via BOUNDED_GATE_TEST_CMD /
 // BOUNDED_GATE_TEST_ARGS and BOUNDED_GATE_TSC_CMD / BOUNDED_GATE_TSC_ARGS (JSON arrays).

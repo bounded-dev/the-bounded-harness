@@ -10,7 +10,7 @@ tree**, and the boundary is drawn by archiving the guard log
 the same place role binding happens, so nothing inside a run can redraw its
 own boundary).
 
-This works because `.pi/` holds two kinds of state with different lifetimes:
+This works because `.bounded/` holds two kinds of state with different lifetimes:
 
 - **Tree state** — the contract manifest, the role binding, the model tiers.
   Describes the project; survives across runs.
@@ -71,5 +71,5 @@ deliver. Harness-update recovery keeps its distinct path: resume, no boundary.
 
 Still open from TN-26-003: review-as-diff (the reviewer re-reads the whole
 design, not what moved), knowledge artifacts in the target, and adopting a
-fresh clone whose `.pi/` was never committed (the manifest is reconstructible
+fresh clone whose `.bounded/` was never committed (the manifest is reconstructible
 from the contracts, but nothing does it yet).

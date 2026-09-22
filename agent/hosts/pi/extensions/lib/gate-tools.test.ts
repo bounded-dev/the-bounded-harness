@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { GateArgs, GateCommand } from "../../src/gate-command.ts";
-import type { GateResult } from "../../src/gate-result.ts";
+import type { GateArgs, GateCommand } from "../../../../src/gate-command.ts";
+import type { GateResult } from "../../../../src/gate-result.ts";
 import { CWD_DESCRIPTION, gateArgsFrom, hostArgs, registerGateTools, toolParams } from "./gate-tools.ts";
 
 // The registry says what a gate IS; this module says what a pi tool made from
@@ -231,9 +231,9 @@ describe("the session role is the host's to supply", () => {
   function session(): string {
     const dir = mkdtempSync(join(tmpdir(), "gate-tools-role-"));
     dirs.push(dir);
-    mkdirSync(join(dir, ".pi"), { recursive: true });
+    mkdirSync(join(dir, ".bounded"), { recursive: true });
     mkdirSync(join(dir, "sub"), { recursive: true });
-    writeFileSync(join(dir, ".pi", "dev-stage-role"), "builder\n");
+    writeFileSync(join(dir, ".bounded", "dev-stage-role"), "builder\n");
     return dir;
   }
 

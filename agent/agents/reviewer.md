@@ -5,7 +5,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, typecheck, record_design_review
-subagentOnlyExtensions: ~/.pi/agent/extensions/path-gate/reviewer.ts
+subagentOnlyExtensions: ~/.pi/agent/hosts/pi/extensions/path-gate/reviewer.ts
 async: true
 ---
 

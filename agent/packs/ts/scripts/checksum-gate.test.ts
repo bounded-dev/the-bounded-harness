@@ -56,13 +56,13 @@ function project(files: Record<string, string>): string {
 }
 
 describe("findContractFiles", () => {
-  test("finds *.contract.ts, sorted, ignoring node_modules/.git/.pi/scratch", () => {
+  test("finds *.contract.ts, sorted, ignoring node_modules/.git/.bounded/scratch", () => {
     const dir = project({
       "src/orders/orders.contract.ts": "export interface O {}",
       "src/pay/pay.contract.ts": "export interface P {}",
       "src/orders/orders.ts": "// impl, not a contract",
       "node_modules/pkg/x.contract.ts": "export interface Ignored {}",
-      ".pi/y.contract.ts": "export interface Ignored {}",
+      ".bounded/y.contract.ts": "export interface Ignored {}",
       // The architect's scratch zone (Fix 4): a probe that happens to be named
       // like a contract must never be frozen. The walk skips scratch/ by name.
       "scratch/probe.contract.ts": "export interface Probe {}",
@@ -94,7 +94,7 @@ describe("checksum-gate CLI (fixture repos)", () => {
     const dir = project({ "src/a.contract.ts": "export interface A { x: number }\n" });
     const w = runGate(dir, ["--write"]);
     expect(w.status).toBe(0);
-    expect(w.stdout).toMatch(/wrote \.pi\/contract-checksums\.json \(1 contract file\)/);
+    expect(w.stdout).toMatch(/wrote \.bounded\/contract-checksums\.json \(1 contract file\)/);
 
     const v = runGate(dir);
     expect(v.status).toBe(0);
@@ -136,7 +136,7 @@ describe("checksum-gate CLI (fixture repos)", () => {
     const dir = project({ "src/a.contract.ts": "export interface A {}\n" });
     const v = runGate(dir);
     expect(v.status).toBe(2);
-    expect(v.stderr).toMatch(/no manifest at \.pi\/contract-checksums\.json/);
+    expect(v.stderr).toMatch(/no manifest at \.bounded\/contract-checksums\.json/);
     expect(readGuardLog(dir).at(-1)).toMatchObject({ verdict: "error" });
   });
 
@@ -150,7 +150,7 @@ describe("checksum-gate CLI (fixture repos)", () => {
   test("manifest is deterministic (sorted keys, trailing newline)", () => {
     const dir = project({ "src/b.contract.ts": "export interface B {}\n", "src/a.contract.ts": "export interface A {}\n" });
     runGate(dir, ["--write"]);
-    const manifest = readFileSync(join(dir, ".pi/contract-checksums.json"), "utf8");
+    const manifest = readFileSync(join(dir, ".bounded/contract-checksums.json"), "utf8");
     expect(manifest.endsWith("\n")).toBe(true);
     const keys = Object.keys((JSON.parse(manifest) as { files: Record<string, string> }).files);
     expect(keys).toEqual(["src/a.contract.ts", "src/b.contract.ts"]);

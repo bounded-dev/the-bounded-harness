@@ -196,7 +196,7 @@ function runGate(dir: string, typeErrors = false) {
   });
 }
 
-const MANIFEST = join(".pi", "contract-checksums.json");
+const MANIFEST = join(".bounded", "contract-checksums.json");
 const SKELETON = join("src", "money", "money.ts");
 
 const CONTRACT_TYPE_ERR = "src/money/money.contract.ts(3,1): error TS2304: Cannot find name 'Iso'.";
@@ -221,7 +221,7 @@ describe("design-gate CLI: the whole design phase in one call", () => {
     expect(r.stdout).toMatch(/scaffold: wrote .*money\.ts/);
     expect(r.stdout).toMatch(/typecheck: OK — no type errors/);
     expect(r.stdout).toMatch(/design-review: challenged \(0 findings, 0 blockers\) — advisory; you decide\./);
-    expect(r.stdout).toMatch(/checksum-gate: wrote \.pi\/contract-checksums\.json/);
+    expect(r.stdout).toMatch(/checksum-gate: wrote \.bounded\/contract-checksums\.json/);
     expect(existsSync(join(dir, SKELETON))).toBe(true);
     expect(existsSync(join(dir, MANIFEST))).toBe(true);
   });

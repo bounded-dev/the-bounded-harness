@@ -83,7 +83,7 @@ matrix("architect", [
   // rest of repo: readable, not writable
   ["README.md", A, A, B],
   ["docs/guide.md", A, A, B],
-  ["agent/extensions/web.ts", A, A, B],
+  ["agent/hosts/pi/extensions/web.ts", A, A, B],
   [".gitignore", A, A, B],
   // .git denied for all roles
   [".git/config", B, B, B],
@@ -258,22 +258,22 @@ describe("forbidden tools", () => {
 // The guard log's own directory: readable by all, writable by none
 // ---------------------------------------------------------------------------
 
-// `.pi/` holds the guard log and the contract-checksum manifest — the audit
+// `.bounded/` holds the guard log and the contract-checksum manifest — the audit
 // trail and the drift evidence. Agents must READ them (diagnosing a jam, citing
 // the log when escalating) and must never WRITE them, or the record of what
 // happened becomes something the accused can edit. The gates write these files
 // through plain `fs`, which never passes through the tool hook, so they are
 // unaffected. Already closed by the write allowlist; this makes it explicit.
-describe(".pi is write-denied for every role, read-allowed for all", () => {
+describe(".bounded is write-denied for every role, read-allowed for all", () => {
   const roles: Role[] = ["architect", "test-writer", "builder", "reviewer"];
   for (const role of roles) {
-    test(`${role} may not write .pi/guard-log.jsonl`, () => {
-      expect(d(role, "write", ".pi/guard-log.jsonl").allow).toBe(false);
-      expect(d(role, "edit", ".pi/contract-checksums.json").allow).toBe(false);
+    test(`${role} may not write .bounded/guard-log.jsonl`, () => {
+      expect(d(role, "write", ".bounded/guard-log.jsonl").allow).toBe(false);
+      expect(d(role, "edit", ".bounded/contract-checksums.json").allow).toBe(false);
     });
   }
   test("architect may read the guard log it is expected to cite", () => {
-    expect(d("architect", "read", ".pi/guard-log.jsonl").allow).toBe(true);
+    expect(d("architect", "read", ".bounded/guard-log.jsonl").allow).toBe(true);
   });
 });
 
@@ -703,7 +703,7 @@ describe("skills shipped by installed packs and extensions are readable too", ()
 // a PATH tool and the gate only inspected path tools.
 //
 // The declared allowlist binds subagents through their frontmatter. A session
-// launched from `.pi/dev-stage-role` has no frontmatter, so the allowlist is
+// launched from `.bounded/dev-stage-role` has no frontmatter, so the allowlist is
 // documentation there and the gate is the only enforcement. It should agree
 // with what ROLE_TOOLS says.
 //

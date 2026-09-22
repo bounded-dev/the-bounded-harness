@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
-import installArchitectTools from "../../extensions/architect-tools.ts";
-import installDevTools from "../../extensions/dev-tools.ts";
-import { paramName, toolFlags, toolParams } from "../../extensions/lib/gate-tools.ts";
+import installArchitectTools from "../../hosts/pi/extensions/architect-tools.ts";
+import installDevTools from "../../hosts/pi/extensions/dev-tools.ts";
+import { paramName, toolFlags, toolParams } from "../../hosts/pi/extensions/lib/gate-tools.ts";
 import { isGateCommand } from "../../src/gate-command.ts";
 import { ARTIFACT_GATE_TOOLS } from "../../src/path-policy.ts";
 import { makeTempProject, type TempProject } from "../../test/support/temp-project.ts";
@@ -171,7 +171,7 @@ describe("typecheck takes its role from the host", () => {
           include: ["src"],
         }),
         "src/a.ts": 'export const x: number = "s";\n',
-        ".pi/dev-stage-role": "builder\n",
+        ".bounded/dev-stage-role": "builder\n",
       },
       { prefix: "gates-typecheck-", nodeModules: true },
     );

@@ -89,7 +89,7 @@ function gateEvents(dir: string) {
 
 describe("path-gate-hook — the path gate, by role file", () => {
   test("test-writer reading src/x.ts → deny JSON, exit 0, and a path-gate block in the log", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "test-writer\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n" });
     const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }));
     expect(r.status).toBe(0);
     expect(r.decision).toBe("deny");
@@ -101,7 +101,7 @@ describe("path-gate-hook — the path gate, by role file", () => {
   });
 
   test("test-writer reading src/x.contract.ts → allow, no output, no log", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "test-writer\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n" });
     const r = run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.contract.ts") }));
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
@@ -110,21 +110,21 @@ describe("path-gate-hook — the path gate, by role file", () => {
   });
 
   test("builder reading tests/a.test.ts → deny", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toBe("path-gate: builder may not read 'tests/a.test.ts': denied zone 'tests/**'");
   });
 
   test("builder Grep without a path searches the project root, which overlaps tests/ → deny", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Grep", { pattern: "TODO" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("may not search '.'");
   });
 
   test("MultiEdit is denied if any path is denied", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(
       dir,
       payload(dir, "MultiEdit", { file_path: join(dir, "src/a.ts"), edits: [{ file_path: join(dir, "src/a.contract.ts") }] }),
@@ -136,7 +136,7 @@ describe("path-gate-hook — the path gate, by role file", () => {
 
 describe("path-gate-hook — Bash, by role", () => {
   test.each(["architect", "test-writer", "builder", "reviewer"])("%s: `npm test` → deny with the reason, and a logged block", (role) => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": `${role}\n` });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": `${role}\n` });
     const r = run(dir, payload(dir, "Bash", { command: "npm test" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain(`path-gate: ${role} may not run 'npm': no role holds a shell`);
@@ -145,18 +145,18 @@ describe("path-gate-hook — Bash, by role", () => {
   });
 
   test("`bounded gates red-gate`: architect allow, builder deny", () => {
-    const a = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const a = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     const ok = run(a, payload(a, "Bash", { command: "bounded gates red-gate" }));
     expect(ok.decision).toBe("allow");
     expect(ok.updatedInput?.["command"]).toBe(`${prefix("architect")} bounded gates red-gate`);
-    const b = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const b = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(b, payload(b, "Bash", { command: "bounded gates red-gate" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("'red_gate' is the architect's");
   });
 
   test("`bounded gates typecheck`: builder allow, with the host and the bound role handed to the CLI through the env", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", { command: "bounded gates typecheck", description: "typecheck", timeout: 60000 }));
     expect(r.status).toBe(0);
     expect(r.decision).toBe("allow");
@@ -165,13 +165,13 @@ describe("path-gate-hook — Bash, by role", () => {
   });
 
   test("the env prefix carries the BOUND role, not the file's", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", { command: "bounded gates typecheck" }), ["--role", "reviewer"]);
     expect(r.updatedInput?.["command"]).toBe(`${prefix("reviewer")} bounded gates typecheck`);
   });
 
   test("a model-typed BOUNDED_HOST or BOUNDED_DEV_STAGE_ROLE prefix is refused; only the hook adds them", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     for (const command of ["BOUNDED_HOST=claude-code bounded gates typecheck", "BOUNDED_DEV_STAGE_ROLE=builder bounded gates typecheck", `${prefix("builder")} bounded gates typecheck`]) {
       const r = run(dir, payload(dir, "Bash", { command }));
       expect(r.decision).toBe("deny");
@@ -180,27 +180,27 @@ describe("path-gate-hook — Bash, by role", () => {
   });
 
   test("a model-supplied --role is refused; the host supplies the role", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", { command: "bounded gates typecheck --role architect" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("may not pass '--role' to bounded gates");
   });
 
   test("git, sleep and rm allows stay silent: no updatedInput", () => {
-    const a = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const a = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     for (const command of ["git status", "sleep 1"]) {
       const r = run(a, payload(a, "Bash", { command }));
       expect(r.decision).toBe("allow");
       expect(r.stdout).toBe("");
     }
-    const t = makeTempProject({ ".pi/dev-stage-role": "test-writer\n", "tests/a.test.ts": "" });
+    const t = makeTempProject({ ".bounded/dev-stage-role": "test-writer\n", "tests/a.test.ts": "" });
     const r = run(t, payload(t, "Bash", { command: "rm tests/a.test.ts" }));
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
   });
 
   test("a Bash call with no command string is refused, not crashed on", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Bash", {}));
     expect(r.decision).toBe("deny");
     expect(r.stderr).toBe("");
@@ -218,7 +218,7 @@ describe("path-gate-hook — the phase gate on Agent", () => {
   });
 
   test("a worker holding no `subagent` is refused by the tool policy, not the phase", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "look" }));
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("builder may not use 'subagent'");
@@ -261,7 +261,7 @@ describe("path-gate-hook — the phase gate on Agent", () => {
 
 describe("path-gate-hook — role source", () => {
   test("--role beats the role file", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     // As builder this read is denied; as the bound test-writer it is its own zone.
     expect(run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }), ["--role", "test-writer"]).decision).toBe("allow");
     expect(run(dir, payload(dir, "Read", { file_path: join(dir, "src/x.ts") }), ["--role", "test-writer"]).decision).toBe("deny");
@@ -285,12 +285,12 @@ describe("path-gate-hook — role source", () => {
   });
 
   test("a tool the gate has no opinion on passes through", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     expect(run(dir, payload(dir, "WebFetch", { url: "https://example.com" })).decision).toBe("allow");
   });
 
   test("a non-PreToolUse event is ignored", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const evt = JSON.stringify({ cwd: dir, hook_event_name: "PostToolUse", tool_name: "Read", tool_input: { file_path: join(dir, "tests/a.test.ts") } });
     expect(run(dir, evt).decision).toBe("allow");
   });
@@ -303,7 +303,7 @@ describe("path-gate-hook — the ambient hook stands down for a bound subagent's
   const npmTest = { command: "npm test" }; // refused for every role, so an allow is the stand-down
 
   test("ambient (role file architect) + agent_type in the payload → allow, and nothing logged", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     const r = run(dir, payload(dir, "Bash", npmTest, { agent_type: "builder" }));
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
@@ -312,13 +312,13 @@ describe("path-gate-hook — the ambient hook stands down for a bound subagent's
   });
 
   test("agent_id alone is enough", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     expect(run(dir, payload(dir, "Bash", npmTest, { agent_id: "a-1" })).decision).toBe("allow");
     expect(readGuardLog(dir)).toEqual([]);
   });
 
   test("without the field the ambient hook judges as before", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "architect\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "architect\n" });
     const r = run(dir, payload(dir, "Bash", npmTest));
     expect(r.decision).toBe("deny");
     expect(gateEvents(dir).some((e) => e.verdict === "block")).toBe(true);
@@ -333,7 +333,7 @@ describe("path-gate-hook — the ambient hook stands down for a bound subagent's
 
 describe("path-gate-hook — failure mode: open for reads and unknown tools, closed for writes", () => {
   test("malformed stdin → allow, exit 0, one stderr line, an error event in the cwd's log", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, "this is not json");
     expect(r.status).toBe(0);
     expect(r.stdout).toBe("");
@@ -355,7 +355,7 @@ describe("path-gate-hook — failure mode: open for reads and unknown tools, clo
   test.each(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "Agent", "Task"])(
     "%s with an input the hook cannot narrow → DENY whose reason says the hook errored, plus the error event",
     (tool) => {
-      const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+      const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
       const r = run(dir, payload(dir, tool, "not an object"));
       expect(r.status).toBe(0);
       expect(r.decision).toBe("deny");
@@ -370,7 +370,7 @@ describe("path-gate-hook — failure mode: open for reads and unknown tools, clo
   );
 
   test("Read with the same bad input fails open: allow, with the error event", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     const r = run(dir, payload(dir, "Read", "not an object"));
     expect(r.decision).toBe("allow");
     expect(r.stdout).toBe("");
@@ -392,7 +392,7 @@ describe("path-gate-hook — run start", () => {
   });
 
   test("a worker stamps no run-start", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     run(dir, payload(dir, "Read", { file_path: join(dir, "tests/a.test.ts") }));
     expect(readGuardLog(dir).filter((e) => e.guard === RUN_START_GUARD)).toEqual([]);
   });
@@ -413,7 +413,7 @@ describe("host declaration (ADR 2026-034)", () => {
   });
 
   test("an ambient role (from the role file) declares claude-code WITHOUT the strip", () => {
-    const dir = makeTempProject({ ".pi/dev-stage-role": "builder\n" });
+    const dir = makeTempProject({ ".bounded/dev-stage-role": "builder\n" });
     run(dir, payload(dir, "Read", { file_path: join(dir, "src", "x.ts") }));
     const hosts = readGuardLog(dir).filter((e) => e.guard === "host");
     expect(hosts).toHaveLength(1);

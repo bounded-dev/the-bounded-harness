@@ -10,7 +10,7 @@ red; a re-freeze does. Companion decision: red-gate reachability is measured
 by call sites in test sources (AST), with failure names as corroboration only.
 
 **Amended: the binding has two halves.** Since red moved into a shadow project
-so the two workers could run in parallel (`.pi/shadow-red`, rebuilt per run),
+so the two workers could run in parallel (`.bounded/shadow-red`, rebuilt per run),
 the workers move independently and a test can change after the red that covered
 it. So a red-gate pass also records a sha256 of the whole `tests/` tree, and
 green refuses unless the tree still hashes the same. Contracts: a red since the

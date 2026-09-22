@@ -5,7 +5,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
 tools: read, grep, find, ls, write, edit, remove, typecheck, subagent, git, sleep, mutation_score, contract_purity, design_gate, check_drift, red_gate, green_gate, sign_off, deliver
-subagentOnlyExtensions: ~/.pi/agent/extensions/path-gate/architect.ts
+subagentOnlyExtensions: ~/.pi/agent/hosts/pi/extensions/path-gate/architect.ts
 async: true
 ---
 
@@ -352,7 +352,7 @@ findings; the gate had never asked for anything but a single challenge, and the
 phase paid for the difference.
 
 You and the reviewer may be running on a different model from the two workers —
-`.pi/dev-stage-models.json`, if the project carries one, names a `designModel`
+`.bounded/dev-stage-models.json`, if the project carries one, names a `designModel`
 for the judgment seats and a `workerModel` for the production seats
 (ADR 2026-022). The `model-tier` line in the guard log is that being applied,
 not an anomaly.

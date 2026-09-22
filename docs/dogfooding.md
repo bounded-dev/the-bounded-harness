@@ -27,7 +27,7 @@ What that still does **not** cover, said plainly:
 - **A test-quality floor.** Mutation score is measured per run; nothing gates
   on it.
 
-Read the guard log (`<project>/.pi/guard-log.jsonl`) after each run: `block`
+Read the guard log (`<project>/.bounded/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
 ## Running one
@@ -39,14 +39,14 @@ bounded dogfood-reset --design-model <pattern> --worker-model <pattern>
 
 The two model flags set the harnessed arm's tiers — the judgment seats
 (architect, reviewer) and the production seats (test-writer, builder) — by
-writing `.pi/dev-stage-models.json` (ADR 2026-022). Both are printed on every
+writing `.bounded/dev-stage-models.json` (ADR 2026-022). Both are printed on every
 reset, set or not, so a run's models are never a guess afterwards.
 
 Then walk into each and paste `PROMPT.md`:
 
 - `~/dev/bounded-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
 - `~/dev/bounded-harness-dogfood-harnessed` — pi. Gated as the architect
-  automatically via `.pi/dev-stage-role`; there is no launcher to remember.
+  automatically via `.bounded/dev-stage-role`; there is no launcher to remember.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
 — `bounded dogfood-reset` wipes both and starts over, so copy anything worth keeping

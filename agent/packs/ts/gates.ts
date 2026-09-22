@@ -253,7 +253,7 @@ export const gates: readonly GateCommand[] = [
     tool: "deliver",
     promptSnippet: "Deliver: strip scaffolding, ship the surface check, make the repo hand-off ready.",
     description:
-      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script (installing the ts-morph it needs), gitignore .pi/, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `npm run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError, if the surface checker's dependency cannot be installed, or if the project's own check is red.",
+      "Run the delivery pass after sign_off: strip red-phase scaffolding (unused shared errors module, __conformance blobs), write the src/index.ts barrel, ship scripts/surface-check.ts into the project with a check:surface npm script (installing the ts-morph it needs), gitignore .bounded/, and add the README Contracts section. Then prints where the run's minutes went — design/tests/build/wrap durations and bounces, read back from the guard log — and finally runs the project's own `npm run check` as the last word on whether the repo satisfies its own definition of done. Idempotent — a second run applies nothing. Blocks if an unimplemented export still imports NotImplementedError, if the surface checker's dependency cannot be installed, or if the project's own check is red.",
     flags: [],
     async run(cwd) {
       const { runDeliver } = await import("./scripts/deliver.ts");
@@ -328,7 +328,7 @@ export const gates: readonly GateCommand[] = [
     async run(cwd, args) {
       const { parseRole, typecheckGate } = await import("./scripts/typecheck-gate.ts");
       // The role is the HOST's to supply, never this gate's to resolve: the pi
-      // tool injects the session's binding (extensions/lib/gate-tools.ts) and
+      // tool injects the session's binding (hosts/pi/extensions/lib/gate-tools.ts) and
       // the CLI maps BOUNDED_DEV_STAGE_ROLE (src/gates-cli.ts). Resolving it here
       // against `cwd` was Run 15's hole — `cwd` is the TARGET, and a target
       // subdirectory holds no role file, so the answer came back unscoped.

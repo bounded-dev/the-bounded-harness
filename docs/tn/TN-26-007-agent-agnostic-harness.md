@@ -52,7 +52,7 @@ gates, and the guard log will say that is all it did.
 Today:
 
 - **pi — the reference host.** Constraints ride pi's extension system
-  (`agent/extensions/`); role binding happens at launch via
+  (`agent/hosts/pi/extensions/`); role binding happens at launch via
   `bounded ticket`. pi is also the recommended and primary-tested host: its
   system prompt is minimal, so the harness's rules are nearly all the model
   reads — no negotiation with a large built-in prompt over tool habits,
@@ -64,10 +64,15 @@ Today:
   Claude Code carries a large system prompt of its own; it is supported and
   verified by fixture, but it is not the reference environment.
 
+Each adapter is one directory — `hosts/pi/`, `hosts/claude-code/` — and
+carries its own `install` script for its framework's wiring; `bounded init`
+walks them all, and the state every host shares lives in the project's
+`.bounded/` directory, owned by no host (ADR 2026-035).
+
 Next: adapters for other hook-capable frameworks (Codex among the
-candidates), each added the same way — a thin file over the existing cores,
-never a fork of the rules. Adding a host must never mean re-implementing a
-gate.
+candidates), each added the same way — a thin directory over the existing
+cores, never a fork of the rules. Adding a host must never mean
+re-implementing a gate.
 
 ## Distribution
 

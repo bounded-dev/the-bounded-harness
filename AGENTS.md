@@ -37,10 +37,11 @@ rules, not just today's dozens.
   cost to be justified per-task.
 - **Record decisions as ADRs** in `ADRs/` — `YYYY-NNN-slug.md`, very
   concise, scheme in `ADRs/README.md`. Rewrite/compact freely while young.
-- **Extensions** in `extensions/` auto-load on session start. Run
-  `npm run check` after editing hand-written ones. Tool-managed extension
-  files are untracked runtime state, installed by their tool at runtime —
-  never hand-edit, never commit (ADR 2026-006).
+- **Extensions** — the pi adapter — live in `hosts/pi/extensions/` and
+  auto-load on pi session start. Run `npm run check` after editing them.
+  `extensions/` at the root is the tool-managed drop zone: untracked runtime
+  state installed by external tools — never hand-edit, never commit
+  (ADR 2026-006).
 - **Canonical project commands.** Projects declare `check` / `test` /
   `build` / `lint`; look for these first in any project (ADR 2026-007).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
