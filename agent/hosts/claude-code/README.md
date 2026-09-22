@@ -38,6 +38,13 @@ this README makes.
   `decide()` against the role's zones. A blind role cannot read the other
   side's work product; every role's writes are confined to its zone; `.git`
   and `.bounded` are protected as in pi.
+- **Model tiers** (ADR 2026-022), planned by the same core as pi's
+  (`planModelTier` over `.bounded/dev-stage-models.json`): an allowed spawn of a
+  pipeline role is rewritten to the seat's tier, translated into the Agent
+  tool's vocabulary (`anthropic/claude-opus-5:high` → `opus`), and a
+  caller-passed model is replaced, loudly, in the guard log. A configured
+  tier this host cannot run (a non-anthropic model) refuses the spawn
+  rather than quietly seating the session default.
 - **Phase gate** on `Agent`: an `Agent` call with `subagent_type: builder` is
   a `subagent` launch of the builder, judged by `checkSubagentCall()` against
   the project's guard log — no contracts, no spec, no design gate, no spawn.
@@ -109,10 +116,12 @@ this README makes.
 
 ## What it does not enforce (honest limits)
 
-- **No model tiers.** pi injects each seat's model at spawn from
-  `.bounded/dev-stage-models.json`; the generated definitions carry no `model:`.
-  The phase gate's tier-resolvability check is skipped (no registry snapshot
-  ⇒ "cannot tell", never a refusal), exactly as pi behaves without one.
+- **The tier's thinking level.** The model tier is enforced (see above), but
+  a pattern's `:high`-style thinking suffix has no Agent-tool equivalent
+  here and is dropped; the guard line shows the full pattern so the loss is
+  visible. The phase gate's tier-resolvability check still runs without a
+  registry snapshot (⇒ "cannot tell", never a refusal), exactly as in pi —
+  the host's own runnability check replaces it at spawn time.
 - **Role-scoped views are the CLI's to apply.** The hook hands the bound
   role to the gate process (`BOUNDED_DEV_STAGE_ROLE`), and the registry's
   `typecheck` entry resolves `sessionRole(cwd)` when no `--role` is given —

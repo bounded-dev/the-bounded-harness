@@ -81,3 +81,13 @@ Two gaps are deliberate, not oversights:
 Adding a fifth seat forces a tier decision: a drift test pins `TIER_BY_ROLE`'s
 keys to the path policy's roster. Supersedes the framing of issue #5 ("model
 tiering", closed), which assumed a per-role model list.
+
+## Change log
+
+- 2026-09-22 — the tier reaches Claude Code too: the host's PreToolUse hook
+  runs the same `planModelTier` core on every allowed pipeline spawn,
+  translates the pattern into the Agent tool's vocabulary
+  (`anthropic/claude-opus-5:high` → `opus`; the thinking suffix has no
+  equivalent there and is dropped visibly), and replaces a caller-passed
+  model loudly. A configured tier that host cannot run (a non-anthropic
+  model) refuses the spawn — the r15 lesson, applied across hosts.

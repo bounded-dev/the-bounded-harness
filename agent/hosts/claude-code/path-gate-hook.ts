@@ -69,9 +69,11 @@ import {
 } from "../../src/path-gate.ts";
 import { CONSTRAINTS, declareHost, HOST_ENV, recordHostDeclaration } from "../../src/host.ts";
 import type { Role } from "../../src/path-policy.ts";
+import { readDevStageModels } from "../../src/dev-stage-models.ts";
+import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
 import { decideBash } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
-import { BASH_TOOL, mapToolCall } from "./tool-map.ts";
+import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -323,6 +325,35 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
           detail: { kind: "spawn-refused", role, ...(unbound.target !== undefined ? { target: unbound.target } : {}) },
         });
         return deny(unbound.reason);
+      }
+      // The tier is policy (ADR 2026-022): the same core that plans pi's
+      // injection plans it here. This host only translates the pi pattern
+      // into the Agent tool's model vocabulary and rewrites the call — the
+      // hook holds no tier opinion of its own. A configured tier this host
+      // cannot run is a refusal, not a silent session-default seat (the
+      // r15 lesson: a seat running on a model nobody chose).
+      const plan = planModelTier(call.input, readDevStageModels(cwd));
+      if (plan.kind === "inject") {
+        const hostModel = claudeTaskModel(plan.model);
+        if (hostModel === undefined) {
+          const reason =
+            `model-tier: ${plan.key} '${plan.model}' names no model this host can run — ` +
+            "Claude Code seats take anthropic models; change .bounded/dev-stage-models.json or drive this ticket under pi";
+          logGuardEvent(cwd, {
+            guard: MODEL_TIER_GUARD,
+            verdict: "block",
+            summary: reason,
+            detail: { role, kind: "unresolvable-tier", key: plan.key, model: plan.model },
+          });
+          return deny(reason);
+        }
+        logGuardEvent(cwd, {
+          guard: MODEL_TIER_GUARD,
+          verdict: "pass",
+          summary: `${tierSummary(plan)} — as '${hostModel}' on this host`,
+          detail: { role, kind: "tier-injected", key: plan.key, model: plan.model, hostModel },
+        });
+        allowed = allowWith({ ...payload.toolInput, model: hostModel });
       }
     }
     const blocked = evaluatePathGate({ role, toolName: call.toolName, input: call.input, cwd, harnessRoot });

@@ -125,13 +125,39 @@ function mapMultiEdit(input: Readonly<Record<string, unknown>>): readonly GateCa
 function mapAgent(input: Readonly<Record<string, unknown>>): readonly GateCall[] {
   const agent = input["subagent_type"];
   const task = input["prompt"];
+  // `model` rides along so the model-tier core can judge a caller-passed
+  // override exactly as it does on pi (ADR 2026-022).
+  const model = input["model"];
   return [
     {
       toolName: "subagent",
       input: {
         ...(agent !== undefined ? { agent } : {}),
         ...(task !== undefined ? { task } : {}),
+        ...(model !== undefined ? { model } : {}),
       },
     },
   ];
+}
+
+import { stripThinkingSuffix } from "../../src/model-tier.ts";
+
+/** The model names Claude Code's Agent tool accepts: family aliases. */
+const CLAUDE_MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable"] as const;
+
+/**
+ * A pi tier pattern in this host's Task vocabulary, or undefined for a model
+ * this host cannot run. Claude Code's Agent tool takes a family alias, not a
+ * full id, so `anthropic/claude-opus-5:high` → `opus` — the thinking suffix
+ * has no Claude Code equivalent and is dropped (the guard line still shows
+ * the full pattern). A non-anthropic provider is undefined: this host has no
+ * way to run it, and the caller decides what that means.
+ */
+export function claudeTaskModel(pattern: string): string | undefined {
+  const base = stripThinkingSuffix(pattern);
+  const slash = base.indexOf("/");
+  if (slash !== -1 && base.slice(0, slash) !== "anthropic") return undefined;
+  const id = slash === -1 ? base : base.slice(slash + 1);
+  if (id.includes("mythos")) return "fable";
+  return CLAUDE_MODEL_FAMILIES.find((family) => id.includes(family));
 }

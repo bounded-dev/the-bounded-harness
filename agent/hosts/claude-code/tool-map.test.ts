@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BASH_TOOL, mapToolCall } from "./tool-map.ts";
+import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 
 // ADR 2026-034: the Claude Code hook judges the SAME pi-shaped call the pi
 // extension would. These fixtures are the tool_input shapes the Claude Code
@@ -98,6 +98,30 @@ describe("Bash and the rest", () => {
     "%s is not a tool the gate judges → []",
     (tool) => {
       expect(map(tool, { anything: true })).toEqual([]);
+    },
+  );
+});
+
+describe("Agent model passthrough and claudeTaskModel — ADR 2026-022 on this host", () => {
+  test("a caller-passed model rides into the mapped spawn so the tier core can judge it", () => {
+    const calls = map("Agent", { subagent_type: "builder", prompt: "implement it", model: "haiku" });
+    expect(calls).toEqual([{ toolName: "subagent", input: { agent: "builder", task: "implement it", model: "haiku" } }]);
+  });
+
+  test.each([
+    ["anthropic/claude-opus-5:high", "opus"],
+    ["anthropic/claude-sonnet-5", "sonnet"],
+    ["claude-haiku-4-5", "haiku"],
+    ["anthropic/claude-fable-5", "fable"],
+    ["anthropic/claude-mythos-5", "fable"], // same model, Fable's gated tier
+  ])("%s → %s", (pattern, family) => {
+    expect(claudeTaskModel(pattern)).toBe(family);
+  });
+
+  test.each(["fireworks/kimi-k3-fast:medium", "openai/gpt-6", "anthropic/claude-unknown-9"])(
+    "%s names no model this host can run",
+    (pattern) => {
+      expect(claudeTaskModel(pattern)).toBeUndefined();
     },
   );
 });

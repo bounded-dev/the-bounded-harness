@@ -429,3 +429,56 @@ describe("host declaration (ADR 2026-034)", () => {
     expect(readGuardLog(dir).filter((e) => e.guard === "host")).toHaveLength(1);
   });
 });
+
+describe("path-gate-hook — the model tier on Agent (ADR 2026-022)", () => {
+  // The reviewer is freely commissionable (it reads the design before the
+  // freeze), so these fixtures need no contracts or spec to reach the tier.
+  const MODELS = ".bounded/dev-stage-models.json";
+
+  test("a configured designModel is injected, translated to this host's vocabulary", () => {
+    const dir = makeTempProject({
+      ".bounded/dev-stage-role": "architect\n",
+      [MODELS]: '{"designModel": "anthropic/claude-opus-5:high"}\n',
+    });
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
+    expect(r.decision).toBe("allow");
+    expect(r.updatedInput).toEqual({ subagent_type: "reviewer", prompt: "read it", model: "opus" });
+    const event = gateEvents(dir).find((e) => e.guard === "model-tier");
+    expect(event).toMatchObject({ verdict: "pass", detail: { kind: "tier-injected", key: "designModel", hostModel: "opus" } });
+  });
+
+  test("the tier is policy: a caller-passed model is replaced, loudly", () => {
+    const dir = makeTempProject({
+      ".bounded/dev-stage-role": "architect\n",
+      [MODELS]: '{"designModel": "anthropic/claude-opus-5"}\n',
+    });
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it", model: "haiku" }));
+    expect(r.decision).toBe("allow");
+    expect(r.updatedInput).toMatchObject({ model: "opus" });
+    const event = gateEvents(dir).find((e) => e.guard === "model-tier");
+    expect(event?.summary).toContain("replaced caller's 'haiku'");
+  });
+
+  test("a tier this host cannot run refuses the spawn rather than seating a model nobody chose", () => {
+    const dir = makeTempProject({
+      ".bounded/dev-stage-role": "architect\n",
+      [MODELS]: '{"designModel": "fireworks/kimi-k3-fast:medium"}\n',
+    });
+    const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("names no model this host can run");
+    const event = gateEvents(dir).find((e) => e.guard === "model-tier");
+    expect(event).toMatchObject({ verdict: "block", detail: { kind: "unresolvable-tier" } });
+  });
+
+  test("no config, or this tier unset: the spawn is untouched and nothing is logged", () => {
+    const cases: readonly Readonly<Record<string, string>>[] = [{}, { [MODELS]: '{"workerModel": "anthropic/claude-sonnet-5"}\n' }];
+    for (const files of cases) {
+      const dir = makeTempProject({ ".bounded/dev-stage-role": "architect\n", ...files });
+      const r = run(dir, payload(dir, "Agent", { subagent_type: "reviewer", prompt: "read it" }));
+      expect(r.decision).toBe("allow");
+      expect(r.updatedInput).toBeUndefined();
+      expect(gateEvents(dir).some((e) => e.guard === "model-tier")).toBe(false);
+    }
+  });
+});
