@@ -30,6 +30,17 @@ describe("the pi adapter is discoverable the way pi actually discovers (ADR 2026
     expect(existsSync(SHIM)).toBe(true);
   });
 
+  // Regression (Run 28): the hosts/pi restructure left HARNESS_ROOT walking up
+  // too few levels, so it pointed at hosts/pi and every architect skill read
+  // was refused — a role could not read its own SKILL.md. The root must be the
+  // agent dir (the one holding skills/), or isHarnessSkillRead never matches.
+  test("the path-gate extension resolves HARNESS_ROOT to the agent dir (skill reads depend on it)", async () => {
+    const { HARNESS_ROOT } = (await import("./extensions/path-gate.ts")) as { HARNESS_ROOT: string };
+    expect(HARNESS_ROOT).toBe(AGENT);
+    expect(existsSync(join(HARNESS_ROOT, "skills")), "root holds skills/").toBe(true);
+    expect(existsSync(join(HARNESS_ROOT, "packs")), "root holds packs/").toBe(true);
+  });
+
   test("every shim entry resolves to a real file, rooted in hosts/pi/extensions", () => {
     for (const entry of shimEntries()) {
       const resolved = resolve(dirname(SHIM), entry);

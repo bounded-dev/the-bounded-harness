@@ -63,10 +63,15 @@ import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../../src/ho
 import type { Role } from "../../../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
 
-// This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness root is
-// its parent's parent. Derived rather than configured: it must stay correct
-// through the ~/.pi/agent symlink and in any checkout.
-const HARNESS_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness
+// root (the `agent/` dir) is FOUR levels up: extensions → pi → hosts → agent.
+// Derived rather than configured, and deliberately NOT realpath-resolved: pi
+// loads this extension through the ~/.pi/agent symlink, so import.meta.url stays
+// in that form and the root comes out as `~/.pi/agent` — the same form the
+// architect's skill reads use, so `isHarnessSkillRead` matches (a role may read
+// its own SKILL.md). A wrong depth here silently refuses every skill read; the
+// value is exported and pinned by hosts/pi/discovery.test.ts.
+export const HARNESS_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
 
 /** pi holds all four: the strip, the path gate, the phase gate and the
  *  role-scoped worker views are all in-process hooks here. */
