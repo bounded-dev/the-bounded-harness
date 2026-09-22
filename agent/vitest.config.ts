@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // The gate-CLI test files build fixture repos and spawn real subprocesses
 // (node running a gate script, npx tsc, vitest-in-vitest). Under full-suite
@@ -10,6 +10,12 @@ import { defineConfig } from "vitest/config";
 // from forging failures in the slow ones.
 export default defineConfig({
   test: {
+    // packs/ts/reference is a target-project fixture (TN-26-008): its own test
+    // files are a worked example, driven through the gates by
+    // reference-component.test.ts against a throwaway copy — never collected
+    // and run as part of the harness's own suite (they use NodeNext `.js`
+    // specifiers and belong to a different tsconfig).
+    exclude: [...configDefaults.exclude, "packs/ts/reference/**"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     // The same fixtures fan out further: each worker spawns node/tsc/vitest

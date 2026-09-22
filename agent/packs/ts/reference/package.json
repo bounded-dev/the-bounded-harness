@@ -1,0 +1,16 @@
+{
+  "name": "bounded-reference-readings",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && vitest run",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.6.4"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

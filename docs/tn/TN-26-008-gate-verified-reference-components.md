@@ -129,6 +129,34 @@ readable like any skill file — see TN-26-007's `isHarnessSkillRead`).
   its tests may teach the shapes with less noise than a full multi-file
   component. Start minimal; grow only if a shape is missed.
 
+## Built (2026-09-22)
+
+The first reference is live at `packs/ts/reference/` — a neutral **reading-log**
+domain (`ReadingId`, `Celsius`, and a `record` operation), gate-verified by
+`packs/ts/scripts/reference-component.test.ts` on every `npm run check`. What the
+build settled of the open questions:
+
+- **How much is one component? — resolved MINIMAL.** Two value objects (one
+  string-based, one number-based, so the boundary matrix shows both axes) plus a
+  single idempotent operation and its tests. Enough to show every shape the
+  evidence named — nominal class, one-VO-per-file, `@accepts` rule, the
+  `<Name> — boundaries` block, idempotency/replay, a cross-cutting invariant —
+  and no more.
+- **Read-in-place vs copy-and-delete — resolved READ-IN-PLACE for workers.** The
+  skill and worker briefs point at the reference by path; nothing is copied into
+  a delivered tree. The CI driver copies to a throwaway dir only to run the
+  running-project gates (red/green/mutation) without dirtying the committed tree
+  — an implementation detail of verification, not what a worker does.
+- **One reference, or one per set? — still OPEN, as designed.** `packs/ts` has
+  its first; whether TN-26-004/006 need their own is deferred until the dogfood
+  arms measure the gate-bounce drop against Run 27.
+
+Every gate applies to the reference as to any dogfood arm, so none is stubbed:
+`contract-purity`, `surface-check`, the red gate's boundary/reachability
+obligations and `value-object-laws` run in-process; the red gate, green gate and
+mutation run against the copy. Mutation reports 100% (3 sites, 3 killed) — the
+value objects' `equals` and `record`'s idempotency guard.
+
 ## Appendix
 
 - **Inspiration:** Rocketflare (`rocketflare-dev/rocketflare`,
