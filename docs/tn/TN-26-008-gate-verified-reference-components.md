@@ -167,6 +167,6 @@ value objects' `equals` and `record`'s idempotency guard.
   / `*.golden.ts` (gate-adjacent verified contract fixtures, today used only
   by scaffolder tests); the reference-set TNs 004 and 006; VISION.md, which
   already names "reference implementations" as part of what the harness owns.
-- **Evidence:** Run 27 (`docs/dogfood/runs/run-27-opus-vs-kimi-both-harnessed.md`)
+- **Evidence:** Run 27 (`docs/dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md`)
   purity and red-gate bounce counts; the mechanism-vs-guidance result
   (TN-26-002).

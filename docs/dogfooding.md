@@ -122,22 +122,22 @@ gets a new file and a row here.
 
 | Run | Title |
 | --- | --- |
-| 1 | [Run 1 — Sonnet · reading-list](dogfood/runs/run-01-sonnet-reading-list.md) |
-| 2 | [Run 2 — Haiku · reading-list](dogfood/runs/run-02-haiku-reading-list.md) |
-| 3 | [Run 3 — Haiku · reading-list (full pipeline)](dogfood/runs/run-03-haiku-reading-list-full-pipeline.md) |
-| 4 | [Run 4 — Sonnet · billing · harness vs no harness](dogfood/runs/run-04-billing-harness-vs-no-harness.md) |
-| 5 | [Run 5 — Sonnet · billing · bare vs harness](dogfood/runs/run-05-billing-bare-vs-harness.md) |
-| 6 | [Run 6 — Sonnet · billing · bare vs folded harness](dogfood/runs/run-06-billing-bare-vs-folded-harness.md) |
-| 10–12 | [The six-cell experiment (mechanism vs guidance)](dogfood/runs/runs-10-12-the-six-cell-experiment.md) |
-| 13–14 | [The composite gate, then the first reviewer](dogfood/runs/runs-13-14-composite-gate-first-reviewer.md) |
-| 15 | [The first parallel pair, and the deepest inspection yet](dogfood/runs/run-15-the-first-parallel-pair.md) |
-| 16–19 | [The r15 wave lands, a real app arrives, first headless deliveries](dogfood/runs/runs-16-19-the-r15-wave-lands.md) |
-| 20 | [Re-confirmation, and a resume under an external limit](dogfood/runs/run-20-reconfirmation-and-a-resume.md) |
-| 21 | [The first change run](dogfood/runs/run-21-the-first-change-run.md) |
-| 22 | [The first stack run — a tRPC service over the delivered core](dogfood/runs/run-22-the-first-stack-run.md) |
-| 23 | [The reference set validated — three tickets, one structure](dogfood/runs/run-23-the-reference-set-validated.md) |
-| 24 | [The first web-frontend run](dogfood/runs/run-24-the-first-web-frontend-run.md) |
-| 25 | [The first Claude Code harness run](dogfood/runs/run-25-the-first-claude-code-harness-run.md) |
-| 26 | [Two accidentally-bare arms — the loader bug run](dogfood/runs/run-26-two-accidentally-bare-arms.md) |
-| 27 | [opus/sonnet vs kimi, both harnessed — the gates hold under a weak worker](dogfood/runs/run-27-opus-vs-kimi-both-harnessed.md) |
-| 28 | [DeepSeek V4, harnessed on pi — a third open lineage, delivered clean](dogfood/runs/run-28-deepseek-router-harnessed.md) |
+| 1 | [Run 1 — Sonnet · reading-list](dogfood/runs/run-26-001-sonnet-reading-list.md) |
+| 2 | [Run 2 — Haiku · reading-list](dogfood/runs/run-26-002-haiku-reading-list.md) |
+| 3 | [Run 3 — Haiku · reading-list (full pipeline)](dogfood/runs/run-26-003-haiku-reading-list-full-pipeline.md) |
+| 4 | [Run 4 — Sonnet · billing · harness vs no harness](dogfood/runs/run-26-004-billing-harness-vs-no-harness.md) |
+| 5 | [Run 5 — Sonnet · billing · bare vs harness](dogfood/runs/run-26-005-billing-bare-vs-harness.md) |
+| 6 | [Run 6 — Sonnet · billing · bare vs folded harness](dogfood/runs/run-26-006-billing-bare-vs-folded-harness.md) |
+| 10–12 | [The six-cell experiment (mechanism vs guidance)](dogfood/runs/run-26-010-the-six-cell-experiment.md) |
+| 13–14 | [The composite gate, then the first reviewer](dogfood/runs/run-26-013-composite-gate-first-reviewer.md) |
+| 15 | [The first parallel pair, and the deepest inspection yet](dogfood/runs/run-26-015-the-first-parallel-pair.md) |
+| 16–19 | [The r15 wave lands, a real app arrives, first headless deliveries](dogfood/runs/run-26-016-the-r15-wave-lands.md) |
+| 20 | [Re-confirmation, and a resume under an external limit](dogfood/runs/run-26-020-reconfirmation-and-a-resume.md) |
+| 21 | [The first change run](dogfood/runs/run-26-021-the-first-change-run.md) |
+| 22 | [The first stack run — a tRPC service over the delivered core](dogfood/runs/run-26-022-the-first-stack-run.md) |
+| 23 | [The reference set validated — three tickets, one structure](dogfood/runs/run-26-023-the-reference-set-validated.md) |
+| 24 | [The first web-frontend run](dogfood/runs/run-26-024-the-first-web-frontend-run.md) |
+| 25 | [The first Claude Code harness run](dogfood/runs/run-26-025-the-first-claude-code-harness-run.md) |
+| 26 | [Two accidentally-bare arms — the loader bug run](dogfood/runs/run-26-026-two-accidentally-bare-arms.md) |
+| 27 | [opus/sonnet vs kimi, both harnessed — the gates hold under a weak worker](dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md) |
+| 28 | [DeepSeek V4, harnessed on pi — a third open lineage, delivered clean](dogfood/runs/run-26-028-deepseek-router-harnessed.md) |
