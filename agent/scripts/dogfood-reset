@@ -28,8 +28,8 @@
 #
 # Afterwards there is nothing to configure and no command to remember:
 #
-#   cd ~/dev/bounded-harness-dogfood-bare        → run Claude Code
-#   cd ~/dev/bounded-harness-dogfood-harnessed   → run pi
+#   cd ~/dev/bounded-harness-dogfood-2   → arm 2
+#   cd ~/dev/bounded-harness-dogfood-1   → arm 1
 #   …and paste the canonical prompt from docs/dogfood/ into either.
 #
 # The harnessed arm binds the architect role itself through
@@ -54,8 +54,13 @@
 set -euo pipefail
 
 # Overridable so the script can be exercised without destroying a live run.
-BARE="${DOGFOOD_BARE:-$HOME/dev/bounded-harness-dogfood-bare}"
-HARNESSED="${DOGFOOD_HARNESSED:-$HOME/dev/bounded-harness-dogfood-harnessed}"
+# The two arm directories carry neutral names — dogfood-1 and dogfood-2 — because
+# both arms are often harnessed now (different hosts/models), so "bare"/"harnessed"
+# on the tin misled which terminal was which. The internal slots keep their role
+# names: HARNESSED (the gated, developer-stage arm) is dogfood-1; BARE (the
+# ordinary-tools control by default) is dogfood-2. Override with DOGFOOD_1/2.
+HARNESSED="${DOGFOOD_1:-${DOGFOOD_HARNESSED:-$HOME/dev/bounded-harness-dogfood-1}}"
+BARE="${DOGFOOD_2:-${DOGFOOD_BARE:-$HOME/dev/bounded-harness-dogfood-2}}"
 
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
@@ -408,12 +413,13 @@ cat <<EOF
 
 Both arms ready. Operational blocks verified identical.
 
-  cd $BARE
-      run Claude Code
   cd $HARNESSED
-      run pi                (gated as the architect automatically;
-                             bash, run_tests and record_design_review
-                             are absent from the toolset, not just refused)
+      arm 1 — gated as the architect automatically (bash, run_tests and
+              record_design_review are absent from the toolset, not just
+              refused). Launch the host you intend for this arm.
+  cd $BARE
+      arm 2 — the second arm. By default the ordinary-tools control; for a
+              two-harnessed comparison it is set up as a gated arm too.
 
 $MODEL_SUMMARY
 

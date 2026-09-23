@@ -86,9 +86,15 @@ working as intended — run provenance is not the agent's to edit.
 
 Then walk into each and paste `PROMPT.md`:
 
-- `~/dev/bounded-harness-dogfood-bare` — the control. Claude Code, ordinary tools.
-- `~/dev/bounded-harness-dogfood-harnessed` — pi. Gated as the architect
-  automatically via `.bounded/dev-stage-role`; there is no launcher to remember.
+- `~/dev/bounded-harness-dogfood-1` — **arm 1**, the gated developer-stage arm
+  (architect bound automatically via `.bounded/dev-stage-role`; no launcher).
+- `~/dev/bounded-harness-dogfood-2` — **arm 2**. By default the ordinary-tools
+  control; for a two-harnessed comparison it is set up as a gated arm too.
+
+The directories carry neutral numbers, not `bare`/`harnessed`, because both
+arms are often harnessed now (different hosts/models) and the old names misled
+which terminal was which. Each arm's `.bounded/intended-host` records the host
+it expects; check the guard log's first `host …` line matches before a run.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
 — `bounded dogfood-reset` wipes both and starts over, so copy anything worth keeping

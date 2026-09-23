@@ -27,7 +27,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$NAME" ] || { echo "usage: dogfood-archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]" >&2; exit 2; }
-ARM_DIR="$HOME/dev/bounded-harness-dogfood-$ARM"
+# Map the arm role (or a bare 1/2) to its neutral directory (see dogfood-reset).
+case "$ARM" in
+  harnessed|1) ARM_DIR="${DOGFOOD_1:-$HOME/dev/bounded-harness-dogfood-1}" ;;
+  bare|2)      ARM_DIR="${DOGFOOD_2:-$HOME/dev/bounded-harness-dogfood-2}" ;;
+  *)           ARM_DIR="$HOME/dev/bounded-harness-dogfood-$ARM" ;;
+esac
 [ -d "$ARM_DIR" ] || { echo "dogfood-archive: no such arm '$ARM_DIR'" >&2; exit 2; }
 [ -d "$ARCHIVE/.git" ] || { echo "dogfood-archive: archive repo missing at $ARCHIVE" >&2; exit 2; }
 

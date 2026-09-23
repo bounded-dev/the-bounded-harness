@@ -276,8 +276,8 @@ against a live repro before their commits landed.
 
 ```bash
 dogfood-reset                 # both arms; --bare / --harnessed for one
-cd ~/dev/bounded-harness-dogfood-bare        # Claude Code, paste PROMPT.md
-cd ~/dev/bounded-harness-dogfood-harnessed   # pi --model sonnet, paste PROMPT.md
+cd ~/dev/bounded-harness-dogfood-2        # Claude Code, paste PROMPT.md
+cd ~/dev/bounded-harness-dogfood-1   # pi --model sonnet, paste PROMPT.md
 ```
 
 Three directories, forever. `~/dev/bounded-harness-dogfood-archive` holds every past
