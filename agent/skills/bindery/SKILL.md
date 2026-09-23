@@ -14,6 +14,13 @@ at the bound file: **never attempt delivery** — no email, no uploads.
 Tell the user where the EPUB is; sending it to a device is theirs to do
 (Send to Kindle's web uploader takes EPUB; MOBI is dead).
 
+**Name every edition distinctly — the file AND the `dc:title`.** Put the
+edition in both (`harness-book-ed1.2.epub`, "The Book (Edition 1.2)").
+Not because a collision is known to break anything, but because a reader
+whose library already holds earlier editions under one identical title
+cannot tell a silent dedupe from an upload that failed: both look like
+nothing happening. Distinct names make "it didn't arrive" mean one thing.
+
 ## Preflight
 
 Check that `pandoc` is on PATH. If it is not, stop and ask the user
@@ -111,9 +118,31 @@ choice) — if absent, skip the PDF rather than blocking the EPUB.
   of contents, and per-chapter source-file lists. This is the edition
   mechanism — the next run diffs against it for the "Changes in this
   edition" preface note. Bump the edition when one exists.
+- **A previous edition's manifest may not be in this directory.** The
+  output dir is named after whatever skill produced it, and skills get
+  renamed: edition 1.1 sat in `.agent-state/kindling/` and 1.2 opened
+  by diffing against it from `.agent-state/bindery/`. Before deciding
+  there is no prior edition, look for a `book-manifest.json` anywhere
+  under `.agent-state/`, and diff against the newest one for the same
+  repo rather than only your own path.
 - Bind with pandoc: `--toc`, metadata (title, author "bindery", date,
   lang, edition), and an embedded CSS file: em-based sizing, monospace
   stack with `white-space: pre-wrap`, grayscale-safe — no reliance on
   syntax color.
+- **Validate before you report it**, so a later "it won't open" is
+  answerable: `unzip -t`, `mimetype` first in the zip and stored
+  uncompressed, every XHTML and the OPF well-formed (`xmllint --noout`),
+  no duplicate ids, every spine idref in the manifest. Say in the report
+  that you checked, so "the file is sound" is a finding rather than an
+  assumption.
+- **If a validated EPUB still will not load on a device, you do not know
+  why.** One did not, on a Kindle, while the two editions before it did —
+  and it validated clean and differed from them only in metadata, two
+  chapters and one CSS comment. `--to=epub2` is the cheap retry, but it
+  is a retry and not a diagnosis: the edition that loaded was EPUB3 too.
+  Say what you established (the file is valid) and what you did not (the
+  cause), and ask what the device actually reported — an upload error and
+  a silent non-arrival point at different things. Do not write a fix into
+  this file until one is confirmed.
 - Report back: path to the EPUB, total word count, the chapter list,
   and anything the fact-check pass changed or cut.
