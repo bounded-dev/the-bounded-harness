@@ -3,7 +3,7 @@ number: TN-26-009
 title: Composition is a commitment — each pack obligates its own layer
 kind: design
 status: draft
-issue: (pending)
+issue: 18
 ---
 
 # Composition is a commitment
