@@ -20,6 +20,3 @@ never taken or that isn't ours, and the record of who has borrowed what
 should always add up — nothing lost, nothing counted twice. It would help to
 see a bit of history too, so we can gently chase whoever's had the pressure
 washer for three weeks.
-
-Keep it simple and hard to get wrong — that's the whole point. Most of us are
-not technical and we just want it to work.
