@@ -147,3 +147,4 @@ gets a new file and a row here.
 | 26 | [Two accidentally-bare arms — the loader bug run](dogfood/runs/run-26-026-two-accidentally-bare-arms.md) |
 | 27 | [opus/sonnet vs kimi, both harnessed — the gates hold under a weak worker](dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md) |
 | 28 | [DeepSeek V4, harnessed on pi — a third open lineage, delivered clean](dogfood/runs/run-26-028-deepseek-router-harnessed.md) |
+| 29 | [A non-technical prompt, both arms — green ≠ usable (UI+service+persistence)](dogfood/runs/run-26-029-non-technical-ui-service-persistence.md) |
