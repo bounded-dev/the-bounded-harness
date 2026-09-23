@@ -57,13 +57,48 @@ export interface RunSummary {
 }
 
 export interface RunTestsResult extends RunSummary {
-  /** True when the suite ran AND no test failed. */
+  /** True when the suite ran, no test failed, AND no unhandled error escaped. */
   readonly ok: boolean;
   /** Sanitized per-test outcomes, in reporter order. */
   readonly results: SanitizedResult[];
   /** Present ONLY when vitest produced no parseable JSON report (BLOCKED): a
    *  sanitized (path-scrubbed) explanation drawn from stderr/stdout. */
   readonly blocked?: string;
+  /** Present when the suite ran to a report in which every assertion passed but
+   *  the process still exited non-zero — an UNHANDLED error (a throw outside any
+   *  assertion: an async rejection, or a throw inside an event handler or effect
+   *  during a test). Vitest does not count these among `assertionResults`, so a
+   *  runner that only tallies pass/fail would call this run green. It is not.
+   *  The value is a FIXED, source-free explanation — never the raw error text,
+   *  which can carry test source — so surfacing it does not widen what a blind
+   *  builder can see. */
+  readonly unhandled?: string;
+}
+
+/**
+ * The blind-safe note surfaced when a suite exits non-zero with every assertion
+ * passing — an unhandled error (dogfood Run 29). FIXED text: it names the
+ * failure CLASS and nothing about the test that raised it, because the raw error
+ * (message, stack, the identifier that threw) is test source the builder must
+ * not see. "Green is a positive claim" — a suite that leaked an error did not
+ * make it.
+ */
+export const UNHANDLED_ERROR_NOTE =
+  "the suite raised an unhandled error — a throw outside any assertion (an async " +
+  "rejection, or a throw inside an event handler or effect during a test). Every " +
+  "assertion passed, but the run exited non-zero, so the suite did not pass. Vitest " +
+  "reports this as an UNHANDLED error, not a failed assertion.";
+
+/**
+ * Did a parsed run leak an unhandled error? The robust in-band signal is the
+ * process exit: vitest exits non-zero on an unhandled error even when every
+ * assertion passed, so `failed === 0` AND a non-zero exit AND tests that
+ * actually ran is exactly that shape. A failing suite exits non-zero too but
+ * reports `failed > 0`, so it is not caught here; a suite that produced no
+ * report at all is the `blocked` path and never reaches this.
+ */
+export function hasUnhandledError(code: number | null, failed: number, ran: number): boolean {
+  return code !== 0 && failed === 0 && ran > 0;
 }
 
 const DEFAULT_COMMAND = "npx";
@@ -148,7 +183,15 @@ export async function runTests(cwd: string, options: RunTestsOptions = {}): Prom
   }
 
   const summary = summarizeResults(results);
-  return { ok: summary.failed === 0, ...summary, results };
+  const unhandled = hasUnhandledError(code, summary.failed, results.length)
+    ? UNHANDLED_ERROR_NOTE
+    : undefined;
+  return {
+    ok: summary.failed === 0 && unhandled === undefined,
+    ...summary,
+    results,
+    ...(unhandled !== undefined ? { unhandled } : {}),
+  };
 }
 
 // --- convergence detection (dogfood Run 4) -----------------------------------
@@ -212,15 +255,22 @@ export function formatRunTests(result: RunTestsResult): string {
     return `run_tests: suite could not run (BLOCKED):\n\n${result.blocked}`;
   }
   const head = `Tests: ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped (${result.total} total)`;
-  if (result.failed === 0) return head;
-  const failures = result.results
-    .filter((r) => r.status === "failed")
-    .map((r) => {
-      const body = r.message ? "\n" + r.message.replace(/^/gm, "    ") : "";
-      return `✗ ${r.name}${body}`;
-    })
-    .join("\n\n");
-  return `${head}\n\n${failures}`;
+  const parts = [head];
+  if (result.failed > 0) {
+    parts.push(
+      result.results
+        .filter((r) => r.status === "failed")
+        .map((r) => {
+          const body = r.message ? "\n" + r.message.replace(/^/gm, "    ") : "";
+          return `✗ ${r.name}${body}`;
+        })
+        .join("\n\n"),
+    );
+  }
+  // An unhandled error is not a failed assertion, so it never appears above —
+  // and a run that only tallied pass/fail would call this green. Say so.
+  if (result.unhandled !== undefined) parts.push(`run_tests: UNHANDLED ERROR — ${result.unhandled}`);
+  return parts.join("\n\n");
 }
 
 // --- the gate (ADR 2026-034) ----------------------------------------------------
@@ -260,16 +310,22 @@ export async function runTestsGate(cwd: string, options: RunTestsOptions = {}): 
   // from the same audit trail the orchestrator reads (dogfood Run 4).
   const nudge = repeatedFailureNudge(priorFailureSets(cwd), names);
   const blocked = result.blocked !== undefined;
-  const code = blocked ? 2 : result.failed === 0 ? 0 : 1;
-  const verdict = blocked ? "error" : result.failed === 0 ? "pass" : "block";
+  // An unhandled error with no failed assertion is still NOT-green: the suite
+  // leaked an error, and green is a positive claim. It blocks like a failure.
+  const unhandled = result.unhandled !== undefined && result.failed === 0;
+  const green = !blocked && result.failed === 0 && !unhandled;
+  const code = blocked ? 2 : green ? 0 : 1;
+  const verdict = blocked ? "error" : green ? "pass" : "block";
   const summary = blocked
     ? "suite could not run"
-    : `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped`;
+    : unhandled
+      ? "suite raised an unhandled error"
+      : `${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped`;
   logGuardEvent(cwd, {
     guard: RUN_TESTS_GUARD,
     verdict,
     summary,
-    detail: { names, ...(nudge !== undefined ? { stuck: true } : {}) },
+    detail: { names, ...(unhandled ? { unhandled: true } : {}), ...(nudge !== undefined ? { stuck: true } : {}) },
   });
   const text = nudge === undefined ? formatRunTests(result) : `${formatRunTests(result)}\n\n${nudge}`;
   return {

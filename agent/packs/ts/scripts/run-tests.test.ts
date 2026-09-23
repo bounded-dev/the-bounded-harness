@@ -7,11 +7,13 @@ import {
   extractReporterJson,
   failureNames,
   formatRunTests,
+  hasUnhandledError,
   repeatedFailureNudge,
   type RunTestsResult,
   runTests,
   runTestsGate,
   summarizeResults,
+  UNHANDLED_ERROR_NOTE,
 } from "./run-tests.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
 import { makeTempProject, type TempProject } from "../../../test/support/temp-project.ts";
@@ -70,6 +72,49 @@ describe("runTests (passing suite)", () => {
     expect(r.failed).toBe(0);
     expect(r.passed).toBe(r.total);
     for (const x of r.results) expect(x.message).toBeUndefined();
+  });
+});
+
+// --- unhandled errors (dogfood Run 29) ---------------------------------------
+// Arm 2 passed 224/224 while a throw inside an event handler during a test
+// surfaced as vitest's UNHANDLED error — not a failed assertion. Vitest
+// exits non-zero all the same, so "every assertion passed AND a non-zero exit"
+// is the tell. A runner that only tallies pass/fail calls it green; it is not.
+
+describe("runTests (unhandled error: 0 failed, non-zero exit)", () => {
+  test("a passing report with a non-zero exit is NOT ok and carries an unhandled note", async () => {
+    const r = await runTests("/proj", { run: fakeRunner(PASSING, "", 1) });
+    expect(r.failed).toBe(0);
+    expect(r.passed).toBe(r.total);
+    expect(r.ok).toBe(false);
+    expect(r.unhandled).toBeDefined();
+    expect(r.blocked).toBeUndefined();
+  });
+
+  test("the unhandled note leaks no test source — it is the fixed class, not the error", async () => {
+    const r = await runTests("/proj", { run: fakeRunner(PASSING, "", 1) });
+    expect(r.unhandled).toBe(UNHANDLED_ERROR_NOTE);
+    expect(r.unhandled).not.toContain(".test.ts");
+    expect(r.unhandled).not.toContain("/");
+  });
+
+  test("a clean pass (zero exit) is untouched — no false positive", async () => {
+    const r = await runTests("/proj", { run: fakeRunner(PASSING, "", 0) });
+    expect(r.ok).toBe(true);
+    expect(r.unhandled).toBeUndefined();
+  });
+
+  test("hasUnhandledError: only 0-failed AND non-zero exit AND tests ran", () => {
+    expect(hasUnhandledError(1, 0, 5)).toBe(true);
+    expect(hasUnhandledError(0, 0, 5)).toBe(false); // clean pass
+    expect(hasUnhandledError(1, 2, 5)).toBe(false); // ordinary failing suite
+    expect(hasUnhandledError(1, 0, 0)).toBe(false); // no tests ran (a different verdict owns it)
+    expect(hasUnhandledError(null, 0, 5)).toBe(true); // killed mid-run, report intact
+  });
+
+  test("formatRunTests names the unhandled error rather than reading green", async () => {
+    const r = await runTests("/proj", { run: fakeRunner(PASSING, "", 1) });
+    expect(formatRunTests(r)).toContain("UNHANDLED ERROR");
   });
 });
 
@@ -274,6 +319,17 @@ describe("runTestsGate", () => {
     expect(third.lines.join("\n")).toMatch(/dispute protocol/);
     const events = readGuardLog(dir).filter((e) => e.guard === "run_tests");
     expect(events.map((e) => e.detail?.["stuck"])).toEqual([undefined, undefined, true]);
+  });
+
+  test("a suite that passes every assertion but exits non-zero: BLOCK (unhandled)", async () => {
+    const dir = project();
+    const r = await runTestsGate(dir, { run: fakeRunner(PASSING, "", 1) });
+    expect(r).toMatchObject({ code: 1, verdict: "block", summary: "suite raised an unhandled error" });
+    expect(r.lines.join("\n")).toContain("UNHANDLED ERROR");
+    expect(r.detail).toMatchObject({ ok: false, failed: 0 });
+    const [event] = readGuardLog(dir);
+    expect(event).toMatchObject({ guard: "run_tests", verdict: "block" });
+    expect(event.detail?.["unhandled"]).toBe(true);
   });
 
   test("a suite that produces no report: ERROR, logged as such", async () => {

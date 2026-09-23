@@ -89,6 +89,29 @@ describe("classifyGreen", () => {
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/no tests ran/);
   });
+
+  // dogfood Run 29 (opus): 224/224 assertions passed while a throw inside a
+  // React event handler surfaced as vitest's UNHANDLED error. Every assertion
+  // "passed", so a pass/fail tally called it green. It is not green, and the
+  // block routes to whoever owns the tests.
+  test("an unhandled error → exit 1, even with every assertion passing", () => {
+    const r = classifyGreen(
+      run({
+        ok: false,
+        total: 224,
+        passed: 224,
+        failed: 0,
+        results: Array.from({ length: 224 }, (_, i) => ({ name: `t${i}`, status: "passed" as const })),
+        unhandled: "the suite raised an unhandled error — a throw outside any assertion.",
+      }),
+      TYPE_CLEAN,
+    );
+    expect(r.code).toBe(1);
+    expect(r.verdict).toBe("block");
+    expect(r.lines[0]).toMatch(/unhandled error/i);
+    expect(r.lines).toContain("green-gate: route → test-writer");
+    expect(r.detail).toMatchObject({ reason: "unhandled", route: "test-writer" });
+  });
 });
 
 // --- #7: green requires a type-clean project, not just a passing suite --------

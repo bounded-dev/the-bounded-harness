@@ -72,6 +72,25 @@ function suiteVerdict(run: RunTestsResult): SuiteVerdict | null {
       owner: "test-writer",
     };
   }
+  if (run.unhandled !== undefined) {
+    // Dogfood Run 29: the suite passed 224/224 while a throw inside an event
+    // handler during a test surfaced as an UNHANDLED error — not a failed
+    // assertion, so the sanitized runner's pass/fail tally never saw it and
+    // green passed. An error the suite leaked is not a positive claim; it
+    // blocks, and routes to whoever owns the tests.
+    return {
+      summary: "suite raised an unhandled error",
+      lines: [
+        "green-gate: FAIL — the suite raised an unhandled error; every assertion passed but the run " +
+          "exited non-zero, so this is not green (silence is not success)",
+        `  ${run.unhandled}`,
+      ],
+      detail: { reason: "unhandled" },
+      // Dispute protocol: an error the suite raised (not an assertion) is the
+      // test-writer's zone, exactly like a BLOCKED suite.
+      owner: "test-writer",
+    };
+  }
   if (run.total === 0) {
     return {
       summary: "no tests ran",
