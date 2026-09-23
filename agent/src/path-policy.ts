@@ -52,9 +52,17 @@ const ALLOW: Decision = { allow: true };
 // node_modules is a code tree, so it allows PROSE only (`.md`) and only under a
 // `skills/` directory: a dependency's source stays as shut as the harness's own
 // source. `**` before `skills/` is what admits scoped packages (`@acme/pack`).
+//
+// Run 29 found the third instance: a pack's `reference/` component (TN-26-008),
+// which the skills point every role at ("copy this shape"), was refused because
+// it is not under `skills/`. A reference is the same read-only, run-neutral kind
+// of file as a skill — it is meant to be read and copied — so `packs/*/reference/**`
+// joins the list. Same narrowness: only under a pack's `reference/`, never the
+// pack root.
 const HARNESS_READABLE = [
   "skills/**",
   "packs/*/skills/**",
+  "packs/*/reference/**",
   "npm/node_modules/**/skills/**/*.md",
   "extensions/**/skills/**/*.md",
 ] as const;

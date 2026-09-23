@@ -593,6 +593,20 @@ describe("harness skill files are readable, the rest of the harness is not", () 
         true,
       );
     });
+    // Run 29: the skills point every role at a pack's reference component to
+    // copy its shape; that read must be allowed, or the pointer sends the role
+    // to a blocked path.
+    test(`${role} may read a pack reference component`, () => {
+      expect(H(role, "read", `${HARNESS}/packs/ts/reference/README.md`).allow).toBe(true);
+      expect(
+        H(role, "read", `${HARNESS}/packs/ts/reference/src/readings/reading-id.contract.ts`).allow,
+      ).toBe(true);
+    });
+    test(`${role} may NOT write a pack reference file`, () => {
+      expect(H(role, "write", `${HARNESS}/packs/ts/reference/src/readings/reading-id.ts`).allow).toBe(
+        false,
+      );
+    });
 
     // The part that must stay shut.
     test(`${role} may NOT read harness credentials`, () => {
