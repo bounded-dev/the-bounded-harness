@@ -48,6 +48,22 @@ contributed check that wrote to the tree would be changing a repo *after* its
 `npm run check` short-circuits delivery before the contributed checks run, so
 their verdicts appear once the repo is green.
 
+## Amendment (2026-09-23, dogfood Run 29)
+
+A contribution may now carry an optional `checkScript(cwd)` returning a
+`{ name, command }` (or `undefined` for a tree it does not apply to). Deliver
+folds it into the project's own `check` exactly as it folds `check:surface` —
+reading the pair and writing it, learning no framework name. This puts a pack's
+acceptance into the DELIVERED repo's definition of done, not only at the
+delivery gate: Run 29 shipped a "green + delivered" web app whose `npm run
+check` passed while `vite build` failed, because check's scope never reached the
+web bootstrap. ts-web's `build-check` is the first user — its `run()` statically
+refuses a bootstrap whose imports resolve to nothing (the missing-`app.tsx`
+shape), and its `checkScript` folds `vite build` in. One consumer today, so the
+fold rides this socket rather than a new one; a future pack that must fold a
+script that is not also a `deliverCheck` is the signal to lift it to its own
+`deliverCheckScripts` socket, a pure move with no consumer rewrite.
+
 ## Consequences
 
 Packs gain a delivery-time voice without the ts pack learning their nouns, and

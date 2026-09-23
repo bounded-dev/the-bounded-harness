@@ -884,3 +884,62 @@ describe("runDeliver: pack-contributed checks", () => {
     expect(r.lines.join("\n")).not.toContain("theme-check");
   });
 });
+
+// --- Fix 2: the composed web stack's build is part of the definition of done -
+//
+// Dogfood Run 29 Arm 1 shipped "green + delivered" for an app that did not
+// build: main.tsx imported an app.tsx nobody wrote, yet `npm run check` passed
+// because check's scope never reached the web bootstrap. ts-web's build-check
+// closes it two ways at once — an immediate block at delivery when the
+// bootstrap does not resolve, and `check:build` (`vite build`) folded into the
+// project's own check so the shipped repo carries the build forever.
+
+/** The generated browser entry: mounts <App/> from ./app.js, pulls in ./app.css. */
+const MAIN_TSX = `import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./app.js";
+import "./app.css";
+
+createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+`;
+
+describe("runDeliver: the composed web build (Run 29)", () => {
+  test("a web app whose bootstrap does not build is BLOCKED by deliver", () => {
+    // main.tsx imports ./app.js, but no app.tsx exists — the Run 29 Arm 1 shape.
+    const dir = proj({ "src/ui/main.tsx": MAIN_TSX, "src/ui/app.css": "body{}" });
+    const r = deliver(dir);
+    expect(r.code).toBe(1);
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — build-check:");
+    expect(r.lines.join("\n")).toContain("./app.js");
+    expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
+  });
+
+  test("a building web app passes, and check:build is folded into check", () => {
+    const dir = proj({
+      "src/ui/main.tsx": MAIN_TSX,
+      "src/ui/app.tsx": "export function App() { return null; }",
+      "src/ui/app.css": "body{}",
+    });
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    expect(r.lines.join("\n")).toContain("deliver: build-check —");
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg.scripts["check:build"]).toBe("vite build");
+    expect(pkg.scripts.check).toContain("npm run check:build");
+    // Idempotent: a second delivery folds nothing again and applies no steps.
+    expect(deliver(dir).lines.at(-1)).toBe("deliver: OK — 0 steps applied");
+  });
+
+  // Keyed on the tree: a pure service composed under the same harness gets no
+  // build folded into its check and nothing to build.
+  test("a service (no bootstrap) folds no build script and passes build-check", () => {
+    const dir = proj();
+    const r = deliver(dir);
+    expect(r.code).toBe(0);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg.scripts["check:build"]).toBeUndefined();
+    expect(pkg.scripts.check).not.toContain("check:build");
+    expect(r.lines.join("\n")).toMatch(/build-check — no src\/ui\/main\.tsx/);
+    expect(r.lines.join("\n")).toMatch(/check-scripts — no composed pack folds/);
+  });
+});

@@ -169,6 +169,24 @@ export interface DeliverCheckResult {
 }
 
 /**
+ * A package.json script a pack's acceptance should ALSO become, so the
+ * DELIVERED repo's own `npm run check` carries it once the harness is gone.
+ *
+ * `command` names a technology (a build tool, a bundler), which is exactly why
+ * it lives in the contributing pack and never in `deliver.ts`: deliver reads
+ * `{ name, command }` and writes them into the target, learning no framework
+ * name — the same way it folds `check:surface` in without knowing what
+ * ts-morph is (TN-26-005).
+ */
+export interface DeliverCheckScript {
+  /** npm script name, e.g. `check:build`. Lowercase, `check:`-prefixed by
+   *  convention so a reader groups it with `check:surface`. */
+  readonly name: string;
+  /** The command the script runs, e.g. `vite build`. */
+  readonly command: string;
+}
+
+/**
  * One check a pack contributes to the delivery pass.
  *
  * READ-ONLY, and that is a contract rather than a convention: every mutating
@@ -185,6 +203,25 @@ export interface DeliverCheck {
   readonly description: string;
   /** Run it against a target project root. Must not write. */
   readonly run: (cwd: string) => DeliverCheckResult;
+  /**
+   * OPTIONAL: a script deliver folds into the project's own `check`, so the
+   * delivered repo's definition of done includes this acceptance (mirrors how
+   * deliver folds `check:surface`). Returns the script for a tree this check
+   * applies to, or `undefined` when the tree is not this pack's kind of target
+   * — the folding is keyed on the tree exactly as `run` is, so a service
+   * delivered by a ts-web-composed harness gets no web build folded in.
+   *
+   * Dogfood Run 29 is why this exists: a composed web app whose `npm run check`
+   * passed while `vite build` failed, because check's scope never reached the
+   * web bootstrap. Folding the build into `check` closes that permanently, in
+   * the shipped repo and not only at the delivery gate.
+   *
+   * TODO(generalize): today the one consumer (ts-web's build) is also a
+   * `deliverCheck`, so the fold rides this socket. A future pack that must fold
+   * a script that is NOT also a deliverCheck is the signal to promote this to
+   * its own `deliverCheckScripts` socket — a pure lift, no consumer rewrite.
+   */
+  readonly checkScript?: (cwd: string) => DeliverCheckScript | undefined;
 }
 
 const CHECK_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
@@ -204,6 +241,9 @@ export const deliverChecks = tsSockets.define<DeliverCheck>({
     }
     if (typeof check.run !== "function") {
       return `${contributor}'s '${check.name}' check has no run() — there is nothing to call`;
+    }
+    if (check.checkScript !== undefined && typeof check.checkScript !== "function") {
+      return `${contributor}'s '${check.name}' check has a checkScript that is not a function — it must derive the fold from the tree`;
     }
     return undefined;
   },

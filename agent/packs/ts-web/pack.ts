@@ -16,6 +16,7 @@
 
 import { contribute, definePack } from "../../src/socket-registry.ts";
 import { contractPurityOverrides, deliverChecks, lintSrcRules, TS_PACK } from "../ts/pack.ts";
+import { buildCheckScript, BOOTSTRAP_RELATIVE, runBuildCheck } from "./scripts/build-check.ts";
 import { runThemeCheck, THEME_RELATIVE } from "./scripts/theme-check.ts";
 import { clientOneDoor } from "./eslint/rules/client-one-door.ts";
 import { fsdDownwardImports } from "./eslint/rules/fsd-downward-imports.ts";
@@ -141,6 +142,25 @@ export const tsWebPack = definePack({
           "and every declared foreground/background pair reaches WCAG AA contrast — in the base " +
           "theme and in each colour-scheme variant",
         run: runThemeCheck,
+      },
+      // --- the build gate (dogfood Run 29, Fix 2) -----------------------
+      //
+      // "Green + delivered" shipped an app that did not build: main.tsx
+      // imported an app.tsx nobody wrote, so `vite build` failed while `npm
+      // run check` passed — check's scope never reached the web bootstrap.
+      // Two fences: run() statically refuses a bootstrap whose imports point
+      // at nothing (the missing-app.tsx shape), and checkScript folds `vite
+      // build` into the delivered repo's own `check` so the definition of done
+      // includes the build from then on. Both name vite only HERE, never in
+      // deliver or the core (TN-26-005). Keyed on the tree like theme-check: a
+      // service delivered by this harness has no bootstrap and nothing to build.
+      {
+        name: "build-check",
+        description:
+          `the web bootstrap (${BOOTSTRAP_RELATIVE}) resolves and the composed stack's build is folded ` +
+          "into the project's own check, so a delivered web app that does not build cannot pass",
+        run: runBuildCheck,
+        checkScript: buildCheckScript,
       },
     ]),
   ],

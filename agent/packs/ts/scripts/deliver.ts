@@ -533,6 +533,53 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     );
   }
 
+  // --- 5c. pack-contributed check scripts folded into `check` (ADR 2026-033) ---
+  //
+  // A composed pack's acceptance can also belong in the project's OWN
+  // definition of done. Deliver folds `check:surface` into `check` at step 5;
+  // a pack contributes the same shape through the deliverChecks socket's
+  // optional `checkScript`, and deliver folds it here the same way — reading a
+  // `{ name, command }` and learning no framework name (TN-26-005), exactly as
+  // step 5 folds surface-check without knowing what ts-morph is.
+  //
+  // Dogfood Run 29 is why: a composed web app whose `npm run check` passed
+  // while its build failed, because check's scope never reached the web
+  // bootstrap. Keyed on the tree by the pack — a service gets no build folded
+  // in — and placed before step 9 so the project's own check (which step 9
+  // runs) actually exercises what was folded.
+  {
+    const scripts = composedPacks()
+      .read(deliverChecks)
+      .map((check) => check.checkScript?.(cwd))
+      .filter((s): s is NonNullable<typeof s> => s !== undefined);
+    const did: string[] = [];
+    if (scripts.length > 0) {
+      const pkgAbs = join(cwd, "package.json");
+      const pkg = JSON.parse(readFileSync(pkgAbs, "utf8")) as { scripts?: Record<string, string> };
+      pkg.scripts ??= {};
+      for (const { name, command } of scripts) {
+        if (pkg.scripts[name] !== command) {
+          pkg.scripts[name] = command;
+          did.push(`set ${name}`);
+        }
+        if (pkg.scripts["check"] === undefined) {
+          pkg.scripts["check"] = `npm run ${name}`;
+          did.push(`created check with ${name}`);
+        } else if (!pkg.scripts["check"].includes(`run ${name}`)) {
+          pkg.scripts["check"] += ` && npm run ${name}`;
+          did.push(`folded ${name} into check`);
+        }
+      }
+      if (did.length > 0) writeFileSync(pkgAbs, JSON.stringify(pkg, null, 2) + "\n");
+    }
+    pass(
+      "check-scripts",
+      did.length > 0,
+      did.length > 0 ? did.join(", ") : "no composed pack folds a check script into this tree",
+      { did },
+    );
+  }
+
   // --- 6. .gitignore ---
   {
     const ignoreAbs = join(cwd, ".gitignore");
