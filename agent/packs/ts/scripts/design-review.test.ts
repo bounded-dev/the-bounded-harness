@@ -12,6 +12,8 @@ import {
 } from "./design-review.ts";
 import { hashContract } from "./checksum-gate.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { classifyReviewFreshness } from "./design-gate.ts";
 
 // The reviewer's pen. Two properties carry the whole feature:
 //
@@ -75,6 +77,28 @@ describe("readReviewed", () => {
     if (!r.ok) return;
     expect(r.reviewed["spec.md"]).toBe(hashContract(SPEC));
     expect(r.reviewed["src/money.contract.ts"]).toBe(hashContract(CONTRACT));
+  });
+
+  test("changing selected packs after a review makes that review stale", () => {
+    const dir = designed();
+    writeProjectPacks(dir, ["ts"]);
+    expect(runRecordDesignReview(dir, [])).toMatchObject({ code: 0 });
+    const events = readGuardLog(dir);
+    writeProjectPacks(dir, ["ts", "ts-web"]);
+    const current = readReviewed(dir);
+    expect(current.ok).toBe(true);
+    if (!current.ok) return;
+    expect(classifyReviewFreshness(events, current.reviewed)).toMatchObject({
+      state: "stale",
+      added: ["composition:ts-web"],
+    });
+  });
+
+  test("malformed project composition is a normal review error", () => {
+    const dir = designed();
+    mkdirSync(join(dir, ".bounded"), { recursive: true });
+    writeFileSync(join(dir, ".bounded/composed-packs.json"), "not json\n");
+    expect(readReviewed(dir)).toMatchObject({ ok: false, reason: "invalid-composition" });
   });
 
   test("a design with no spec cannot be reviewed", () => {

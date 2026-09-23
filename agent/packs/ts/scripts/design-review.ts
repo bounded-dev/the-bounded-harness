@@ -40,7 +40,7 @@
 // Exit 0 recorded · 2 misuse (no spec.md, no contracts, malformed findings).
 // There is no exit 1: findings are not a failure, they are the deliverable.
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent } from "../../../src/guard-log.ts";
@@ -106,6 +106,36 @@ export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { 
     [SPEC_RELATIVE]: hashContract(readFileSync(specPath, "utf8")),
   };
   for (const [file, hash] of Object.entries(contracts)) reviewed[file] = hash;
+  const context = join(cwd, "CONTEXT.md");
+  if (existsSync(context)) reviewed["CONTEXT.md"] = hashContract(readFileSync(context, "utf8"));
+  const adrs = join(cwd, "ADRs");
+  if (existsSync(adrs)) {
+    for (const entry of readdirSync(adrs, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        const path = `ADRs/${entry.name}`;
+        reviewed[path] = hashContract(readFileSync(join(adrs, entry.name), "utf8"));
+      }
+    }
+  }
+  const baseline = join(cwd, ".bounded/change-baseline.json");
+  if (existsSync(baseline)) reviewed[".bounded/change-baseline.json"] = hashContract(readFileSync(baseline, "utf8"));
+  // Composition determines which project rules and delivery obligations are
+  // active. Review freshness is based on design surface, so use one identity
+  // key per selected pack: adding or removing a pack stales the review, while
+  // edits to ordinary reviewed prose remain fresh.
+  const composition = join(cwd, ".bounded/composed-packs.json");
+  if (existsSync(composition)) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(composition, "utf8")) as unknown;
+    } catch {
+      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
+    }
+    if (!Array.isArray(raw) || raw.some((pack) => typeof pack !== "string")) {
+      return { ok: false, reason: "invalid-composition", error: "project composition is malformed and cannot be reviewed" };
+    }
+    for (const pack of [...raw].sort()) reviewed[`composition:${pack}`] = hashContract(pack);
+  }
   return { ok: true, reviewed };
 }
 

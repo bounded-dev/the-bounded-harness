@@ -286,6 +286,13 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
     return misuse(`surface checker source not found at '${checkerSource}'`);
   }
 
+  let registry;
+  try {
+    registry = composedPacks(cwd);
+  } catch (error) {
+    return block("composition", error instanceof Error ? error.message : String(error));
+  }
+
   // --- 1. dead red-phase scaffolding ---
   const errorsAbs = join(cwd, ERRORS_REL);
   if (!existsSync(errorsAbs)) {
@@ -548,7 +555,7 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   // in — and placed before step 9 so the project's own check (which step 9
   // runs) actually exercises what was folded.
   {
-    const scripts = composedPacks()
+    const scripts = registry
       .read(deliverChecks)
       .map((check) => check.checkScript?.(cwd))
       .filter((s): s is NonNullable<typeof s> => s !== undefined);
@@ -697,11 +704,11 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   // red `npm run check` returns above, so these verdicts appear once the repo
   // is green.
   {
-    const checks = composedPacks().read(deliverChecks);
+    const checks = registry.read(deliverChecks);
     for (const check of checks) {
       let outcome: DeliverCheckResult;
       try {
-        outcome = check.run(cwd);
+        outcome = check.run(cwd, registry.packs);
       } catch (e) {
         // A check that crashed verified nothing, and "nothing verified" is not
         // a pass. The pack's name is in the step, so the fix has an owner.

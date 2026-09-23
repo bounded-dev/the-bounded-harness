@@ -3,14 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import { mergedContribution, specTechNouns } from "./pack-contrib.ts";
-
-// TN-26-005: the core owns sockets, packs own content. This module is the
-// merge point — a harness composed without a pack simply lacks that pack's
-// contributions, and nothing here ever throws a run off the road.
+import { writeProjectPacks } from "./project-composition.ts";
 
 const tmpDirs: string[] = [];
 afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-
 function packsDir(packs: Record<string, string | undefined>): string {
   const dir = mkdtempSync(join(tmpdir(), "contrib-"));
   tmpDirs.push(dir);
@@ -21,68 +17,60 @@ function packsDir(packs: Record<string, string | undefined>): string {
   return dir;
 }
 
-describe("mergedContribution", () => {
-  test("merges across packs, deduplicates, sorts", () => {
+describe("selected data contributions", () => {
+  test("merges selected packs, deduplicates, sorts, ignores installed peers", () => {
     const dir = packsDir({
-      ts: '{"specTechNouns": ["graphql", "ajv"]}',
-      py: '{"specTechNouns": ["flask", "graphql"]}',
+      language: '{"nouns":["b","a"]}',
+      stack: '{"nouns":["b","c"]}',
+      unused: '{"nouns":["leak"]}',
     });
-    expect(mergedContribution("specTechNouns", dir)).toEqual(["ajv", "flask", "graphql"]);
+    expect(mergedContribution("nouns", ["language", "stack"], dir)).toEqual(["a", "b", "c"]);
+    expect(mergedContribution("nouns", ["language"], dir)).toEqual(["a", "b"]);
   });
-
-  test("a pack without a manifest, or with a malformed one, contributes nothing", () => {
-    const dir = packsDir({
-      ts: '{"specTechNouns": ["graphql"]}',
-      bare: undefined,
-      broken: "{not json",
-      wrongType: '{"specTechNouns": "graphql"}',
-    });
-    expect(mergedContribution("specTechNouns", dir)).toEqual(["graphql"]);
+  test.each([undefined, "{bad json", "null", "[]", '{"nouns":"x"}', '{"nouns":["x",4]}', '{"nouns":[""]}'])(
+    "refuses invalid selected manifest %s", (manifest) => {
+      const dir = packsDir({ selected: manifest });
+      expect(() => mergedContribution("nouns", ["selected"], dir)).toThrow(/Selected pack/);
+    },
+  );
+  test("an absent optional field contributes nothing", () => {
+    expect(mergedContribution("nouns", ["selected"], packsDir({ selected: "{}" }))).toEqual([]);
   });
-
-  test("no packs directory at all contributes nothing — never a throw", () => {
-    expect(mergedContribution("specTechNouns", "/nonexistent/packs")).toEqual([]);
+  test("malformed unselected manifests have zero effect", () => {
+    const dir = packsDir({ selected: '{"nouns":["x"]}', unused: "{bad json" });
+    expect(mergedContribution("nouns", ["selected"], dir)).toEqual(["x"]);
   });
-
-  test("non-string and empty entries are dropped", () => {
-    const dir = packsDir({ ts: '{"specTechNouns": ["graphql", 4, "", null]}' });
-    expect(mergedContribution("specTechNouns", dir)).toEqual(["graphql"]);
+  test("rejects paths masquerading as names", () => {
+    expect(() => mergedContribution("nouns", ["../outside"])).toThrow(/Invalid pack name/);
+  });
+  test("unknown selected pack cannot silently weaken policy", () => {
+    expect(() => mergedContribution("nouns", ["missing"], packsDir({}))).toThrow(/missing/);
+  });
+  test("a selected data pack cannot leave its dependency uncomposed", () => {
+    const dir = packsDir({ web: '{"dependsOnPacks":["language"],"nouns":["web"]}' });
+    expect(() => mergedContribution("nouns", ["web"], dir)).toThrow(/dependsOnPacks/);
   });
 });
 
-describe("the real installed packs", () => {
-  test("the ts pack contributes the non-blessed stack nouns", () => {
-    const nouns = specTechNouns();
-    expect(nouns).toContain("graphql");
-    expect(nouns).toContain("ajv");
-    // The blessed stacks are NOT on the list — they are policy, not a leak.
-    expect(nouns).not.toContain("zod");
-    expect(nouns).not.toContain("trpc");
+describe("real pack content follows project composition", () => {
+  test("intake nouns change with selection, without a process-wide cache", () => {
+    const cwd = packsDir({});
+    writeProjectPacks(cwd, ["ts"]);
+    expect(specTechNouns(cwd)).toContain("graphql");
+    expect(specTechNouns(cwd)).not.toContain("vue");
+    writeProjectPacks(cwd, ["ts", "ts-web"]);
+    expect(specTechNouns(cwd)).toContain("vue");
+    expect(specTechNouns(cwd)).not.toContain("react");
   });
-});
-
-describe("the ts-web pack manifest", () => {
-  test("contributes the component return types the scaffolder consumes", () => {
-    const names = mergedContribution("componentReturnTypes");
-    expect(names).toContain("ReactElement");
-    expect(names).toContain("JSX.Element");
+  test("component names exist only when web is selected", () => {
+    expect(mergedContribution("componentReturnTypes", ["ts"])).toEqual([]);
+    expect(mergedContribution("componentReturnTypes", ["ts", "ts-web"])).toContain("ReactElement");
   });
-
-  test("names its project-init script for scaffold-time composition", () => {
-    // Per-pack, path-relative — hosts read each composed pack's manifest
-    // individually (a merged view would lose the pack the path is relative to).
-    const manifest = JSON.parse(
-      readFileSync(join(import.meta.dirname, "..", "packs", "ts-web", "contrib.json"), "utf8"),
-    ) as { projectInitScripts?: string[] };
+  test("missing selection refuses intake", () => {
+    expect(() => specTechNouns(packsDir({}))).toThrow(/bounded compose/);
+  });
+  test("web declares its project-init script", () => {
+    const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "packs", "ts-web", "contrib.json"), "utf8"));
     expect(manifest.projectInitScripts).toEqual(["scripts/new-web-app.ts"]);
-  });
-
-  test("contributes web-framework nouns to the intake denylist", () => {
-    const nouns = specTechNouns();
-    expect(nouns).toContain("vue");
-    expect(nouns).toContain("styled-components");
-    // The blessed web stack is policy, not a leak.
-    expect(nouns).not.toContain("react");
-    expect(nouns).not.toContain("tailwind");
   });
 });

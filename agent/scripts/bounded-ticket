@@ -62,4 +62,4 @@ fi
 # `setActiveTools` only deactivates it. Keep both; keep this list equal to
 # FORBIDDEN_TOOLS.architect in src/path-policy.ts (pinned by
 # src/path-gate-tool-strip.test.ts).
-exec pi --extension "$GATE" --exclude-tools bash,run_tests,record_design_review "$@"
+exec pi --extension "$GATE" --exclude-tools bash,change_diff,run_tests,record_design_review "$@"

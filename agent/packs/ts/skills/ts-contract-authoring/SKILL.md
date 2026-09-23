@@ -11,7 +11,7 @@ the builder implements. Contracts are written by the architect; skeletons are
 **machine-generated** from them; the contract file itself is never edited by
 the builder.
 
-**A complete worked example lives at `packs/ts/reference/` — read it before
+**A complete worked example lives at `packs/ts/reference/README.md` — read it before
 writing your first contract.** It is a gate-verified component (contract, value
 objects, tests, implementation) in a neutral domain, kept green by CI (TN-26-008).
 Copy the *shape* — nominal value-object class, one value object per file,

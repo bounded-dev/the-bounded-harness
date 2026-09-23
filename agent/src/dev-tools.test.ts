@@ -87,6 +87,7 @@ function callRemove(ctxCwd: string, params: { path: string; cwd?: string }): Pro
 describe("dev-tools registration surface", () => {
   test("registers exactly the developer-stage worker tools", () => {
     expect([...TOOLS.keys()].sort()).toEqual([
+      "change_diff",
       "record_design_review",
       "remove",
       "run_tests",

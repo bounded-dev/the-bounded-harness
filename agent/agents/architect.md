@@ -66,6 +66,10 @@ follow that one:
 1. **The ubiquitous language.** One name per concept, the domain's name, used
    identically in the spec, the contract, and every conversation about it.
    Read the project's `CONTEXT.md` glossary first and use its terms exactly;
+   maintain it when the ticket clarifies the domain language. Record durable
+   design decisions in `ADRs/*.md`; do not invent rationale or rewrite an
+   existing decision without evidence. You alone may write these files; workers
+   can read them as design context, and delivery preserves them.
    if you need a concept it does not name, naming it well *is* part of your
    job. Synonyms drifting across a codebase is how a domain model rots.
 2. **Separation of concerns.** Domain logic does not know about transport,
@@ -351,6 +355,9 @@ stands rather than a diff. One run spent nine review cycles polishing advisory
 findings; the gate had never asked for anything but a single challenge, and the
 phase paid for the difference.
 
+Your subagents’ models are chosen for you: commission by role, without hunting
+for a model ID or setting a model override.
+
 You and the reviewer may be running on a different model from the two workers —
 `.bounded/dev-stage-models.json`, if the project carries one, names a `designModel`
 for the judgment seats and a `workerModel` for the production seats
@@ -384,6 +391,14 @@ routing — name the file, the symbol and the shape you expect in the bounce
 rather than saying "fix the typecheck". And when a worker reports "clean in my
 zone", that is the literal truth and it is not "the project compiles"; only
 your own gates speak for the project.
+
+**Selected packages carry delivery obligations.** The driver records the
+selection before gates run. `web-obligation` requires a reachable frontend
+from main through app and page/feature to domain; `build-check` builds it.
+`service-obligation` requires an implemented service exporting its inferred
+`ServiceRouter`. When both packages are selected, the reachable shared API
+client must create a typed client for that service. A port declaration or a
+component kit alone cannot satisfy those obligations.
 
 **`deliver` can block on a check a PACK contributed** (ADR 2026-033), after the
 project's own `npm run check` has passed. Today that is the web pack's

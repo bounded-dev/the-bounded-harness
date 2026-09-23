@@ -307,7 +307,15 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   // layer only performs the side effect the pure core may not, which is writing
   // what happened to the target project's guard log.
   if (ev.toolName === "subagent") {
-    const verdict = checkSubagentCall(ev.input, gatherEvidence(ev.cwd, ev.known));
+    let evidence: PhaseEvidence;
+    try {
+      evidence = gatherEvidence(ev.cwd, ev.known);
+    } catch (error) {
+      const reason = `phase-gate: ${error instanceof Error ? error.message : String(error)}`;
+      logGuardEvent(ev.cwd, { guard: "phase-gate", verdict: "block", summary: reason });
+      return { block: true, reason };
+    }
+    const verdict = checkSubagentCall(ev.input, evidence);
     switch (verdict.kind) {
       case "children-listed":
         // Consulting the retained-children list is what licenses a later cold
@@ -430,7 +438,7 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
     specText,
     events,
     models: readDevStageModels(cwd),
-    techNouns: specTechNouns(),
+    techNouns: specTechNouns(cwd),
     ...(known !== undefined ? { known } : {}),
   };
 }

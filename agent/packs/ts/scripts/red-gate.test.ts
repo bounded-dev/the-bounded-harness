@@ -1,8 +1,9 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
+  mkdtempSync as createTempDir,
   readFileSync,
   readdirSync,
   rmSync,
@@ -936,3 +937,10 @@ describe("red against a live tree the builder has already implemented", () => {
     expect(r.stdout).toContain("red-gate: route → test-writer");
   });
 });
+
+// Existing fixtures exercise the previously installed language and web rules.
+function mkdtempSync(prefix: string): string {
+  const dir = createTempDir(prefix);
+  writeProjectPacks(dir, ["ts", "ts-web"]);
+  return dir;
+}

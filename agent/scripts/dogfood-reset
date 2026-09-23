@@ -8,6 +8,7 @@
 #
 #   dogfood-reset --design-model <pattern>   # the judgment seats' model
 #   dogfood-reset --worker-model <pattern>   # the production seats' model
+#   dogfood-reset --smoke-models             # opt in to a paid deployment probe
 #
 # The two model flags set the harnessed arm's per-project model tiers (issue
 # #13): `designModel` is what the architect and the reviewer run on,
@@ -17,9 +18,9 @@
 # Either flag may be given alone; whichever is omitted leaves that tier on the
 # session default. Both are written to `.bounded/dev-stage-models.json` in the
 # harnessed arm and echoed in the summary, so the run's configuration is
-# visible rather than remembered — and both are VERIFIED against the live model
-# registry before the reset is declared done, because a pattern that resolves
-# to nothing is a seat that cannot be commissioned. They do nothing for the
+# visible rather than remembered. Registry membership is checked before reset;
+# it does not prove deployment. --smoke-models additionally makes one short paid
+# request per distinct tier, before either arm is touched. They do nothing for the
 # bare arm, which has no pipeline seats to tier.
 #
 # Reset one arm when the other is mid-run: a run dies for one-sided reasons
@@ -75,6 +76,7 @@ REPO="$(cd -P "$HARNESS/.." && pwd)"
 WHICH=both
 DESIGN_MODEL=""
 WORKER_MODEL=""
+SMOKE_MODELS=false
 # Packs the harnessed arm composes beyond the implicit ts pack (TN-26-005:
 # composition is per project). This script stays content-free: everything a
 # composed pack needs at scaffold time — dependency pins, project-init
@@ -89,6 +91,7 @@ while [ $# -gt 0 ]; do
     --harnessed) WHICH=harnessed ;;
     --bare)      WHICH=bare ;;
     --both)      WHICH=both ;;
+    --smoke-models) SMOKE_MODELS=true ;;
     --design-model)
       shift; [ $# -gt 0 ] || { echo "dogfood-reset: --design-model needs a pi model pattern" >&2; exit 2; }
       DESIGN_MODEL="$1" ;;
@@ -106,6 +109,13 @@ done
 # Only the harnessed arm has seats to tier. Saying so beats a silent no-op.
 if [ "$WHICH" = "bare" ] && { [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; }; then
   echo "dogfood-reset: --design-model/--worker-model apply to the harnessed arm only — ignored" >&2
+fi
+
+# Deployment failures must precede prompt rendering, archiving and arm deletion.
+if [ "$SMOKE_MODELS" = true ]; then
+  [ "$WHICH" != bare ] || { echo "dogfood-reset: --smoke-models requires a harnessed arm" >&2; exit 2; }
+  echo "dogfood-reset: smoke-checking explicit model tiers (paid provider requests; 60s limit per tier)"
+  node "$AGENT/scripts/lib/model-smoke.mjs" "$DESIGN_MODEL" "$WORKER_MODEL"
 fi
 
 PROMPT_SRC="${ARGS[0]:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
@@ -233,6 +243,15 @@ check_model_pattern() {
     exit 1
   fi
 }
+
+# Model IDs must be valid before autosave or scaffold can touch either arm.
+if [ "$WHICH" != bare ]; then
+  check_model_pattern --design-model "$DESIGN_MODEL"
+  check_model_pattern --worker-model "$WORKER_MODEL"
+  if [ "$SMOKE_MODELS" = false ] && { [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; }; then
+    echo "dogfood-reset: model deployment not checked; use --smoke-models to check deployment (paid requests)" >&2
+  fi
+fi
 
 write_models_json() {
   local path="$1" design="$2" worker="$3" body=""
@@ -362,13 +381,10 @@ compose_pack() {
 
 if [ "$WHICH" != "bare" ]; then
   scaffold "$HARNESSED" "$HARNESSED_LINE"
+  # Record every selection, including the base-only case, before pack init.
+  bash "$AGENT/scripts/bounded" compose --cwd "$HARNESSED" ts "${COMPOSE_PACKS[@]}"
   if [ ${#COMPOSE_PACKS[@]} -gt 0 ]; then
     for PACK in "${COMPOSE_PACKS[@]}"; do compose_pack "$HARNESSED" "$PACK"; done
-    # The composition record (TN-26-005): v1 is a sidecar file; folding it
-    # into pi's settings.json is the recorded direction once pi packages and
-    # harness packs converge.
-    mkdir -p "$HARNESSED/.bounded"
-    python3 -c "import json,sys; print(json.dumps({'composedPacks': ['ts'] + sys.argv[1:]}))" "${COMPOSE_PACKS[@]}" > "$HARNESSED/.bounded/composed-packs.json"
     ( cd "$HARNESSED" && git add -A && git commit -q -m "Compose packs: ${COMPOSE_PACKS[*]}" )
   fi
   # Only the harnessed arm is gated. The role is read from this file at session
@@ -382,10 +398,6 @@ if [ "$WHICH" != "bare" ]; then
   # the session default, which is the pre-#13 behaviour and a valid arm.
   if [ -n "$DESIGN_MODEL" ] || [ -n "$WORKER_MODEL" ]; then
     write_models_json "$HARNESSED/.bounded/dev-stage-models.json" "$DESIGN_MODEL" "$WORKER_MODEL"
-    # Written, then verified against the live registry: a pattern that resolves
-    # to nothing is refused here rather than discovered at the first spawn.
-    check_model_pattern --design-model "$DESIGN_MODEL"
-    check_model_pattern --worker-model "$WORKER_MODEL"
   fi
   ( cd "$HARNESSED" && git add -A && git commit -q --amend --no-edit )
 fi

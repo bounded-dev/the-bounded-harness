@@ -195,7 +195,7 @@ describe("architect tool registration matches the path policy", () => {
   });
 
   // The worker roles must never be handed one of these by a copy-paste.
-  test("no gate tool leaks into a worker role's allowlist", () => {
+  test("no architect gate leaks into a worker role's allowlist", () => {
     for (const role of ["test-writer", "builder", "reviewer"] as const) {
       for (const gate of [...GATE_TOOLS, ...ARCHITECT_UTILITY_TOOLS, "git", "subagent"]) {
         expect(ROLE_TOOLS[role], `${role} must not hold '${gate}'`).not.toContain(gate);
@@ -213,6 +213,13 @@ describe("architect tool registration matches the path policy", () => {
       expect(ROLE_TOOLS[role], `${role} must not hold 'record_design_review'`).not.toContain(
         "record_design_review",
       );
+    }
+  });
+
+  test("change_diff is a read-only reviewer capability", () => {
+    expect(ROLE_TOOLS.reviewer).toContain("change_diff");
+    for (const role of ["architect", "test-writer", "builder"] as const) {
+      expect(ROLE_TOOLS[role], `${role} must not hold 'change_diff'`).not.toContain("change_diff");
     }
   });
 

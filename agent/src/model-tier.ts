@@ -191,7 +191,9 @@ export function spawnTarget(input: Readonly<Record<string, unknown>>): string | 
 }
 
 /**
- * Does the live registry know this pattern?
+ * Does the live registry list this pattern? This is catalog membership only,
+ * not deployment or credential validation. Use dogfood-reset --smoke-models
+ * for an explicit live probe before a run.
  *
  * A deliberately small matcher: exact `provider/id`, or a bare id that exactly
  * one available model offers. pi-subagents matches far more loosely (separator

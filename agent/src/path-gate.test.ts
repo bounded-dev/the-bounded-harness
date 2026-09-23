@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeProjectPacks } from "./project-composition.ts";
+import { mkdirSync, mkdtempSync as createTempDir, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -431,3 +432,10 @@ describe("a tier the registry cannot resolve", () => {
     ).toBeUndefined();
   });
 });
+
+// Existing fixtures exercise the previously installed language and web rules.
+function mkdtempSync(prefix: string): string {
+  const dir = createTempDir(prefix);
+  writeProjectPacks(dir, ["ts", "ts-web"]);
+  return dir;
+}

@@ -112,6 +112,7 @@ const FULL_TOOLSET = [
   "typecheck",
   "run_tests",
   "record_design_review",
+  "change_diff",
   "subagent",
   "git",
   "sleep",
@@ -144,9 +145,9 @@ describe("planToolStrip", () => {
     }
   });
 
-  test("the architect loses bash, run_tests and record_design_review — the three it actually reached for", () => {
+  test("the architect loses bash, reviewer tools and run_tests", () => {
     const strip = planToolStrip("architect", FULL_TOOLSET);
-    expect([...strip!.hidden].sort()).toEqual(["bash", "record_design_review", "run_tests"]);
+    expect([...strip!.hidden].sort()).toEqual(["bash", "change_diff", "record_design_review", "run_tests"]);
     // ...and keeps the substitutes its refusals name.
     for (const kept of ["git", "typecheck", "red_gate", "green_gate", "subagent"]) {
       expect(strip!.active).toContain(kept);
@@ -243,7 +244,7 @@ describe("the strip at session start", () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.guard).toBe("path-gate");
     expect(events[0]!.verdict).toBe("pass");
-    expect(events[0]!.summary).toBe("hid bash, run_tests, record_design_review from architect");
+    expect(events[0]!.summary).toBe("hid bash, run_tests, record_design_review, change_diff from architect");
     expect(events[0]!.detail).toMatchObject({ role: "architect" });
   });
 

@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -211,8 +212,9 @@ function runCli(cwd: string, args: string[]) {
 describe("contract-purity CLI", () => {
   test("exit 0 with an OK summary for clean contracts", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-ok-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-    writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
+      writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/contract-purity: OK \(1 file\)/);
@@ -224,8 +226,9 @@ describe("contract-purity CLI", () => {
 
   test("exit 1 with greppable problem lines for impure contracts", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-bad-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-    writeFileSync(join(dir, "bad.contract.ts"), "import { Pool } from 'pg';\n");
+      writeFileSync(join(dir, "bad.contract.ts"), "import { Pool } from 'pg';\n");
     const r = runCli(dir, ["**/*.contract.ts"]);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(
@@ -242,8 +245,9 @@ describe("contract-purity CLI", () => {
 
   test("runs when invoked through a symlink (the ~/.pi/agent case)", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-symlink-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-    writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
+      writeFileSync(join(dir, "good.contract.ts"), GOOD_CONTRACT);
     const link = join(dir, "contract-purity.link.ts");
     symlinkSync(SCRIPT, link);
     const r = spawnSync(process.execPath, [link, "**/*.contract.ts"], { cwd: dir, encoding: "utf8" });
@@ -253,8 +257,9 @@ describe("contract-purity CLI", () => {
 
   test("exit 2 when no contract files match (silence is not success)", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-none-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-    const r = runCli(dir, ["src/**/*.contract.ts"]);
+      const r = runCli(dir, ["src/**/*.contract.ts"]);
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/contract-purity: no files matched/);
     expect(readGuardLog(dir)[0]).toMatchObject({ guard: "contract-purity", verdict: "error" });
@@ -265,8 +270,9 @@ describe("contract-purity CLI", () => {
   // even an impure one. The zone overlaps no gate that globs the project.
   test("the default src scope never scans the scratch zone, impure or not", () => {
     const dir = mkdtempSync(join(tmpdir(), "purity-scratch-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
-    mkdirSync(join(dir, "scratch"), { recursive: true });
+      mkdirSync(join(dir, "scratch"), { recursive: true });
     writeFileSync(join(dir, "scratch", "probe.contract.ts"), "import { Pool } from 'pg';\n");
     const r = runCli(dir, ["src/**/*.contract.ts"]);
     expect(r.status).toBe(2); // no files matched — scratch is outside src/**

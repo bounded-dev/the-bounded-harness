@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,6 +166,7 @@ roles must agree on that TypeScript cannot say.
 
 function fixtureRepo(prefix: string, contract: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  writeProjectPacks(dir, ["ts"]);
   tmpDirs.push(dir);
   mkdirSync(join(dir, "src", "money"), { recursive: true });
   writeFileSync(join(dir, "src", "money", "money.contract.ts"), contract);

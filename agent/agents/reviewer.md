@@ -4,7 +4,7 @@ description: Developer-stage reviewer subagent (TN-26-001). A fresh mind that re
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, typecheck, record_design_review
+tools: read, grep, find, ls, change_diff, typecheck, record_design_review
 subagentOnlyExtensions: ~/.pi/agent/hosts/pi/extensions/path-gate/reviewer.ts
 async: true
 ---
@@ -39,7 +39,9 @@ case you can and record it — not to be agreed with.
 Do not orient with `ls .` or `find .` — the project root overlaps `.git`, which
 is denied to every role. Go straight to `spec.md` and the contract paths named
 in your prompt, and `ls src` for the rest. Use `typecheck` to check a claim
-against the real tree before you assert it.
+against the real tree before you assert it. On a change run, call `change_diff`
+first and challenge the changes to the spec, contracts and project knowledge
+against the full current design.
 
 ## The checklist
 

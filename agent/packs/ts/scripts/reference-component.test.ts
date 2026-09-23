@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 // The gate-verified reference component (TN-26-008).
 //
 // packs/ts/reference/ is a complete, copyable worked example in a neutral domain
@@ -105,6 +106,7 @@ function freshCopy(): string {
     recursive: true,
     filter: (src) => !/[\\/](?:node_modules|\.bounded|\.vite|\.git)(?:[\\/]|$)/.test(src),
   });
+  writeProjectPacks(dir, ["ts"]);
   symlinkSync(HARNESS_MODULES, join(dir, "node_modules"), "dir");
   return dir;
 }

@@ -104,6 +104,12 @@ work status. Temporary agent working files live in the repo's `.agent-state/`
 
 ## Git workflow — trunk-based
 
+- **Independent review before landing.** Every non-trivial harness change
+  follows [the harness review workflow](docs/harness-workflow.md): a fresh
+  read-only agent or another contributor reviews the final diff, the driver
+  resolves findings and records the checks and review evidence. This is a
+  working agreement, not an automated merge gate (ADR 2026-038).
+
 - Work happens in worktrees, each on a local branch (created automatically).
 - Local branches always track `main`; **"push" means push to remote `main`**
   unless explicitly told otherwise.

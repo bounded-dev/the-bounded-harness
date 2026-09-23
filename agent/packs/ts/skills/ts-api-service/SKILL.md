@@ -8,7 +8,9 @@ description: Design a TypeScript API service component the reference way — exp
 A ticket that says "expose this to the frontend" — in any words, naming any
 technology or none — lands here. **The stack is harness policy, not ticket
 content** (ADR 2026-029): tRPC (`@trpc/server`) is the RPC stack, zod the
-schema engine, both pre-installed and pinned. A ticket that names a different
+schema engine, both pinned by the `ts-service` package. The driver must select
+`ts-service` with `bounded compose --cwd <project> ts ts-service` before gates
+run (include `ts-web` too for a frontend). A ticket that names a different
 stack is the intake rule's constraint case (ADR 2026-032): strip it, record
 it in `spec.md`'s `## Intake` section, and if it is a genuine constraint —
 an existing gateway, a contractual format — raise it to the user; never
@@ -17,6 +19,12 @@ build it.
 The structure below is the same in every service the harness ships. Your
 design decisions are *which operations exist and what they are called*;
 everything else is fixed, and most of it is enforced.
+
+Delivery runs `service-obligation`: an implemented service must export its
+inferred `ServiceRouter`. With `ts-web` also selected, the reachable frontend
+must use `src/ui/shared/api/client.tsx` calling
+`createTRPCClient<ServiceRouter>` for that service. A persistence port alone
+does not deliver a network service.
 
 ## The component's shape
 

@@ -18,5 +18,10 @@
     "class-validator",
     "valibot",
     "arktype"
-  ]
+  ],
+  "projectCommands": {
+    "adopt": "scripts/adopt.ts",
+    "change-diff": "scripts/change-diff.ts",
+    "capture-baseline": "scripts/capture-baseline.ts"
+  }
 }

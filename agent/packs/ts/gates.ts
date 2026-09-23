@@ -176,6 +176,25 @@ export const gates: readonly GateCommand[] = [
     },
   },
   {
+    name: "change-diff",
+    tool: "change_diff",
+    promptSnippet: "Review the current design against its adopted or last-delivered baseline.",
+    description:
+      "Show a unified diff of spec.md, component contracts, CONTEXT.md and ADRs against the project's adopted or last-delivered baseline. The reviewer should call this before recording a review on a change run; it does not edit files or create gate evidence.",
+    flags: [],
+    async run(cwd) {
+      const { designDiff } = await import("./scripts/change-diff.ts");
+      const diff = designDiff(cwd);
+      return {
+        code: 0,
+        verdict: "pass",
+        summary: `change diff: ${diff.paths.length} changed design files`,
+        lines: [...diff.lines],
+        detail: { fingerprint: diff.fingerprint, paths: diff.paths },
+      };
+    },
+  },
+  {
     name: "check-drift",
     tool: "check_drift",
     promptSnippet: "Check whether any contract has moved since it was frozen.",

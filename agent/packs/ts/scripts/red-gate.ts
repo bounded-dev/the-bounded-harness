@@ -73,6 +73,7 @@ import {
   errorsModuleFor,
   scaffoldContract,
   skeletonPathFor,
+  componentTypeNames,
 } from "./scaffold-contract.ts";
 import { computeManifest } from "./checksum-gate.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
@@ -421,6 +422,7 @@ export function shadowProjectDir(cwd: string): string {
  * the verdict independent of whatever the builder has done to the real src/.
  */
 export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan): string {
+  const names = componentTypeNames(cwd);
   const dir = shadowProjectDir(cwd);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -447,7 +449,7 @@ export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan):
     // a component contract's skeleton is a `.tsx` here too (TN-26-006 A1). The
     // shadow is only evidence if it is the project the live scaffold would have
     // produced, and a skeleton at a different path is a different project.
-    const skeleton = join(dir, skeletonPathFor(rel, source));
+    const skeleton = join(dir, skeletonPathFor(rel, source, names));
     mkdirSync(dirname(skeleton), { recursive: true });
     writeFileSync(skeleton, scaffoldContract(source, rel), "utf8");
 

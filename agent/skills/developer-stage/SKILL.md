@@ -33,6 +33,19 @@ There is nothing there to plan around.
 
 Loop granularity is **per component**, not per feature.
 
+Before the first gate, the driver records the project's selected instruction
+packages with `bounded compose --cwd <project> ts [other-pack ...]`. Gates read
+`.bounded/composed-packs.json`; installed packages that are not selected
+contribute no rules. Select `ts-web` for a frontend and `ts-service` for a
+network service, explicitly selecting both when the ticket needs both.
+
+## Project knowledge
+
+The architect owns `CONTEXT.md` and `ADRs/*.md`: keep the domain glossary
+aligned with the ticket and record only decisions the work actually made.
+Workers and reviewers may read these files for context. Delivery retains them
+as authored project documentation.
+
 ## Phases
 
 **DESIGN is a phase; TEST and BUILD are not.** Design alone, then commission
@@ -133,18 +146,24 @@ removes it at the end of the run.
    - the builder implements `src/**` (except contracts), blind to test source,
      debugging through the sanitized `run_tests` tool.
 
-   **Point each worker at the reference (TN-26-008).** It is a gate-verified
+   **Point each worker at `packs/ts/reference/README.md` (TN-26-008).** It is a gate-verified
    worked example inside the harness pack tree, readable like any skill file, so
    naming it in the commission widens no zone. The **test-writer's** brief names
-   the reference *tests* (`packs/ts/reference/tests/` — the `<Name> — boundaries`
+   the reference *tests* (`packs/ts/reference/tests/readings.test.ts` and
+   `packs/ts/reference/tests/celsius.test.ts` — the `<Name> — boundaries`
    blocks and the idempotency/invariant shapes); the **builder's** brief names the
-   reference *implementation* (`packs/ts/reference/src/readings/` — the nominal
+   reference *implementation* (`packs/ts/reference/src/readings/celsius.ts` and
+   `packs/ts/reference/src/readings/readings.ts` — the nominal
    value-object class, the zod-backed `parse`, the contract re-export). Copy the
    shape, not the domain.
 
    Commission them in the same turn — two spawn calls, back to back — and
    there is **no ordering between them**: if you commission the builder only
    after the red passes, you have paid for the sequencing and bought nothing.
+
+   On a change run, the reviewer calls `change_diff` first to inspect the
+   unified spec, contract and project-knowledge changes since adoption or the
+   last delivered run, then reads the full current design as context.
 
    **One child per call, in the plain `subagent` form** (ADR 2026-021). A
    `workflowScript`, `chain` or `parallel` spawn naming a pipeline role is

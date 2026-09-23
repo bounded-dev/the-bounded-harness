@@ -17,6 +17,7 @@
 import { contribute, definePack } from "../../src/socket-registry.ts";
 import { contractPurityOverrides, deliverChecks, lintSrcRules, TS_PACK } from "../ts/pack.ts";
 import { buildCheckScript, BOOTSTRAP_RELATIVE, runBuildCheck } from "./scripts/build-check.ts";
+import { runWebObligation } from "./scripts/web-obligation.ts";
 import { runThemeCheck, THEME_RELATIVE } from "./scripts/theme-check.ts";
 import { clientOneDoor } from "./eslint/rules/client-one-door.ts";
 import { fsdDownwardImports } from "./eslint/rules/fsd-downward-imports.ts";
@@ -136,12 +137,17 @@ export const tsWebPack = definePack({
     // the check says so and passes.
     contribute(deliverChecks, [
       {
+        name: "web-obligation",
+        description: "ts-web requires a reachable browser entry, app, page or feature, and domain implementation",
+        run: runWebObligation,
+      },
+      {
         name: "theme-check",
         description:
           `every token the generated kit styles through is still defined in ${THEME_RELATIVE}, ` +
           "and every declared foreground/background pair reaches WCAG AA contrast — in the base " +
           "theme and in each colour-scheme variant",
-        run: runThemeCheck,
+        run: (cwd) => runThemeCheck(cwd),
       },
       // --- the build gate (dogfood Run 29, Fix 2) -----------------------
       //
@@ -159,7 +165,7 @@ export const tsWebPack = definePack({
         description:
           `the web bootstrap (${BOOTSTRAP_RELATIVE}) resolves and the composed stack's build is folded ` +
           "into the project's own check, so a delivered web app that does not build cannot pass",
-        run: runBuildCheck,
+        run: (cwd) => runBuildCheck(cwd),
         checkScript: buildCheckScript,
       },
     ]),

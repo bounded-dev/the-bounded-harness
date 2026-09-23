@@ -74,9 +74,14 @@ seat was actually spawned — wasting two resets. The fix, and the rule:
 - The tier check (`patternIsKnown`, src/model-tier.ts) only confirms the
   pattern is in the registry list, **not** that it serves — so a
   listed-but-undeployed model passes every gate and fails only at the
-  runtime spawn. Until that check is tightened, a one-shot smoke spawn (or
-  a trivial `pi -p` call on the pattern) is the cheap way to surface a 404
-  in seconds rather than mid-run.
+  runtime spawn. For a new tier selection use
+  `bounded dogfood-reset --smoke-models --design-model <pattern> --worker-model <pattern>`.
+  This explicitly opts in to one short paid request per distinct configured
+  tier, with a 60-second timeout, before either arm is archived or reset.
+  A failed, empty or timed-out response stops the reset. Tools, extensions,
+  skills, context files and session persistence are disabled for the probe.
+  An ordinary reset checks catalog membership only. A successful probe proves
+  access at that moment; it does not guarantee later availability.
 
 When a broken tier IS reached at runtime, the architect cannot paper over
 it: `.bounded/` is read-only for every role, so an agent that tries to

@@ -21,25 +21,25 @@
 // project passing its own list here, not a rewrite of the gates.
 
 import { composePacks, type PackDefinition, type SocketRegistry } from "../src/socket-registry.ts";
+import { readProjectPacks } from "../src/project-composition.ts";
+import { tsServicePack } from "./ts-service/pack.ts";
 import { tsPack } from "./ts/pack.ts";
 import { tsWebPack } from "./ts-web/pack.ts";
 
 /** Every pack installed in this harness, in no particular order — the registry
  *  sorts and dependency-orders them itself. */
-export const INSTALLED_PACKS: readonly PackDefinition[] = Object.freeze([tsPack, tsWebPack]);
+export const INSTALLED_PACKS: readonly PackDefinition[] = Object.freeze([tsPack, tsWebPack, tsServicePack]);
 
 let memo: SocketRegistry | undefined;
 
-/**
- * The composed registry every gate reads.
- *
- * v1 composes every installed pack, which is the harness's own answer to "which
- * packs does this project use?" while there is one harness and two packs. The
- * moment a project records its own list (`.pi/settings.json`, TN-26-005), the
- * change is `composePacks(INSTALLED_PACKS, thatList)` at this one function —
- * every consumer already reads through the socket and needs no edit at all.
- */
-export function composedPacks(): SocketRegistry {
+/** Installed definitions for harness introspection; never a project default. */
+export function installedPacks(): SocketRegistry {
   memo ??= composePacks(INSTALLED_PACKS);
   return memo;
+}
+
+/** Every project gate reads the same explicit selection. No process cache:
+ * a selection can change between calls, and two projects can share a process. */
+export function composedPacks(cwd: string): SocketRegistry {
+  return composePacks(INSTALLED_PACKS, readProjectPacks(cwd));
 }

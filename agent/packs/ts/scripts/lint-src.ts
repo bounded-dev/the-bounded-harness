@@ -47,7 +47,7 @@ export type { Problem };
 import parser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import harnessPlugin from "../eslint/index.ts";
-import { composedPacks } from "../../installed.ts";
+import { composedPacks, installedPacks } from "../../installed.ts";
 import { lintSrcRuleId, lintSrcRules, type LintSrcRuleContribution } from "../pack.ts";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
@@ -122,8 +122,8 @@ export const TEST_RULE_IDS: readonly string[] = SRC_RULE_IDS.filter(
 // before the socket existed. That is the property the whole design is for.
 
 /** Every rule contributed to this gate by a composed pack, in pack order. */
-export function contributedSrcRules(): readonly LintSrcRuleContribution[] {
-  return composedPacks().read(lintSrcRules);
+export function contributedSrcRules(cwd?: string): readonly LintSrcRuleContribution[] {
+  return (cwd === undefined ? installedPacks() : composedPacks(cwd)).read(lintSrcRules);
 }
 
 /** Their ids (`<plugin>/<name>`), paired with the brief that must name each —
@@ -138,9 +138,9 @@ export function contributedSrcRuleIds(): readonly { id: string; namedIn: string 
  *  rather than imported as a ready-made plugin object, so the gate's config is
  *  a function of what was COMPOSED — a pack left out of the composition leaves
  *  no namespace behind for a stale rule id to resolve through. */
-function contributedPlugins(): Record<string, ESLint.Plugin> {
+function contributedPlugins(cwd?: string): Record<string, ESLint.Plugin> {
   const namespaces = new Map<string, Record<string, unknown>>();
-  for (const contribution of contributedSrcRules()) {
+  for (const contribution of contributedSrcRules(cwd)) {
     const rules = namespaces.get(contribution.plugin) ?? {};
     rules[contribution.name] = contribution.rule;
     namespaces.set(contribution.plugin, rules);
@@ -156,9 +156,9 @@ function contributedPlugins(): Record<string, ESLint.Plugin> {
 /** Flat-config `rules` for the contributed rules — every one at "error". A
  *  contributed rule is a gate rule; "warn" would make it advice, and advice is
  *  what the deterministic-check principle exists to replace. */
-function contributedRuleSettings(): Record<string, "error"> {
+function contributedRuleSettings(cwd?: string): Record<string, "error"> {
   const out: Record<string, "error"> = {};
-  for (const contribution of contributedSrcRules()) out[lintSrcRuleId(contribution)] = "error";
+  for (const contribution of contributedSrcRules(cwd)) out[lintSrcRuleId(contribution)] = "error";
   return out;
 }
 
@@ -170,9 +170,9 @@ function contributedRuleSettings(): Record<string, "error"> {
  *  the hard-wired SRC_ONLY_RULES above — registered for the src gate, filtered
  *  out of the tests run — except that it is DERIVED from the contribution
  *  rather than listed in a set the contributing pack cannot see. */
-function contributedSrcOnlyIds(): ReadonlySet<string> {
+function contributedSrcOnlyIds(cwd?: string): ReadonlySet<string> {
   return new Set(
-    contributedSrcRules().filter((c) => c.namedIn === "builder").map((c) => lintSrcRuleId(c)),
+    contributedSrcRules(cwd).filter((c) => c.namedIn === "builder").map((c) => lintSrcRuleId(c)),
   );
 }
 
@@ -210,7 +210,7 @@ export function createSrcLinter(cwd?: string): ESLint {
           "bounded-ts": harnessPlugin as unknown as ESLint.Plugin,
           // Namespaces of packs that depend on ts (TN-26-005). Empty object
           // when nothing was composed — spreading it changes nothing.
-          ...contributedPlugins(),
+          ...contributedPlugins(cwd),
         },
         // The file under inspection does not get a vote on whether it is
         // inspected: no eslint-disable, no inline severity override.
@@ -270,7 +270,7 @@ export function createSrcLinter(cwd?: string): ESLint {
           // Appended LAST, so a contributed rule can never quietly restate one
           // of the ts pack's own at a lower severity: everything above is
           // "error", and everything here is "error" too.
-          ...contributedRuleSettings(),
+          ...contributedRuleSettings(cwd),
         },
       },
     ],
@@ -360,7 +360,7 @@ async function classify(cwd: string, patterns: string[], options: { dropSizeRule
   if (fileCount === 0) return noMatch();
 
   if (options.dropSizeRules) {
-    const srcOnly = contributedSrcOnlyIds();
+    const srcOnly = contributedSrcOnlyIds(cwd);
     for (const r of results) {
       r.messages = r.messages.filter(
         (m) =>

@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { writeProjectPacks } from "../../../src/project-composition.ts";
+import { existsSync, mkdtempSync as createTempDir, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
@@ -14,8 +15,8 @@ import {
   isGeneratedArtifact,
   scaffoldContract,
   runScaffold,
-  skeletonExtensionFor,
-  skeletonPathFor,
+  skeletonExtensionFor as extensionFor,
+  skeletonPathFor as pathFor,
   skeletonSiblingPaths,
   serviceRuntimeTargets,
   shippedServiceRuntimeSource,
@@ -1604,3 +1605,18 @@ export function Badge(props: BadgeProps): ReactElement {
     expect(readFileSync(join(dir, "src/ui/badge.tsx"), "utf8")).toBe(first);
   });
 });
+
+// Existing fixtures exercise the previously installed language and web rules.
+function mkdtempSync(prefix: string): string {
+  const dir = createTempDir(prefix);
+  writeProjectPacks(dir, ["ts", "ts-web"]);
+  return dir;
+}
+
+const webComponentNames = new Set(["ReactElement", "ReactNode", "JSX.Element"]);
+function skeletonExtensionFor(source: string, names = webComponentNames) {
+  return extensionFor(source, names);
+}
+function skeletonPathFor(path: string, source?: string) {
+  return pathFor(path, source, webComponentNames);
+}

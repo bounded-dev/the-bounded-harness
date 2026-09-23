@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { composePacks } from "../src/socket-registry.ts";
-import { composedPacks, INSTALLED_PACKS } from "./installed.ts";
+import { installedPacks, INSTALLED_PACKS } from "./installed.ts";
 import { contractPurityOverrides, lintSrcRules, TS_PACK } from "./ts/pack.ts";
 import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
@@ -13,15 +13,15 @@ import { TS_WEB_PACK } from "./ts-web/pack.ts";
 
 describe("the harness's own composition", () => {
   test("composes without a refusal", () => {
-    expect(() => composedPacks()).not.toThrow();
+    expect(() => installedPacks()).not.toThrow();
   });
 
   test("is memoized — a gate reads the same registry every call", () => {
-    expect(composedPacks()).toBe(composedPacks());
+    expect(installedPacks()).toBe(installedPacks());
   });
 
   test("composes ts before ts-web, because ts-web declares the edge", () => {
-    expect(composedPacks().packs).toEqual([TS_PACK, TS_WEB_PACK]);
+    expect(installedPacks().packs).toEqual([TS_PACK, "ts-service", TS_WEB_PACK]);
   });
 
   // The socket vocabulary is closed and curated (TN-26-005): a socket is born
@@ -30,7 +30,7 @@ describe("the harness's own composition", () => {
   // there is; a new socket appearing here without an ADR behind it is the
   // drift this test exists to make visible.
   test("the ts pack owns every socket, and nothing else defines one", () => {
-    const sockets = composedPacks().sockets;
+    const sockets = installedPacks().sockets;
     expect(sockets.map((s) => s.id)).toEqual([
       "contractPurityOverrides",
       // ADR 2026-033: born with its consumer, deliver's last step.
@@ -46,7 +46,7 @@ describe("the harness's own composition", () => {
   });
 
   test("every socket carries a description — a nameless extension point teaches nobody", () => {
-    for (const socket of composedPacks().sockets) {
+    for (const socket of installedPacks().sockets) {
       expect(socket.description.length, `socket '${socket.id}'`).toBeGreaterThan(20);
     }
   });

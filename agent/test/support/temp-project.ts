@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../src/project-composition.ts";
 // Temp project — a throwaway target directory for a gate test.
 //
 // Two dozen test files each roll their own mkdtemp + writeFileSync + rmSync;
@@ -37,6 +38,7 @@ export function makeTempProject(
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
   }
+  writeProjectPacks(dir, ["ts"]);
   if (options.nodeModules) symlinkSync(HARNESS_NODE_MODULES, join(dir, "node_modules"), "dir");
   return {
     dir,

@@ -414,7 +414,7 @@ describe("block reasons", () => {
       "path-gate: reviewer may not write 'spec.md': reviewer has no write zone — it is read-only, and records what it found with record_design_review",
     );
     expect(reason("architect", "write", "src/orders/orders.ts")).toBe(
-      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts, scratch/**",
+      "path-gate: architect may not write 'src/orders/orders.ts': outside architect write zones — the architect's writable surface is spec.md, CONTEXT.md, ADRs/*.md, src/**/*.contract.ts, tsconfig.json, package.json, vitest.config.ts, vitest.config.js, vitest.config.mts, scratch/**",
     );
     expect(reason("test-writer", "grep")).toBe(
       "path-gate: test-writer may not use unscoped 'grep': pass an explicit path inside your zones",
@@ -784,8 +784,13 @@ describe("remove obeys write zones", () => {
 
 describe("architect may write config files (the orchestrator route)", () => {
   const ctx = { cwd: "/proj" };
-  test("tsconfig, package.json and vitest config are writable", () => {
-    expect(decide("architect", "write", { path: "tsconfig.json" }, ctx).allow).toBe(true);
+  test("project knowledge and config files are writable only by the architect", () => {
+    for (const path of ["CONTEXT.md", "ADRs/2026-001-domain.md", "tsconfig.json", "package.json", "vitest.config.ts"]) {
+      expect(decide("architect", "write", { path }, ctx).allow, path).toBe(true);
+      for (const role of ["test-writer", "builder", "reviewer"] as const) {
+        expect(decide(role, "write", { path }, ctx).allow, `${role}: ${path}`).toBe(false);
+      }
+    }
     expect(decide("architect", "write", { path: "package.json" }, ctx).allow).toBe(true);
     expect(decide("architect", "write", { path: "vitest.config.ts" }, ctx).allow).toBe(true);
   });

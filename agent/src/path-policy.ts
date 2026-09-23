@@ -142,7 +142,7 @@ export const ARCHITECT_UTILITY_TOOLS: readonly string[] = ["sleep", "mutation_sc
 const FORBIDDEN_ALL_ROLES = ["bash"] as const;
 const ARCHITECT_ONLY_TOOLS = ["subagent", "git", ...ARCHITECT_UTILITY_TOOLS] as const;
 const BUILDER_ONLY_TOOLS = ["run_tests"] as const;
-const REVIEWER_ONLY_TOOLS = ["record_design_review"] as const;
+const REVIEWER_ONLY_TOOLS = ["record_design_review", "change_diff"] as const;
 
 /**
  * Tools each role may not call — the backup layer, and now also the input to
@@ -252,6 +252,7 @@ export const GATE_TOOLS: readonly string[] = [
  */
 export const ARTIFACT_GATE_TOOLS: readonly string[] = [
   ...GATE_TOOLS,
+  "change_diff",
   "mutation_score",
   "typecheck",
   "run_tests",
@@ -278,7 +279,7 @@ export const ROLE_TOOLS: Record<Role, readonly string[]> = {
   // No write, no edit, no remove: the reviewer holds no pen but its own. It is
   // commissioned on the spec and the contracts BEFORE they are frozen, and the
   // only mark it leaves is the guard event `record_design_review` writes.
-  reviewer: ["read", "grep", "find", "ls", "typecheck", "record_design_review"],
+  reviewer: ["read", "grep", "find", "ls", "change_diff", "typecheck", "record_design_review"],
 };
 
 // Denied for every role, both directions.
@@ -382,6 +383,8 @@ export const ZONES: Record<Role, Zone> = {
     // so an architect editing package.json cannot weaken a gate.
     writeAllow: [
       "spec.md",
+      "CONTEXT.md",
+      "ADRs/*.md",
       "src/**/*.contract.ts",
       "tsconfig.json",
       "package.json",

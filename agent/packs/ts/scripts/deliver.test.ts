@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -104,6 +105,7 @@ const FRICTION_GUARD_LOG = [
 /** A minimal finished-run-shaped project: package.json + one contract pair. */
 function proj(extra: Record<string, string> = {}, base: Record<string, string> | null = null): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-deliver-"));
+  writeProjectPacks(dir, ["ts"]);
   tmpDirs.push(dir);
   const files: Record<string, string> = base ?? {
     "package.json": PACKAGE_JSON,
@@ -112,7 +114,7 @@ function proj(extra: Record<string, string> = {}, base: Record<string, string> |
     "src/orders/orders.ts": IMPL_TS,
     "src/shared/errors.ts": ERRORS_TS,
   };
-  for (const [rel, content] of Object.entries({ ...files, ...extra })) {
+  for (const [rel, content] of Object.entries({ ".bounded/composed-packs.json": JSON.stringify(["ts"]), ...files, ...extra })) {
     mkdirSync(dirname(join(dir, rel)), { recursive: true });
     writeFileSync(join(dir, rel), content);
   }
@@ -123,6 +125,7 @@ function proj(extra: Record<string, string> = {}, base: Record<string, string> |
  *  concurrent workstream and may not exist yet. */
 function surfaceStub(): string {
   const dir = mkdtempSync(join(tmpdir(), "pi-deliver-stub-"));
+  writeProjectPacks(dir, ["ts"]);
   tmpDirs.push(dir);
   const path = join(dir, "surface-check.ts");
   writeFileSync(path, SURFACE_STUB);
@@ -259,6 +262,16 @@ describe("runDeliver", () => {
     expect(events.every((e) => e.verdict === "pass")).toBe(true);
   });
 
+  test("retains authored domain context and decisions", () => {
+    const context = "# Domain language\n\nA lender keeps custody of each tool.\n";
+    const decision = "# 2026-001: Loan terms\n\nThe return date is explicit.\n";
+    const dir = proj({ "CONTEXT.md": context, "ADRs/2026-001-loan-terms.md": decision });
+    const result = deliver(dir);
+    expect(result.code).toBe(0);
+    expect(readFileSync(join(dir, "CONTEXT.md"), "utf8")).toBe(context);
+    expect(readFileSync(join(dir, "ADRs/2026-001-loan-terms.md"), "utf8")).toBe(decision);
+  });
+
   test("ts-morph pin matches the version the pack itself uses", () => {
     const dir = proj();
     deliver(dir);
@@ -376,6 +389,7 @@ void NotImplementedError;
 
   test("misuse: target without src/ or package.json is exit 2", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-deliver-empty-"));
+  writeProjectPacks(dir, ["ts"]);
     tmpDirs.push(dir);
     const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: fakeNpm().run });
     expect(r.code).toBe(2);
@@ -846,7 +860,7 @@ describe("blessed stack pins", () => {
 
 describe("runDeliver: pack-contributed checks", () => {
   test("a contributed check runs, is named in its own line, and is never an applied step", () => {
-    const dir = proj();
+    const dir = proj(webFiles());
     const r = deliver(dir);
     expect(r.code).toBe(0);
     expect(r.lines.join("\n")).toContain("deliver: theme-check —");
@@ -858,14 +872,14 @@ describe("runDeliver: pack-contributed checks", () => {
   // ts-web composed still delivers pure services.
   test("a project that is not a web target passes with nothing to check", () => {
     const r = deliver(proj());
-    expect(r.lines.join("\n")).toMatch(/theme-check — no src\/ui\/theme\.css/);
+    expect(r.lines.join("\n")).toContain("pack-checks — no composed pack contributes one");
   });
 
   // The whole point of the socket: a claim about a file the PROJECT owns, which
   // no lint rule and no gate in the pipeline can see. An incomplete theme
   // renders elements with no colour at all and leaves every test green.
   test("a contributed check that blocks stops the delivery, with its detail lines", () => {
-    const dir = proj({ "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
+    const dir = proj({ ...webFiles(), "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
     const r = deliver(dir);
     expect(r.code).toBe(1);
     expect(r.lines.join("\n")).toContain("deliver: BLOCK — theme-check:");
@@ -877,7 +891,7 @@ describe("runDeliver: pack-contributed checks", () => {
   // the remedy is the same either way (fix it and re-run deliver), and the
   // block that matters is printed first.
   test("a red `npm run check` short-circuits it", () => {
-    const dir = proj({ "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
+    const dir = proj({ ...webFiles(), "src/ui/theme.css": "@theme {\n  --color-background: #ffffff;\n}\n" });
     const r = deliver(dir, { check: { code: 1, stdout: "1 failed", stderr: "" } });
     expect(r.code).toBe(1);
     expect(r.lines.join("\n")).toContain("npm run check` is RED");
@@ -895,6 +909,15 @@ describe("runDeliver: pack-contributed checks", () => {
 // project's own check so the shipped repo carries the build forever.
 
 /** The generated browser entry: mounts <App/> from ./app.js, pulls in ./app.css. */
+function webFiles(): Record<string, string> {
+  return {
+    ".bounded/composed-packs.json": '["ts", "ts-web"]',
+    "src/ui/main.tsx": 'import "./app.js";',
+    "src/ui/app.tsx": 'export { Page as App } from "./pages/page.js";',
+    "src/ui/pages/page.tsx": 'import "../../orders/orders.js"; export function Page() { return null; }',
+  };
+}
+
 const MAIN_TSX = `import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app.js";
@@ -905,19 +928,21 @@ createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictM
 
 describe("runDeliver: the composed web build (Run 29)", () => {
   test("a web app whose bootstrap does not build is BLOCKED by deliver", () => {
-    // main.tsx imports ./app.js, but no app.tsx exists — the Run 29 Arm 1 shape.
-    const dir = proj({ "src/ui/main.tsx": MAIN_TSX, "src/ui/app.css": "body{}" });
+    // main.tsx imports a missing app module — the Run 29 Arm 1 shape.
+    const dir = proj({ ...webFiles(), "src/ui/main.tsx": MAIN_TSX, "src/ui/app.css": "body{}" });
+    rmSync(join(dir, "src/ui/app.tsx"));
     const r = deliver(dir);
     expect(r.code).toBe(1);
-    expect(r.lines.join("\n")).toContain("deliver: BLOCK — build-check:");
+    expect(r.lines.join("\n")).toContain("deliver: BLOCK — web-obligation:");
     expect(r.lines.join("\n")).toContain("./app.js");
     expect(readGuardLog(dir).some((e) => e.verdict === "block")).toBe(true);
   });
 
   test("a building web app passes, and check:build is folded into check", () => {
     const dir = proj({
+      ...webFiles(),
       "src/ui/main.tsx": MAIN_TSX,
-      "src/ui/app.tsx": "export function App() { return null; }",
+      "src/ui/app.tsx": 'export { Page as App } from "./pages/page.js";',
       "src/ui/app.css": "body{}",
     });
     const r = deliver(dir);
@@ -939,7 +964,7 @@ describe("runDeliver: the composed web build (Run 29)", () => {
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
     expect(pkg.scripts["check:build"]).toBeUndefined();
     expect(pkg.scripts.check).not.toContain("check:build");
-    expect(r.lines.join("\n")).toMatch(/build-check — no src\/ui\/main\.tsx/);
+    expect(r.lines.join("\n")).not.toContain("deliver: build-check");
     expect(r.lines.join("\n")).toMatch(/check-scripts — no composed pack folds/);
   });
 });

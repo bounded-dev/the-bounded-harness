@@ -75,5 +75,5 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  registerGateTools(pi, gates, new Set(["run_tests", "typecheck", "record_design_review"]));
+  registerGateTools(pi, gates, new Set(["run_tests", "typecheck", "record_design_review", "change_diff"]));
 }

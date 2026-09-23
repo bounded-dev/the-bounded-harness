@@ -18,6 +18,18 @@ The structure below is the same in every frontend the harness ships. Your
 design decisions are *which screens exist, what they show, and what a person
 can do on them*; everything else is fixed, and most of it is enforced.
 
+Component contracts stay `*.contract.ts`, never `*.contract.tsx`; JSX belongs
+to the builder’s `.tsx` implementation, whose skeleton the scaffolder emits.
+
+The driver records `ts-web` in `.bounded/composed-packs.json` before gates
+run, using `bounded compose --cwd <project> ts ts-web` (also select
+`ts-service` when a shared service is required). Delivery runs
+`web-obligation`: `main.tsx` must reach the app, a page or feature, and the
+domain through runtime imports. The `build-check` must also pass; a generated
+component kit with no connected application is incomplete. When `ts-service`
+is selected too, the reachable `src/ui/shared/api/client.tsx` must create a
+`createTRPCClient<ServiceRouter>` for that service.
+
 ## Structure comes from the generator, never from you
 
 ```

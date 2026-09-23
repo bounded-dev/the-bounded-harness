@@ -46,6 +46,7 @@ import { findContractFiles } from "../../ts/scripts/checksum-gate.ts";
 // Harness-core guard log (NOTE: this relative import only resolves when the
 // pack runs inside the harness checkout; pack distribution is issue #4).
 import { logGuardEvent } from "../../../src/guard-log.ts";
+import { COMPOSITION_FILE, readProjectPacks, writeProjectPacks } from "../../../src/project-composition.ts";
 import {
   APP_CSS,
   clientTsx,
@@ -238,6 +239,15 @@ export interface WebAppRun {
  * a generator's.
  */
 export function syncWebApp(cwd: string): WebAppRun {
+  let selection: readonly string[];
+  try {
+    const previous = existsSync(join(cwd, COMPOSITION_FILE)) ? readProjectPacks(cwd) : [];
+    selection = [...new Set([...previous, "ts", "ts-web"])];
+  } catch (error) {
+    const summary = error instanceof Error ? error.message : String(error);
+    logGuardEvent(cwd, { guard: GUARD, verdict: "block", summary });
+    return { code: 1, lines: [`${GUARD}: BLOCK — ${summary}`] };
+  }
   const services = serviceContracts(cwd);
   if (services.length > 1) {
     const named = services.map((p) => relative(cwd, p).split(sep).join("/")).join(", ");
@@ -279,6 +289,7 @@ export function syncWebApp(cwd: string): WebAppRun {
     };
   }
 
+  writeProjectPacks(cwd, selection);
   const lines: string[] = [];
   let wrote = 0;
   for (const emitted of plan) {

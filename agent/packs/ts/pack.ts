@@ -202,7 +202,7 @@ export interface DeliverCheck {
    *  everybody trying to work out why a delivery blocked. */
   readonly description: string;
   /** Run it against a target project root. Must not write. */
-  readonly run: (cwd: string) => DeliverCheckResult;
+  readonly run: (cwd: string, packs: readonly string[]) => DeliverCheckResult;
   /**
    * OPTIONAL: a script deliver folds into the project's own `check`, so the
    * delivered repo's definition of done includes this acceptance (mirrors how

@@ -15,11 +15,13 @@ tool, so the gates are reached through Bash — the difference is one derived
 list (`bash-policy.ts`) and one mapping (`PI_TO_CLAUDE_TOOLS` in
 `render-agents.ts`), both pinned to `ROLE_TOOLS` by drift tests.
 
-**Status: verified by fixture.** There is no Claude Code runtime in this
-repository's test environment. Every behaviour below is asserted by spawning
-the hook and the installer against fixture payloads copied from the Claude
-Code hook documentation. The first live run is a dogfood entry, not a claim
-this README makes.
+**Status: fixture-tested and exercised end to end.** Fixture tests spawn the
+hook and installer against Claude Code hook payloads. Live developer-stage
+runs delivered in [Run 25](../../../docs/dogfood/runs/run-26-025-the-first-claude-code-harness-run.md),
+[Run 27](../../../docs/dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md), and
+[Run 29](../../../docs/dogfood/runs/run-26-029-non-technical-ui-service-persistence.md).
+Run 29 also exposed missing shared-service delivery despite green gates;
+completing the host workflow does not establish application completeness.
 
 ## Files
 
@@ -218,9 +220,9 @@ project's `.gitignore`, next to `.bounded/`; a clone re-runs the installer.
 
 ## Running a ticket
 
-**The end-to-end flow is UNVERIFIED.** Each piece is asserted by fixture;
-nobody has yet taken a ticket through the developer stage on Claude Code.
-Two obstacles are known before the first attempt:
+**The developer-stage flow has delivered in Runs 25, 27 and 29** (linked
+above). The host constraints below still apply; those runs do not establish
+every hook-payload variant:
 
 - **Claude Code subagents cannot spawn subagents.** The architect's job is
   to commission the reviewer, the test-writer and the builder through

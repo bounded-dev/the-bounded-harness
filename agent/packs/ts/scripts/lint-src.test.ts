@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -305,6 +306,7 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 
 function project(prefix: string, files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  writeProjectPacks(dir, ["ts"]);
   tmpDirs.push(dir);
   for (const [rel, content] of Object.entries(files)) {
     const path = join(dir, rel);

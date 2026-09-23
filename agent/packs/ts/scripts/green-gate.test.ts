@@ -1,3 +1,4 @@
+import { writeProjectPacks } from "../../../src/project-composition.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -236,6 +237,7 @@ afterAll(() => tmpDirs.forEach((d) => rmSync(d, { recursive: true, force: true }
 
 function fixtureRepo(prefix: string, runJson: string, tscOutput = ""): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
+  writeProjectPacks(dir, ["ts"]);
   tmpDirs.push(dir);
   writeFileSync(join(dir, "run.json"), runJson);
   writeFileSync(join(dir, "tsc.txt"), tscOutput);

@@ -19,7 +19,7 @@ import { relative } from "node:path";
 import { ESLint } from "eslint";
 import parser from "@typescript-eslint/parser";
 import plugin from "../eslint/index.ts";
-import { composedPacks } from "../../installed.ts";
+import { composedPacks, installedPacks } from "../../installed.ts";
 import { contractPurityOverrides, type ContractPurityOverride } from "../pack.ts";
 import { formatProblems, toProblems, type Problem } from "./lint-report.ts";
 export { formatProblems, type Problem };
@@ -57,12 +57,13 @@ export const CONTRACT_RULE_IDS: readonly string[] = [
 // refuses one that does not.
 
 /** Every purity override a composed pack contributes, in pack order. */
-export function contributedPurityOverrides(): readonly ContractPurityOverride[] {
-  return composedPacks().read(contractPurityOverrides);
+export function contributedPurityOverrides(cwd?: string): readonly ContractPurityOverride[] {
+  return (cwd === undefined ? installedPacks() : composedPacks(cwd)).read(contractPurityOverrides);
 }
 
-export function createContractLinter(): ESLint {
+export function createContractLinter(cwd?: string): ESLint {
   return new ESLint({
+    ...(cwd === undefined ? {} : { cwd }),
     // The gate owns the whole config: no project eslint config is consulted,
     // so results are identical in every repo.
     overrideConfigFile: true,
@@ -123,7 +124,7 @@ export function createContractLinter(): ESLint {
       // plugin object (the same object, which flat config permits) so a block
       // naming a `bounded-ts/…` rule resolves it without depending on how
       // ESLint happens to merge plugins across matching blocks.
-      ...contributedPurityOverrides().map((override) => ({
+      ...contributedPurityOverrides(cwd).map((override) => ({
         files: [...override.files],
         languageOptions: { parser },
         plugins: { "bounded-ts": plugin as unknown as ESLint.Plugin },
@@ -170,7 +171,7 @@ async function main(argv: string[]): Promise<number> {
 }
 
 async function gate(cwd: string, patterns: string[]): Promise<PurityRun> {
-  const linter = createContractLinter();
+  const linter = createContractLinter(cwd);
   // ESLint throws its own wording when a pattern matches nothing; normalize
   // to the gate's stable message.
   const noMatch = (): PurityRun => {

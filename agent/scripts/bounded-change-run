@@ -62,6 +62,10 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 if [ -f "$LOG" ]; then
+  if grep -q '"guard":"deliver"' "$LOG" && grep '"guard":"deliver"' "$LOG" | grep -q '"verdict":"pass"'; then
+    # Snapshot the last delivered design before the run record rotates.
+    bash "$(dirname "$0")/bounded" capture-baseline --cwd "$TARGET"
+  fi
   if ! grep -q '"guard":"deliver"' "$LOG" || ! grep '"guard":"deliver"' "$LOG" | grep -q '"verdict":"pass"'; then
     if [ "$FORCE" -ne 1 ]; then
       echo "bounded change-run: the current guard log holds no deliver pass — the last run never" >&2

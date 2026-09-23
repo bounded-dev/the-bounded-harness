@@ -55,6 +55,7 @@ import { logGuardEvent } from "../../../src/guard-log.ts";
 import { lawsPathFor, ValueObjectLawsError, valueObjectLawsSource, valueObjectsOf } from "./value-object-laws.ts";
 import { findContractFiles, findFilesUnder } from "./checksum-gate.ts";
 import { mergedContribution } from "../../../src/pack-contrib.ts";
+import { readProjectPacks } from "../../../src/project-composition.ts";
 import type {
   ClassDeclaration,
   ClassMemberTypes,
@@ -110,14 +111,12 @@ export function notImplemented(what: string): never {
  * THE NAMES ARE NOT TS-PACK CONTENT (TN-26-005). "ReactElement" is web-pack
  * knowledge; this scaffolder is the socket. The names arrive as pack
  * contributions (`componentReturnTypes` in packs/ts-web/contrib.json), merged
- * across installed packs and cached per process — a harness composed without
+ * across the project’s selected packs — a harness composed without
  * the web pack never emits a .tsx skeleton, because nothing contributed a
  * component type to look for.
  */
-let contributedComponentTypes: Set<string> | undefined;
-function componentTypeNames(): ReadonlySet<string> {
-  contributedComponentTypes ??= new Set(mergedContribution("componentReturnTypes"));
-  return contributedComponentTypes;
+export function componentTypeNames(cwd: string): ReadonlySet<string> {
+  return new Set(mergedContribution("componentReturnTypes", readProjectPacks(cwd)));
 }
 
 /**
@@ -144,7 +143,7 @@ function componentTypeNames(): ReadonlySet<string> {
  */
 export function skeletonExtensionFor(
   contractSource: string,
-  names: ReadonlySet<string> = componentTypeNames(),
+  names: ReadonlySet<string> = new Set(),
 ): ".ts" | ".tsx" {
   if (names.size === 0) return ".ts"; // no pack contributed component types
   let sf: SourceFile;
@@ -172,11 +171,15 @@ export function skeletonExtensionFor(
  * is what the mapping test pins), and because `.ts` is the answer for every
  * contract that predates TSX.
  */
-export function skeletonPathFor(contractPath: string, contractSource?: string): string {
+export function skeletonPathFor(
+  contractPath: string,
+  contractSource?: string,
+  names: ReadonlySet<string> = new Set(),
+): string {
   if (!contractPath.endsWith(CONTRACT_SUFFIX)) {
     throw new ScaffoldError(`scaffold: '${contractPath}' is not a *.contract.ts path`);
   }
-  const ext = contractSource === undefined ? ".ts" : skeletonExtensionFor(contractSource);
+  const ext = contractSource === undefined ? ".ts" : skeletonExtensionFor(contractSource, names);
   return contractPath.slice(0, -CONTRACT_SUFFIX.length) + ext;
 }
 
@@ -936,6 +939,14 @@ export function runScaffold(
     return { code: 2, lines: [`scaffold: ${summary}`] };
   }
 
+  let names: ReadonlySet<string>;
+  try {
+    names = componentTypeNames(cwd);
+  } catch (error) {
+    const summary = error instanceof Error ? error.message : String(error);
+    logGuardEvent(cwd, { guard: "scaffold", verdict: "block", summary });
+    return { code: 1, lines: [`scaffold: ${summary}`] };
+  }
   const lines: string[] = [];
   const typesOnly: string[] = [];
   const strandedOps: string[] = [];
@@ -996,7 +1007,7 @@ export function runScaffold(
     // Where this run WOULD write: `.tsx` when the contract declares a component
     // (TN-26-006 A1), `.ts` otherwise — decided from the contract's own text, so
     // the generated set stays a pure function of the contract set.
-    const out = skeletonPathFor(contractPath, contractText);
+    const out = skeletonPathFor(contractPath, contractText, names);
     const outRel = relative(cwd, resolve(cwd, out)).split(sep).join("/");
     // NON-DESTRUCTIVE SYNC (ADR 2026-023). The scaffolder writes a skeleton
     // only where there is nothing to lose: the target is absent, or it is
