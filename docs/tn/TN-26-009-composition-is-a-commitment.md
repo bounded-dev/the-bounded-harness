@@ -118,17 +118,27 @@ stops there. Judgment about quality stays with the reviewer and the human.
   `router-type-reexported` et al. already encode "a service must be typed";
   the obligation only adds "…and must exist" when the capability is composed.
 
-## Open questions
+- **Default web topology stays DECOUPLED** (owner ruling, 2026-09-23).
+  Composing the web pack does **not** pull in the service capability: a
+  browser-local web app is a legitimate, delivered architecture, and a
+  backend is obligated only when the service capability is explicitly
+  composed. *Why:* keeps each obligation local and legal local apps legal;
+  the opinionated "web means shared by default" reading was considered and
+  rejected — the harness enforces what is composed, not an assumed topology.
 
-- **Default web topology — the one policy call for the owner.** Should
-  composing the web pack *pull in* the service capability by default (web =
-  client-server, a local-only app must be explicitly opted into), or stay
-  fully decoupled (compose the service capability when you want a backend)?
-  The recommendation is **decoupled** — keep each obligation local and legal
-  local apps legal — but the opinionated-harness reading is that "the same
-  record for everybody" is the common case and a purely-browser-local app is
-  the exception worth naming. Under the pull-in default, Run 29 would have
-  *failed both arms* for shipping without a backend. **Owner to rule.**
+- **But composing UI + service TOGETHER obligates the wiring between them.**
+  When both are composed, the frontend's single network door
+  (`client-one-door`) must be the typed client over *this* service's
+  `ServiceRouter` — not a mock, not a different API, not nothing. This is a
+  **cross-composition obligation**: neither pack's own obligations require
+  it (ts-web alone is happy with a local door; the service alone is happy
+  being unconsumed), so it belongs to the pair. Today's gates get part way
+  (one door exists; the router is typed) but nothing checks the door points
+  at the composed router — that check is the new work this obligation adds.
+  A single-arm example of exactly this silent forfeit is r23 (ADR 2026-030),
+  at the service-to-service seam; the UI-to-service seam is the same shape.
+
+## Open questions
 - **Where "wiring" draws its line.** "A page imports the domain" is the
   minimal mechanical proxy for "assembled". Whether to require more (every
   domain operation reachable from the UI; the persistence port actually
