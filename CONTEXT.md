@@ -221,6 +221,14 @@ in every run, so only the genuine design decisions vary. First instance: the
 API-service set (TN-26-004).
 _Avoid_: template, boilerplate, starter
 
+**Obligation**:
+A machine-checkable artifact a composed pack must deliver — existence,
+wiring, and build — verified at deliver by a core-owned completeness gate.
+Composing a pack is a commitment to produce its layer, not just permission to
+use it; an undischarged obligation blocks delivery. Contributed like every
+other pack content, via the socket model (TN-26-009).
+_Avoid_: requirement (unqualified), acceptance criteria
+
 **Reference component**:
 One complete worked example — contract, value objects, tests, implementation
 — in a neutral domain, built through the real gates in CI so it can never
