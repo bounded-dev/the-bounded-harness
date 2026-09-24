@@ -32,13 +32,18 @@ reads the exact revision and explicitly accepts or challenges its sufficiency.
 If the consumer's tool permissions cannot read the producer's worktree, place
 copies of the handed-off files from that revision with the receipt in the
 consumer's ignored `.agent-state/` directory, checking their bytes against
-the receipt first. Give copied contracts neutral file extensions so a
-project-wide contract scan does not mistake the snapshot for the consumer's
-own design. The architect reads those local copies; the lead does not
+the receipt first. Give copied contracts neutral extensions so older
+project-wide scanners cannot mistake them for the consumer's own contracts.
+The architect reads those local copies; the lead does not
 reinterpret or rewrite their contents.
 The lead must obtain this receipt from the publisher in the producing gate
 root; the generic checker verifies bytes and freshness, not that an arbitrary
 receipt came from a reviewed freeze.
+For a ticket-numbered TN project, the producer's issue number is
+`BOUNDED_TICKET` in its architect session and gate process. Its TN owns the
+contract paths listed in front matter; the publisher refuses a different
+`--producer` number. A dependent ticket needs this reviewed, frozen TN even
+while its implementation remains unfinished.
 For a dependency that consumer code will load, ask the consumer to verify the
 published path and runtime form as well as the declaration. If either is
 missing from the producer's frozen design, route it back to that architect for
@@ -55,11 +60,11 @@ check promptly and steer a running consumer if its accepted design is stale.
 The producer architect must re-freeze and publish a new receipt, and the
 consumer architect must reassess it, before continuing.
 
-The current developer stage freezes one gate root at a time. Do not commission
-two independent ticket architects against the same root: its root spec and
-project-wide design scan would mix their evidence. The first supported case is
-separate gate roots in a repository. Keep the work together in one ticket when
-it cannot be isolated safely.
+Use one writing worktree per ticket. Ticket-numbered TNs give separate design
+review and freeze evidence within one project. The full project typecheck and
+integration check still cover the combined tree, and concurrent writers must
+not edit the same contract. Keep tightly coupled work together when ownership
+cannot be separated safely.
 
 ## Integrate
 

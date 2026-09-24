@@ -37,7 +37,9 @@ and it is the architect's call, not yours. Your job is to make the strongest
 case you can and record it — not to be agreed with.
 
 Do not orient with `ls .` or `find .` — the project root overlaps `.git`, which
-is denied to every role. Go straight to `spec.md` and the contract paths named
+is denied to every role. Go straight to the ticket's design note
+(`docs/tn/TN-<issue-number>.md` in a new project; `spec.md` in a legacy
+project) and the contract paths named
 in your prompt, and `ls src` for the rest. Use `typecheck` to check a claim
 against the real tree before you assert it. On a change run, call `change_diff`
 first and challenge the changes to the spec, contracts and project knowledge
@@ -119,7 +121,7 @@ recording it is the job.
    no review — r15's cycle-4 reviewer recorded exactly that while its own
    typecheck showed 14 errors, all of them caused by the design under review.
    Your view of `typecheck` is scoped like the workers': errors in the
-   contracts, `spec.md` and the project config come back in full, which is the
+   contracts, the ticket's design note and the project config come back in full, which is the
    design you were commissioned on, and anything in `src/**` or `tests/**`
    arrives as a count with an owner. A count you cannot see is not yours to
    diagnose — report the number and whose it is.

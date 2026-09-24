@@ -47,9 +47,9 @@ import { logGuardEvent } from "../../../src/guard-log.ts";
 import type { GateResult } from "../../../src/gate-result.ts";
 import { computeManifest, hashContract } from "./checksum-gate.ts";
 import { parseFindings, type Finding } from "./sign-off.ts";
+import { activeTicketDesign, designNotePath } from "../../../src/ticket-design.ts";
 
 const GUARD = "design-review";
-const SPEC_RELATIVE = "spec.md";
 
 /**
  * The polish-loop nudge (r15/r16). The k3 architect ran 4-5 review cycles AFTER
@@ -82,13 +82,14 @@ export type Reviewed = Readonly<Record<string, string>>;
 
 /** Read and hash the design under review. The one I/O step. */
 export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { ok: false; reason: string; error: string } {
-  const specPath = join(cwd, SPEC_RELATIVE);
+  const note = designNotePath(cwd);
+  const specPath = join(cwd, note);
   if (!existsSync(specPath)) {
     return {
       ok: false,
       reason: "no-spec",
       error:
-        "no spec.md to review — the reviewer is commissioned on the spec AND the contracts, because the spec carries the half of the interface types cannot hold (ordering, arithmetic and its tie-break, identity). Write it, then commission the review",
+        `no ${note} to review — write the design note before commissioning the review`,
     };
   }
 
@@ -103,7 +104,7 @@ export function readReviewed(cwd: string): { ok: true; reviewed: Reviewed } | { 
   }
 
   const reviewed: Record<string, string> = {
-    [SPEC_RELATIVE]: hashContract(readFileSync(specPath, "utf8")),
+    [note]: hashContract(readFileSync(specPath, "utf8")),
   };
   for (const [file, hash] of Object.entries(contracts)) reviewed[file] = hash;
   const context = join(cwd, "CONTEXT.md");
@@ -245,7 +246,8 @@ export function runRecordDesignReview(cwd: string, raw: unknown): DesignReviewRe
     guard: GUARD,
     verdict: result.verdict,
     summary: result.summary,
-    detail: { ...result.detail, findings: parsed.findings, reviewed: design.reviewed },
+    detail: { ...result.detail, findings: parsed.findings, reviewed: design.reviewed,
+      ticket: activeTicketDesign(cwd)?.ticket },
   });
   return result;
 }

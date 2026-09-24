@@ -205,6 +205,31 @@ const CONTRACT_TYPE_ERR = "src/money/money.contract.ts(3,1): error TS2304: Canno
 const SKELETON_TYPE_ERR = "src/money/money.ts(9,3): error TS2322: Type 'string' is not assignable.";
 
 describe("design-gate CLI: the whole design phase in one call", () => {
+  test("a ticket TN must be active before its reviewed design freezes", () => {
+    const dir = fixtureRepo("design-ticket-draft-", CLEAN_CONTRACT);
+    mkdirSync(join(dir, "docs/tn"), { recursive: true });
+    writeFileSync(join(dir, "docs/tn/README.md"), "# Technical Notes\n");
+    const note = join(dir, "docs/tn/TN-24.md");
+    const front = (status: string) =>
+      `---\nissue: 24\nstatus: ${status}\ncontracts:\n  - src/money/money.contract.ts\n---\n\n${SPEC}`;
+    writeFileSync(note, front("draft"));
+    const prior = process.env.BOUNDED_TICKET;
+    process.env.BOUNDED_TICKET = "24";
+    try {
+      review(dir);
+      const blocked = runGate(dir);
+      expect(blocked.status).toBe(1);
+      expect(blocked.stdout).toContain("is draft; mark the agreed design active");
+      expect(existsSync(join(dir, ".bounded/tickets/24/contract-checksums.json"))).toBe(false);
+      writeFileSync(note, front("active"));
+      const frozen = runGate(dir);
+      expect(frozen.status, frozen.stdout + frozen.stderr).toBe(0);
+      expect(existsSync(join(dir, ".bounded/tickets/24/contract-checksums.json"))).toBe(true);
+    } finally {
+      if (prior === undefined) delete process.env.BOUNDED_TICKET;
+      else process.env.BOUNDED_TICKET = prior;
+    }
+  });
   test("all five steps pass → exit 0, timed steps, one verdict, a frozen manifest", () => {
     const dir = fixtureRepo("design-ok-", CLEAN_CONTRACT);
     review(dir);

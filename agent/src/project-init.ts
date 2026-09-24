@@ -179,7 +179,7 @@ function localizeInstructions(harnessRoot: string, host: InitHost): void {
         .replace(/with `bounded compose[^`]+`/g, "during initialization")
         .replace(/using `bounded compose[^`]+` \(also select\n[^\n]+\)/g, "during initialization")
         .replace(/`bounded compose[^`]+`/g, "the committed capability selection from initialization")
-        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff)\b/g, "bash .bounded/harness/scripts/bounded $1");
+        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff|ticket)\b/g, "bash .bounded/harness/scripts/bounded $1");
       if (host === "pi" || path === "team-lead/SKILL.md") {
         rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
       }
@@ -408,7 +408,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   copyTree(join(agentRoot, "skills"), join(harnessRoot, "skills"), omit);
   copyTree(join(agentRoot, "agents"), join(harnessRoot, "agents"), omit);
   mkdirSync(join(harnessRoot, "scripts"), { recursive: true });
-  for (const script of ["bounded-gates", "bounded-change-run", "bounded-handoff"]) {
+  for (const script of ["bounded-gates", "bounded-change-run", "bounded-handoff", "bounded-ticket"]) {
     copyFileSync(join(agentRoot, "scripts", script), join(harnessRoot, "scripts", script));
   }
   const gatesScript = join(harnessRoot, "scripts", "bounded-gates");
@@ -423,9 +423,10 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     'SUB="${1:-}"', 'case "$SUB" in',
     '  gates) shift; exec "$DIR/bounded-gates" "$@" ;;',
     '  handoff) shift; exec "$DIR/bounded-handoff" "$@" ;;',
+    '  ticket) shift; exec "$DIR/bounded-ticket" "$@" ;;',
     '  change-run) shift; exec "$DIR/bounded-change-run" "$@" ;;',
     '  adopt|change-diff|capture-baseline) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;',
-    '  *) echo "bounded: supported project commands: gates, handoff, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
+    '  *) echo "bounded: supported project commands: gates, handoff, ticket, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
     'esac', '',
   ].join("\n"));
   chmodSync(localCommand, 0o755);
@@ -447,6 +448,23 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   if (existsSync(join(stage, "AGENTS.md")) || existsSync(join(stage, "README.md"))) {
     throw new Error("A project initializer wrote root instructions; Bounded owns AGENTS.md and README.md during initialization");
   }
+  mkdirSync(join(stage, "docs", "tn"), { recursive: true });
+  writeFileSync(join(stage, "docs", "tn", "README.md"), [
+    "# Technical Notes", "",
+    "A ticket may have one Technical Note; a note always belongs to an existing issue.",
+    "Name it `TN-<issue-number>.md` and keep that name as the thinking matures.",
+    "Use front matter with `issue`, `status` (`draft`, `active`, or `superseded`),",
+    "and `contracts`, a list of project-relative contract files this ticket owns.",
+    "A dependent ticket needs a reviewed, frozen TN before its design is published.",
+    "Set `BOUNDED_TICKET` to the issue number for ticket-specific design gates.",
+    "Change `status: draft` to `status: active` when the reviewed design is agreed;",
+    "the design gate will not freeze a draft note.",
+    "A superseded TN uses a Markdown link such as `[TN-25](TN-25.md)` to each",
+    "successor note; other tickets may have no TN.", "",
+    "Example front matter for issue 24:", "",
+    "```yaml", "---", "issue: 24", "status: draft", "contracts:",
+    "  - src/example/example.contract.ts", "---", "```", "",
+  ].join("\n"));
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
     "This project includes its own Bounded harness at `.bounded/harness/`.",
@@ -454,6 +472,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "Run the project's `check`, `test`, `build`, and `lint` commands when present.",
     "After a fresh clone, run `npm run bounded:setup` to install the project's and local harness's pinned dependencies.",
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",
+    "For design work, create `docs/tn/TN-<issue-number>.md` and set `BOUNDED_TICKET` to that issue number. On pi, launch with `bash .bounded/harness/scripts/bounded ticket --ticket <issue-number>`.",
     `Selected capabilities: ${packs.join(", ")}.`, "",
   ].join("\n"));
   if (host === "pi") {

@@ -20,9 +20,13 @@ domain.
 
 ## Layout and naming (fixed rules)
 
+The ticket's design note is `docs/tn/TN-<issue-number>.md` in a project using
+ticket-numbered TNs, selected with `BOUNDED_TICKET`. Legacy projects use
+`spec.md`. The note's front matter lists the contracts this ticket owns.
+
 - Contract: `src/<component>/<component>.contract.ts` — colocated with the component.
 - The scaffolder derives the implementation path: `foo.contract.ts` → sibling `foo.ts`. Never create the sibling by hand.
-- Spec lives in `spec.md`; one component per loop iteration.
+- Spec lives in the ticket's design note; one component per loop iteration.
 
 ## One identity per value object — a contract never imports from a contract
 
@@ -303,7 +307,7 @@ the code belongs):
   be written down (below).
 
   For the test-writer to choose these deliberately rather than guess, the rule
-  must be visible to it: it reads `spec.md` and the contract, nothing else.
+  must be visible to it: it reads the ticket's design note and the contract, nothing else.
   Give every value object a doc comment stating what makes it valid — and **two
   `@accepts` tags with distinct valid examples**:
 

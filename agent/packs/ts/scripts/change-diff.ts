@@ -5,8 +5,9 @@ import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { isMainModule } from "../../../src/is-main-module.ts";
 import { findContractFiles, hashContract } from "./checksum-gate.ts";
-import { BASELINE_PATH, readChangeBaseline } from "./change-baseline.ts";
+import { baselineRelative, readChangeBaseline } from "./change-baseline.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
+import { activeTicketDesign, designNotePath } from "../../../src/ticket-design.ts";
 
 export interface DesignDiff {
   readonly fingerprint: string;
@@ -15,7 +16,8 @@ export interface DesignDiff {
 }
 
 function currentFiles(root: string): Record<string, string> {
-  const paths = [join(root, "spec.md"), ...findContractFiles(root)];
+  const ticket = activeTicketDesign(root);
+  const paths = [join(root, designNotePath(root)), ...(ticket ? ticket.contracts.map((path) => join(root, path)) : findContractFiles(root))];
   const context = join(root, "CONTEXT.md");
   try { readFileSync(context); paths.push(context); } catch { /* optional */ }
   const adrs = join(root, "ADRs");
@@ -42,7 +44,8 @@ function unifiedDiff(oldPath: string, oldText: string, newPath: string, newText:
 
 export function designDiff(root: string): DesignDiff {
   const baseline = readChangeBaseline(root);
-  if (!Object.hasOwn(baseline.files, "spec.md")) throw new Error(`${BASELINE_PATH} has no spec.md snapshot`);
+  const note = designNotePath(root);
+  if (!Object.hasOwn(baseline.files, note)) throw new Error(`${baselineRelative(root)} has no ${note} snapshot`);
   const current = currentFiles(root);
   const oldPaths = Object.keys(baseline.files).sort();
   const newPaths = Object.keys(current).sort();
@@ -75,7 +78,7 @@ export function designDiff(root: string): DesignDiff {
     ];
     pairs.forEach(([from, to, before, after], index) => lines.push(...unifiedDiff(from, before, to, after, temp, index)));
     if (pairs.length === 0 && baseline.packs.join("\0") === readProjectPacks(root).join("\0")) {
-      lines.push("change-diff: no changes to spec.md, contracts, CONTEXT.md or ADRs");
+      lines.push(`change-diff: no changes to ${note}, contracts, CONTEXT.md or ADRs`);
     }
     const fingerprint = createHash("sha256").update(newPaths.map((path) => `${path}\0${newHashes.get(path)}`).join("\n")).digest("hex");
     return { fingerprint, paths: pairs.map(([from, to]) => from === to ? from : `${from} → ${to}`), lines };

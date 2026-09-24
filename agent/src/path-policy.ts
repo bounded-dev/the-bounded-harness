@@ -6,6 +6,7 @@
 // it jams is just a deterministic jam.
 
 import picomatch from "picomatch";
+import type { TicketWriteScope } from "./ticket-design.ts";
 
 export type Role = "architect" | "test-writer" | "builder" | "reviewer";
 
@@ -24,6 +25,8 @@ export interface Ctx {
    * project opens up.
    */
   readonly harnessRoot?: string;
+  /** Resolved by the host's filesystem boundary; absent in legacy projects. */
+  readonly ticketScope?: TicketWriteScope;
 }
 
 const ALLOW: Decision = { allow: true };
@@ -383,6 +386,7 @@ export const ZONES: Record<Role, Zone> = {
     // so an architect editing package.json cannot weaken a gate.
     writeAllow: [
       "spec.md",
+      "docs/tn/TN-*.md",
       "CONTEXT.md",
       "ADRs/*.md",
       "src/**/*.contract.ts",
@@ -665,6 +669,22 @@ export function decide(
   };
 
   if (WRITE_TOOLS.has(tool)) {
+    if (role === "architect" && ctx.ticketScope) {
+      const scope = ctx.ticketScope;
+      if (/^docs\/tn\/TN-[1-9][0-9]*\.md$/i.test(t) &&
+        t.toLowerCase() !== `docs/tn/tn-${scope.ticket}.md`) {
+        return block(`path-gate: architect may write only ticket #${scope.ticket ?? "unselected"}'s TN`);
+      }
+      if (t.toLowerCase() === "spec.md") {
+        return block("path-gate: ticket-numbered projects write their ticket TN, not root spec.md");
+      }
+      if (t.toLowerCase().endsWith(".contract.ts")) {
+        if (scope.error) return block(`path-gate: ${scope.error}`);
+        if (!scope.contracts.includes(t)) {
+          return block(`path-gate: contract '${t}' is not owned by ticket #${scope.ticket}`);
+        }
+      }
+    }
     const alwaysDenied = alwaysWriteDenied(t);
     if (alwaysDenied !== null) {
       return block(`path-gate: ${role} may not write '${t}': ${alwaysDenied.reason}`);

@@ -77,6 +77,7 @@ describe("project-local initialization", () => {
     const target = empty();
     const plan = await planInit(target, host, ["ts-web"]);
     expect(plan.packs).toEqual(["ts", "ts-web"]);
+    expect(plan.createdFiles["docs/tn/README.md"]).toBeDefined();
     expect(existsSync(join(target, ".bounded"))).toBe(false);
     await expect(applyInit(target, host, ["ts-web"], "0".repeat(64))).rejects.toThrow(/Plan changed/);
     expect(existsSync(join(target, ".bounded"))).toBe(false);
@@ -90,9 +91,12 @@ describe("project-local initialization", () => {
     expect(readFileSync(join(target, ".gitignore"), "utf8")).toContain("!.bounded/harness/");
     expect(existsSync(join(target, ".bounded/guard-log.jsonl"))).toBe(false);
     expect(readFileSync(join(target, "AGENTS.md"), "utf8")).toContain(".bounded/harness/");
+    expect(readFileSync(join(target, "docs/tn/README.md"), "utf8")).toContain("TN-<issue-number>.md");
     const stageSkill = readFileSync(join(target, ".bounded/harness/skills/developer-stage/SKILL.md"), "utf8");
     expect(stageSkill).not.toContain("bounded compose");
     expect(existsSync(join(target, ".bounded/harness/scripts/bounded-handoff"))).toBe(true);
+    expect(existsSync(join(target, ".bounded/harness/scripts/bounded-ticket"))).toBe(true);
+    expect(stageSkill).toContain("bash .bounded/harness/scripts/bounded ticket --ticket");
     const leadSkill = readFileSync(join(target, ".bounded/harness/skills/team-lead/SKILL.md"), "utf8");
     expect(leadSkill).toContain("bash .bounded/harness/scripts/bounded handoff check");
     expect(leadSkill).toContain("bash .bounded/harness/scripts/bounded gates handoff-publish");

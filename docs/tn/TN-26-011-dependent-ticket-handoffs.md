@@ -99,6 +99,16 @@ evidence. The first slice here deliberately retains `spec.md` and does not
 claim to solve artifact-set isolation.
 Issue #24 tracks that next step.
 
+### Later decision for target projects
+
+ADR 2026-045 replaces the proposed separate artifact-set layout for new target
+projects. Each ticket may have one Technical Note named for its issue number;
+the note's front matter lists the contracts it owns. The ticket's reviewed
+freeze selects that note and those contracts. A ticket that publishes a
+dependency needs a TN, while tickets without design work may have none. The
+first trial described below remains evidence for the earlier single-spec
+stage; it did not test this later arrangement.
+
 A consumer branch can start from a producer's design checkpoint; that
 checkpoint is not landed on `main` as unfinished functionality. The integration
 owner lands the producer before a consumer that contains its checkpoint. If a

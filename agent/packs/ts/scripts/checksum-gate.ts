@@ -23,9 +23,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFi
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logGuardEvent, type GuardVerdict } from "../../../src/guard-log.ts";
+import { activeTicketDesign } from "../../../src/ticket-design.ts";
 
 const GUARD = "checksum-gate";
-const MANIFEST_RELATIVE = ".bounded/contract-checksums.json";
+const LEGACY_MANIFEST = ".bounded/contract-checksums.json";
+export function manifestRelative(root: string): string {
+  const ticket = activeTicketDesign(root)?.ticket;
+  return ticket ? `.bounded/tickets/${ticket}/contract-checksums.json` : LEGACY_MANIFEST;
+}
 const CONTRACT_SUFFIX = ".contract.ts";
 // `scratch` is the architect's sanctioned throwaway zone (src/path-policy.ts):
 // a top-level directory nothing but the architect may write, and nothing may
@@ -33,10 +38,11 @@ const CONTRACT_SUFFIX = ".contract.ts";
 // it — so `findContractFiles`, the checksum/freeze manifest, the scaffolder's
 // contract discovery and its orphan sync all ignore a scratch/*.contract.ts by
 // construction, and a stray probe cannot be scaffolded, frozen, or ship.
-const IGNORE_DIRS = new Set(["node_modules", ".git", ".bounded", "scratch"]);
+const IGNORE_DIRS = new Set(["node_modules", ".git", ".bounded", ".agent-state", "scratch"]);
 
 export interface Manifest {
   readonly files: Readonly<Record<string, string>>;
+  readonly note?: { readonly path: string; readonly hash: string };
 }
 
 export interface Drift {
@@ -51,7 +57,7 @@ export interface Drift {
  * so the manifest location stays one string.
  */
 export function hasManifest(root: string): boolean {
-  return existsSync(join(root, MANIFEST_RELATIVE));
+  return existsSync(join(root, manifestRelative(root)));
 }
 
 function relPosix(root: string, path: string): string {
@@ -93,10 +99,12 @@ export function hashContract(content: string): string {
 
 export function computeManifest(root: string): Manifest {
   const files: Record<string, string> = {};
-  for (const path of findContractFiles(root)) {
+  const ticket = activeTicketDesign(root);
+  const paths = ticket ? ticket.contracts.map((path) => join(root, path)) : findContractFiles(root);
+  for (const path of paths) {
     files[relPosix(root, path)] = hashContract(readFileSync(path, "utf8"));
   }
-  return { files };
+  return ticket ? { files, note: { path: ticket.note, hash: hashContract(readFileSync(join(root, ticket.note), "utf8")) } } : { files };
 }
 
 export function diffManifests(stored: Manifest, current: Manifest): Drift {
@@ -110,6 +118,12 @@ export function diffManifests(stored: Manifest, current: Manifest): Drift {
   for (const file of Object.keys(stored.files)) {
     if (!(file in current.files)) removed.push(file);
   }
+  if (stored.note?.path !== current.note?.path) {
+    if (stored.note) removed.push(stored.note.path);
+    if (current.note) added.push(current.note.path);
+  } else if (stored.note && current.note && stored.note.hash !== current.note.hash) {
+    changed.push(current.note.path);
+  }
   return { changed: changed.sort(), added: added.sort(), removed: removed.sort() };
 }
 
@@ -121,7 +135,7 @@ export function hasDrift(drift: Drift): boolean {
 export function serializeManifest(manifest: Manifest): string {
   const files: Record<string, string> = {};
   for (const key of Object.keys(manifest.files).sort()) files[key] = manifest.files[key];
-  return JSON.stringify({ files }, null, 2) + "\n";
+  return JSON.stringify({ files, ...(manifest.note ? { note: manifest.note } : {}) }, null, 2) + "\n";
 }
 
 // --- CLI ------------------------------------------------------------------------
@@ -136,6 +150,7 @@ interface GateOutcome {
 }
 
 function runGate(cwd: string, write: boolean): GateOutcome {
+  const manifestRelativePath = manifestRelative(cwd);
   const current = computeManifest(cwd);
   const fileCount = Object.keys(current.files).length;
   if (fileCount === 0) {
@@ -149,7 +164,7 @@ function runGate(cwd: string, write: boolean): GateOutcome {
     };
   }
 
-  const manifestPath = join(cwd, MANIFEST_RELATIVE);
+  const manifestPath = join(cwd, manifestRelativePath);
 
   if (write) {
     mkdirSync(dirname(manifestPath), { recursive: true });
@@ -158,7 +173,7 @@ function runGate(cwd: string, write: boolean): GateOutcome {
       code: 0,
       verdict: "pass",
       summary: `wrote manifest (${fileCount} contract file${fileCount === 1 ? "" : "s"})`,
-      stdout: [`checksum-gate: wrote ${MANIFEST_RELATIVE} (${fileCount} contract file${fileCount === 1 ? "" : "s"})`],
+      stdout: [`checksum-gate: wrote ${manifestRelativePath} (${fileCount} contract file${fileCount === 1 ? "" : "s"})`],
       stderr: [],
       detail: { files: fileCount },
     };
@@ -170,7 +185,7 @@ function runGate(cwd: string, write: boolean): GateOutcome {
       verdict: "error",
       summary: "no manifest to verify",
       stdout: [],
-      stderr: [`checksum-gate: no manifest at ${MANIFEST_RELATIVE} — run --write to record before verifying`],
+      stderr: [`checksum-gate: no manifest at ${manifestRelativePath} — run --write to record before verifying`],
       detail: { reason: "no-manifest" },
     };
   }
@@ -188,7 +203,7 @@ function runGate(cwd: string, write: boolean): GateOutcome {
       verdict: "error",
       summary: "manifest unreadable",
       stdout: [],
-      stderr: [`checksum-gate: cannot read ${MANIFEST_RELATIVE} — ${e instanceof Error ? e.message : String(e)}`],
+      stderr: [`checksum-gate: cannot read ${manifestRelativePath} — ${e instanceof Error ? e.message : String(e)}`],
       detail: { reason: "bad-manifest" },
     };
   }
@@ -201,11 +216,12 @@ function runGate(cwd: string, write: boolean): GateOutcome {
       ...drift.removed.map((f) => `checksum-gate: drift removed ${f}`),
     ];
     const count = drift.changed.length + drift.added.length + drift.removed.length;
-    lines.push(`checksum-gate: FAIL — ${count} contract file${count === 1 ? "" : "s"} moved since the manifest was recorded`);
+    const kind = current.note ? "design file" : "contract file";
+    lines.push(`checksum-gate: FAIL — ${count} ${kind}${count === 1 ? "" : "s"} moved since the manifest was recorded`);
     return {
       code: 1,
       verdict: "block",
-      summary: `drift in ${count} contract file${count === 1 ? "" : "s"}`,
+      summary: `drift in ${count} ${kind}${count === 1 ? "" : "s"}`,
       stdout: lines,
       stderr: [],
       detail: { changed: drift.changed, added: drift.added, removed: drift.removed },

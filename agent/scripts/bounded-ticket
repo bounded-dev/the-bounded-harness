@@ -17,7 +17,8 @@
 # Without a launcher nobody would type the full invocation, the ungated path
 # would win by being easier, and the enforcement would quietly become optional.
 #
-#   bounded ticket                 # interactive, in the current project
+#   bounded ticket --ticket 24     # ticket-numbered TN project
+#   bounded ticket                 # interactive, in a legacy project
 #   bounded ticket "build X"       # with an opening prompt
 #   bounded ticket --model …       # any further pi flags pass straight through
 #
@@ -26,6 +27,19 @@
 # tools are not merely refused — they are absent from the toolset.
 
 set -euo pipefail
+
+if [ "${1:-}" = "--ticket" ]; then
+  if [[ ! "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "bounded ticket: --ticket needs a positive issue number" >&2
+    exit 2
+  fi
+  export BOUNDED_TICKET="$2"
+  shift 2
+fi
+if [ -f "docs/tn/README.md" ] && [[ ! "${BOUNDED_TICKET:-}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "bounded ticket: this project uses ticket TNs; launch with --ticket <issue-number>" >&2
+  exit 2
+fi
 
 # Lives in agent/scripts/, not agent/bin/ — `bin/` is gitignored as pi's own
 # runtime directory, so a launcher there is silently untracked.

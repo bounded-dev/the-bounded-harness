@@ -20,6 +20,8 @@ import { checkSubagentCall, type PhaseEvidence } from "./phase-gate.ts";
 import { readDevStageModels } from "./dev-stage-models.ts";
 import { specTechNouns } from "./pack-contrib.ts";
 import type { KnownModel } from "./model-tier.ts";
+import { activeTicketDesign, designNotePath, ticketWriteScope } from "./ticket-design.ts";
+import { createHash } from "node:crypto";
 
 /** The only roles the gate is active for. Anything else ⇒ inactive. */
 export const PIPELINE_ROLES = ["architect", "test-writer", "builder", "reviewer"] as const;
@@ -384,6 +386,7 @@ export function evaluatePathGate(ev: GateInput): GateBlock | undefined {
   const decision = decide(role, ev.toolName, ev.input, {
     cwd: ev.cwd,
     ...(ev.harnessRoot !== undefined ? { harnessRoot: ev.harnessRoot } : {}),
+    ...(role === "architect" ? { ticketScope: ticketWriteScope(ev.cwd) } : {}),
   });
   if (decision.allow) return undefined;
 
@@ -421,9 +424,10 @@ export function evaluateAmbientPathGate(ev: GateInput): GateBlock | undefined {
  * come back as "no override" — so a broken config still cannot cost a run.
  */
 function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEvidence {
+  const ticket = activeTicketDesign(cwd);
   let specText = "";
   try {
-    specText = readFileSync(join(cwd, "spec.md"), "utf8");
+    specText = readFileSync(join(cwd, designNotePath(cwd)), "utf8");
   } catch {
     specText = ""; // absent
   }
@@ -433,10 +437,19 @@ function gatherEvidence(cwd: string, known?: readonly KnownModel[]): PhaseEviden
   } catch {
     events = []; // an unreadable log must not silently permit a skip
   }
+  const designHashes: Record<string, string> = {};
+  if (ticket) {
+    for (const path of [ticket.note, ...ticket.contracts]) {
+      const body = readFileSync(join(cwd, path), "utf8").replace(/\r\n/g, "\n");
+      designHashes[path] = createHash("sha256").update(body, "utf8").digest("hex");
+    }
+  }
   return {
-    contracts: findContracts(cwd),
+    contracts: ticket?.contracts ?? findContracts(cwd),
     specText,
     events,
+    ticket: ticket?.ticket,
+    designHashes,
     models: readDevStageModels(cwd),
     techNouns: specTechNouns(cwd),
     ...(known !== undefined ? { known } : {}),

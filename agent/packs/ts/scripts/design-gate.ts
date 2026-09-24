@@ -61,6 +61,7 @@ import { formatTypecheck, typecheck } from "./typecheck.ts";
 import { diagnosticPath, isDiagnosticStart, routeTypecheck, typecheckLines } from "./typecheck-routing.ts";
 import { logGuardEvent, readGuardLog, type GuardVerdict, type LoggedGuardEvent } from "../../../src/guard-log.ts";
 import { gateVerdictOf, guardVerdictOf, type GateResult } from "../../../src/gate-result.ts";
+import { activeTicketDesign } from "../../../src/ticket-design.ts";
 
 const GUARD = "design-gate";
 const REVIEW_GUARD = "design-review";
@@ -348,10 +349,12 @@ function reviewCounts(event: LoggedGuardEvent): {
 export function classifyReviewFreshness(
   events: readonly LoggedGuardEvent[],
   current: Reviewed,
+  ticket?: string,
 ): ReviewFreshness {
   let latest: LoggedGuardEvent | undefined;
   for (const e of events) {
-    if (e.guard === REVIEW_GUARD && e.verdict === "pass") latest = e;
+    if (e.guard === REVIEW_GUARD && e.verdict === "pass" &&
+      (e.detail as { ticket?: unknown } | undefined)?.ticket === ticket) latest = e;
   }
   if (latest === undefined) return { state: "missing" };
 
@@ -377,7 +380,7 @@ export function reviewStepOutcome(freshness: ReviewFreshness): {
   lines: string[];
 } {
   const commission =
-    "  Commission the `reviewer` subagent once on spec.md and every *.contract.ts; it";
+    "  Commission the `reviewer` subagent once on the design note and owned contracts; it";
   switch (freshness.state) {
     case "fresh":
       return {
@@ -430,9 +433,14 @@ function runDesignReviewStep(cwd: string): {
   lines: readonly string[];
   freshness: ReviewFreshness;
 } {
+  const ticket = activeTicketDesign(cwd);
+  if (ticket?.status === "draft") {
+    const freshness: ReviewFreshness = { state: "unreviewable", reason: `${ticket.note} is draft; mark the agreed design active before freezing` };
+    return { ...reviewStepOutcome(freshness), freshness };
+  }
   const design = readReviewed(cwd);
   const freshness: ReviewFreshness = design.ok
-    ? classifyReviewFreshness(readGuardLog(cwd), design.reviewed)
+    ? classifyReviewFreshness(readGuardLog(cwd), design.reviewed, ticket?.ticket)
     : { state: "unreviewable", reason: design.error };
   return { ...reviewStepOutcome(freshness), freshness };
 }
@@ -466,6 +474,8 @@ function finishDesignGate(
     ...(review !== undefined ? { review } : {}),
     ...(failed !== undefined ? { failed: failed.step, route: "architect" } : {}),
     ...(frozenDesign?.ok ? { frozenDesign: frozenDesign.reviewed } : {}),
+    ticket: activeTicketDesign(cwd)?.ticket,
+    ownedPaths: activeTicketDesign(cwd) ? [activeTicketDesign(cwd)!.note, ...activeTicketDesign(cwd)!.contracts] : undefined,
     ...extra,
   };
   logGuardEvent(cwd, { guard: GUARD, verdict: verdict.verdict, summary: verdict.summary, detail });

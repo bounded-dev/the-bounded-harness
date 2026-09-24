@@ -12,8 +12,9 @@ This is the step where the expand → grill-me flow's deferred writes happen: th
 ## Conventions
 
 1. Read the repo's TN conventions first: `docs/tn/README.md`, `AGENTS.md`, existing `docs/tn/` files. **Repo conventions win** — numbering, front matter, kinds, statuses, index updates, reservation workflow, style rules.
-2. A TN is born from a ticket. If the discussion isn't anchored to an issue yet, resolve that first (create one, or follow the repo's `TBD` convention).
-3. No TN system in the repo? Propose the default — `docs/tn/`, `TN-YY-NNN-slug.md`, front matter (`number`, `title`, `kind`, `status`, `issue`), an index README — and create it lazily alongside the first note.
+2. A TN is born from a ticket. If the discussion isn't anchored to an issue yet, resolve that first. A legacy repo may explicitly allow a `TBD` convention; a ticket-numbered repo does not.
+   In a ticket-numbered project, verify the issue exists in that repository before creating `TN-<issue-number>.md`; a bare number in front matter does not establish that the ticket exists.
+3. No TN system in the repo? Use `docs/tn/TN-<issue-number>.md` and a short `docs/tn/README.md`, created alongside the first note. One issue may have one evolving TN; issues without useful design thinking need none. Do not reserve TN numbers. Record `issue` and `status` in front matter, and list `contracts` when the note owns a design handoff. Existing repo conventions still win.
 
 ## Shape
 

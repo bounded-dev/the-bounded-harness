@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { execFileSync } from "node:child_process";
-import { computeManifest, findContractFiles, hashContract, serializeManifest } from "./checksum-gate.ts";
+import { computeManifest, findContractFiles, hashContract, manifestRelative, serializeManifest } from "./checksum-gate.ts";
 import { readProjectPacks } from "../../../src/project-composition.ts";
+import { activeTicketDesign, designNotePath } from "../../../src/ticket-design.ts";
 
 export interface ChangeBaseline {
   readonly version: 1;
@@ -15,7 +16,10 @@ export interface ChangeBaseline {
 }
 
 export const BASELINE_PATH = ".bounded/change-baseline.json";
-const CONTRACT_MANIFEST = ".bounded/contract-checksums.json";
+export function baselineRelative(root: string): string {
+  const ticket = activeTicketDesign(root)?.ticket;
+  return ticket ? `.bounded/tickets/${ticket}/change-baseline.json` : BASELINE_PATH;
+}
 
 function relativePath(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
@@ -35,9 +39,11 @@ function knowledgeFiles(root: string): string[] {
 }
 
 export function snapshotDesign(root: string): ChangeBaseline {
-  const spec = join(root, "spec.md");
-  if (!existsSync(spec)) throw new Error("spec.md is required to establish a change baseline");
-  const contracts = findContractFiles(root);
+  const note = designNotePath(root);
+  const spec = join(root, note);
+  if (!existsSync(spec)) throw new Error(`${note} is required to establish a change baseline`);
+  const ticket = activeTicketDesign(root);
+  const contracts = ticket ? ticket.contracts.map((path) => join(root, path)) : findContractFiles(root);
   if (contracts.length === 0) throw new Error("at least one *.contract.ts file is required to establish a change baseline");
   const files: Record<string, { hash: string; content: string }> = {};
   for (const path of [spec, ...contracts, ...knowledgeFiles(root)]) {
@@ -54,8 +60,9 @@ export function snapshotDesign(root: string): ChangeBaseline {
 
 export function readChangeBaseline(root: string): ChangeBaseline {
   let raw: unknown;
-  try { raw = JSON.parse(readFileSync(join(root, BASELINE_PATH), "utf8")); }
-  catch (error) { throw new Error(`cannot read ${BASELINE_PATH}: ${error instanceof Error ? error.message : String(error)}`); }
+  const baselinePath = baselineRelative(root);
+  try { raw = JSON.parse(readFileSync(join(root, baselinePath), "utf8")); }
+  catch (error) { throw new Error(`cannot read ${baselinePath}: ${error instanceof Error ? error.message : String(error)}`); }
   if (raw === null || typeof raw !== "object") throw new Error(`${BASELINE_PATH} is malformed`);
   const value = raw as Partial<ChangeBaseline>;
   if (value.version !== 1 || typeof value.fingerprint !== "string" || !Array.isArray(value.packs) ||
@@ -83,21 +90,23 @@ function atomicWrite(path: string, contents: string): string {
 }
 
 function writeSnapshot(root: string, snapshot: ChangeBaseline, includeContracts: boolean): void {
-  const directory = join(root, ".bounded");
+  const baseline = baselineRelative(root);
+  const manifest = manifestRelative(root);
+  const directory = join(root, baseline, "..");
   mkdirSync(directory, { recursive: true });
-  const baselinePath = join(root, BASELINE_PATH);
+  const baselinePath = join(root, baseline);
   const baselineTemp = atomicWrite(baselinePath, JSON.stringify(snapshot, null, 2) + "\n");
   let manifestTemp: string | undefined;
   try {
     if (includeContracts) {
-      manifestTemp = atomicWrite(join(root, CONTRACT_MANIFEST), serializeManifest(computeManifest(root)));
+      manifestTemp = atomicWrite(join(root, manifest), serializeManifest(computeManifest(root)));
     }
-    if (manifestTemp) renameSync(manifestTemp, join(root, CONTRACT_MANIFEST));
+    if (manifestTemp) renameSync(manifestTemp, join(root, manifest));
     renameSync(baselineTemp, baselinePath);
   } catch (error) {
     rmSync(baselineTemp, { force: true });
     if (manifestTemp) rmSync(manifestTemp, { force: true });
-    if (includeContracts) rmSync(join(root, CONTRACT_MANIFEST), { force: true });
+    if (includeContracts) rmSync(join(root, manifest), { force: true });
     throw error;
   }
 }
@@ -119,7 +128,8 @@ function assertCleanTrackedCheckout(root: string): void {
   if (realpathSync(top) !== realpathSync(root)) throw new Error("adoption must run at the Git checkout root");
   const status = execFileSync("git", ["-C", root, "status", "--porcelain", "--untracked-files=all"], { encoding: "utf8" });
   if (status.trim() !== "") throw new Error("adoption requires a clean checkout; commit or remove tracked changes and untracked files first");
-  for (const path of ["spec.md", ...findContractFiles(root).map((file) => relativePath(root, file))]) {
+  const ticket = activeTicketDesign(root);
+  for (const path of [designNotePath(root), ...(ticket?.contracts ?? findContractFiles(root).map((file) => relativePath(root, file)))]) {
     execFileSync("git", ["-C", root, "ls-files", "--error-unmatch", "--", path], { encoding: "utf8", stdio: ["ignore", "ignore", "ignore"] });
   }
 }
@@ -130,7 +140,7 @@ function assertCleanTrackedCheckout(root: string): void {
  * passes; no synthetic guard events are created.
  */
 export async function adoptProject(root: string): Promise<ChangeBaseline> {
-  if (existsSync(join(root, CONTRACT_MANIFEST)) || existsSync(join(root, BASELINE_PATH)) ||
+  if (existsSync(join(root, manifestRelative(root))) || existsSync(join(root, baselineRelative(root))) ||
       existsSync(join(root, ".bounded", "guard-log.jsonl"))) {
     throw new Error("this project already has developer-stage state; use bounded change-run instead of adoption");
   }

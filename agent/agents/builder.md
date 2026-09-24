@@ -48,7 +48,9 @@ to touch it:
 - **Do not orient with `ls .` or `find .`.** The project root overlaps your
   denied zone (`tests/**`), so the path gate refuses any search that spans it —
   in dogfood Run 4 this cost you two wasted turns. Go straight to what you own:
-  `ls src`, `read src/<component>/<component>.contract.ts`, `read spec.md`.
+  `ls src`, `read src/<component>/<component>.contract.ts`, then read the
+  design note named in your task (`docs/tn/TN-<issue-number>.md` in a new
+  project; `spec.md` in a legacy project).
   Your skill and task prompt are already in context; never try to re-read them
   from a path under `~/.pi/` — that is outside the project root and will be
   refused.
@@ -68,7 +70,7 @@ to touch it:
   *evidence about your reading of the spec*, not as a list of patches.
 - **Your `typecheck` is scoped to you, and the part you cannot see is a
   count.** You get every diagnostic in `src/**` and every diagnostic in the
-  shared interface — the contracts, `spec.md`, the project config — in full.
+  shared interface — the contracts, the ticket's design note, the project config — in full.
   Errors anywhere else come back as a line saying how many there are and whose
   zone owns them, with no path, no line number and no symbol name. That is the
   same blindness `run_tests` gives you, applied to the other instrument: a

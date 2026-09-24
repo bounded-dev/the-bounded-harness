@@ -48,14 +48,22 @@ done
 TARGET="${TARGET:-$PWD}"
 [ -d "$TARGET" ] || { echo "bounded change-run: '$TARGET' is not a directory" >&2; exit 2; }
 
-MANIFEST="$TARGET/.bounded/contract-checksums.json"
+MANIFEST_REL=".bounded/contract-checksums.json"
+if [ -f "$TARGET/docs/tn/README.md" ]; then
+  if [[ ! "${BOUNDED_TICKET:-}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "bounded change-run: set BOUNDED_TICKET to the issue number" >&2
+    exit 2
+  fi
+  MANIFEST_REL=".bounded/tickets/$BOUNDED_TICKET/contract-checksums.json"
+fi
+MANIFEST="$TARGET/$MANIFEST_REL"
 LOG="$TARGET/.bounded/guard-log.jsonl"
 
 # A change run re-enters a tree the stage has delivered before. No manifest
 # means no frozen design to change: that is a FIRST run, which needs no
 # boundary — just launch it.
 if [ ! -f "$MANIFEST" ]; then
-  echo "bounded change-run: no frozen manifest at .bounded/contract-checksums.json — this tree has" >&2
+  echo "bounded change-run: no frozen manifest at $MANIFEST_REL — this tree has" >&2
   echo "  never been through the developer stage, so there is no run to close. A first" >&2
   echo "  run needs no boundary: launch the architect directly." >&2
   exit 2

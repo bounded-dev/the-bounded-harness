@@ -75,6 +75,7 @@ import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-ti
 import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
+import { ticketWriteScope } from "../../src/ticket-design.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -313,7 +314,8 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
     if (call.toolName === BASH_TOOL) {
       const raw = call.input["command"];
       const command = typeof raw === "string" ? raw : "";
-      const decision = decideBash(role, command, { cwd, harnessRoot });
+      const decision = decideBash(role, command, { cwd, harnessRoot,
+        ...(role === "architect" ? { ticketScope: ticketWriteScope(cwd) } : {}) });
       if (!decision.allow) {
         // decide() logs its own blocks through evaluatePathGate; the bash
         // policy is pure, so its refusal is recorded here.

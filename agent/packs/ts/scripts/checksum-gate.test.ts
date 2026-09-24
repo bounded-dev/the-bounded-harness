@@ -63,6 +63,7 @@ describe("findContractFiles", () => {
       "src/orders/orders.ts": "// impl, not a contract",
       "node_modules/pkg/x.contract.ts": "export interface Ignored {}",
       ".bounded/y.contract.ts": "export interface Ignored {}",
+      ".agent-state/snapshot.contract.ts": "export interface Ignored {}",
       // The architect's scratch zone (Fix 4): a probe that happens to be named
       // like a contract must never be frozen. The walk skips scratch/ by name.
       "scratch/probe.contract.ts": "export interface Probe {}",

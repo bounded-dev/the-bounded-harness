@@ -89,6 +89,10 @@ export type Decision =
   | { readonly allow: false; readonly reason: string };
 
 export interface PhaseEvidence {
+  /** Active ticket for projects that use ticket-numbered TNs. */
+  readonly ticket?: string;
+  /** Current hashes of this ticket's TN and owned contracts. */
+  readonly designHashes?: Readonly<Record<string, string>>;
   /** Project-relative paths of the *.contract.ts files that exist. */
   readonly contracts: readonly string[];
   /** Full text of spec.md; "" when absent or unreadable. */
@@ -221,6 +225,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
 
   const { contracts, specText, events } = evidence;
   const specBytes = Buffer.byteLength(specText, "utf8");
+  const note = evidence.ticket ? `docs/tn/TN-${evidence.ticket}.md` : "spec.md";
 
   if (contracts.length === 0) {
     return deny(
@@ -231,7 +236,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
 
   if (specBytes === 0) {
     return deny(
-      `phase-gate: cannot commission the ${target} — spec.md is missing. ` +
+      `phase-gate: cannot commission the ${target} — ${note} is missing. ` +
         "The contract carries the half TypeScript can hold; the spec carries the rest — execution " +
         "order, the exact arithmetic and its tie-break, identity guarantees. Two blind agents cannot " +
         'agree on "round to the nearest cent"; they can agree on floor((2n + d) / 2d). Write it, then commission.',
@@ -240,7 +245,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
 
   if (specBytes < MIN_SPEC_BYTES) {
     return deny(
-      `phase-gate: cannot commission the ${target} — spec.md is ${specBytes} bytes, which is a ` +
+      `phase-gate: cannot commission the ${target} — ${note} is ${specBytes} bytes, which is a ` +
         "placeholder rather than a document. It must carry the ordering, arithmetic and identity " +
         "rules the contract cannot express.",
     );
@@ -248,7 +253,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
 
   if (specIntakeSection(specText) === undefined) {
     return deny(
-      `phase-gate: cannot commission the ${target} — spec.md has no "## Intake" section ` +
+      `phase-gate: cannot commission the ${target} — ${note} has no "## Intake" section ` +
         "(ADR 2026-032). Every ticket is reworked to what-is-required, and the Intake section " +
         "records the implementation choices stripped in that rework — \"nothing stripped\" is a " +
         "valid entry — so the reviewer can challenge the reworking. Add it, then commission.",
@@ -258,13 +263,29 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
   const leaked = techNounsOutsideIntake(specText, evidence.techNouns ?? []);
   if (leaked.length > 0) {
     return deny(
-      `phase-gate: cannot commission the ${target} — spec.md names ${leaked.join(", ")} outside ` +
+      `phase-gate: cannot commission the ${target} — ${note} names ${leaked.join(", ")} outside ` +
         "the Intake section. A technology a ticket names is a \"how\" that intake strips (ADR " +
         "2026-032): remove it from the requirement text, or — if the user has ratified it as a " +
         "genuine constraint — document it under \"## Intake\" with that rationale, where it is legal.",
     );
   }
 
+  if (evidence.ticket !== undefined) {
+    const latest = [...events].reverse().find((e) => e.guard === "design-gate" &&
+      (e.detail as { ticket?: unknown } | undefined)?.ticket === evidence.ticket);
+    if (latest?.verdict !== "pass") {
+      return deny(`phase-gate: cannot commission the ${target} — ticket #${evidence.ticket} has no standing design-gate freeze`);
+    }
+    const frozen = (latest.detail as { frozenDesign?: unknown } | undefined)?.frozenDesign;
+    const current = evidence.designHashes ?? {};
+    const owned = (latest.detail as { ownedPaths?: unknown } | undefined)?.ownedPaths;
+    if (!Array.isArray(owned) || owned.some((path) => typeof path !== "string") ||
+      JSON.stringify([...owned].sort()) !== JSON.stringify(Object.keys(current).sort()) ||
+      typeof frozen !== "object" || frozen === null || Object.entries(current).some(([path, hash]) =>
+      (frozen as Record<string, unknown>)[path] !== hash)) {
+      return deny(`phase-gate: cannot commission the ${target} — ticket #${evidence.ticket} changed since its design freeze`);
+    }
+  } else {
   // The three checks below read the INNER guard names, which `design_gate` logs
   // as it runs each step (ADR 2026-019). So they still say precisely which step
   // is missing, and the remedy for every one of them is the same single call.
@@ -289,6 +310,7 @@ export function checkSpawnPrecondition(target: string, evidence: PhaseEvidence):
         "design_gate: its freeze step records the checksum manifest, so a contract that moves " +
         "underneath the workers is detectable rather than silent.",
     );
+  }
   }
 
   // A cold launch of a role that has already run re-primes an entire context.

@@ -31,13 +31,16 @@ Two constraints frame the work, and they are not optional:
   what you own: `ls tests`, and read the contract paths named in your task
   prompt. Your skill is already in context; never re-read it from `~/.pi/`.
 - **Write only tests.** Your write zone is `tests/**`. A path gate enforces it.
+- **Read the design note named in your task.** It is
+  `docs/tn/TN-<issue-number>.md` in a ticket-numbered project, or `spec.md`
+  in a legacy project.
 - **You are blind to `src/`, always.** You may not read implementation source —
   not now, not on revision passes. Tests written against the implementation
   grade the code's own exam; tests written against the spec test the
   requirements. You test the requirements. Do not attempt to read `src/`.
 - **Your `typecheck` is scoped to you, and the part you cannot see is a
   count.** You get every diagnostic in `tests/**` and every diagnostic in the
-  shared interface — the contracts, `spec.md`, the project config — in full.
+  shared interface — the contracts, the ticket's design note, the project config — in full.
   Errors anywhere else, `src/**` above all, come back as a line saying how many
   there are and whose zone owns them: no path, no line number, no symbol name.
   It is the blindness rule applied to the instrument that used to leak past it.

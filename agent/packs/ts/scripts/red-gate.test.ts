@@ -635,7 +635,11 @@ test("project-local init, design freeze, inferred router re-freeze, and red use 
   await applyInit(dir, "claude-code", selected, plan.digest);
   symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(dir, "node_modules"), "dir");
   writeFileSync(join(dir, "src/ui/app.tsx"), "export function App() { return null; }\n");
-  writeFileSync(join(dir, "spec.md"), "# Service\n\nSubmit returns an acknowledgement.\n");
+  writeFileSync(join(dir, "docs/tn/TN-24.md"),
+    "---\nissue: 24\nstatus: active\ncontracts:\n  - src/api/api.contract.ts\n---\n\n# Service\n\n## Intake\n\nNothing stripped.\n\nSubmit returns an acknowledgement.\n");
+  const priorTicket = process.env.BOUNDED_TICKET;
+  process.env.BOUNDED_TICKET = "24";
+  try {
   const contract = join(dir, "src/api/api.contract.ts");
   const base = 'export declare function submit(): void;\n';
   writeFileSync(contract, base);
@@ -645,7 +649,7 @@ test("project-local init, design freeze, inferred router re-freeze, and red use 
   expect(runRecordDesignReview(dir, []).code).toBe(0);
   const firstFreeze = gate("design-gate");
   expect(firstFreeze.status, firstFreeze.stdout + firstFreeze.stderr).toBe(0);
-  expect(existsSync(join(dir, ".bounded/contract-checksums.json"))).toBe(true);
+  expect(existsSync(join(dir, ".bounded/tickets/24/contract-checksums.json"))).toBe(true);
 
   writeFileSync(join(dir, "src/api/api.ts"),
     'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
@@ -664,6 +668,10 @@ test("project-local init, design freeze, inferred router re-freeze, and red use 
   expect(red.status, red.stdout + red.stderr).toBe(0);
   expect(red.stdout).toContain("NotImplemented failure");
   expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "red-gate", verdict: "pass" });
+  } finally {
+    if (priorTicket === undefined) delete process.env.BOUNDED_TICKET;
+    else process.env.BOUNDED_TICKET = priorTicket;
+  }
 }, 90_000);
 
 // --- TSX in the shadow (TN-26-006 A1) ---------------------------------------

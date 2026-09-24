@@ -146,7 +146,7 @@ const patternsOf = (args: GateArgs): readonly string[] | undefined => {
 export const gates: readonly GateCommand[] = [
   {
     name: "handoff-publish",
-    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. The receipt lets a dependent ticket start before implementation finishes.",
+    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. In a ticket-numbered TN project, BOUNDED_TICKET must match --producer; the receipt includes that TN and its owned contracts.",
     flags: [{ name: "producer", kind: "string", required: true, description: "The producing ticket's identity." }],
     async run(cwd, args) {
       const { runHandoffPublish } = await import("./scripts/handoff-publish.ts");
@@ -170,7 +170,7 @@ export const gates: readonly GateCommand[] = [
     tool: "design_gate",
     promptSnippet: "Run the design phase: purity, scaffold, typecheck, design-review, freeze.",
     description:
-      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze, stopping at the first failure and returning one verdict. Run it once the contract is written and the reviewer has recorded its review; on a failure, fix what it names and re-run it. There are no separate scaffold or freeze tools — they are steps of this sequence, and the sequence has only one legal order. On a RE-freeze (a manifest already exists) the review is checked first, and the typecheck step lets worker-owned drift through, printed and attributed — a contract revision over existing code freezes first and the workers repair after; a diagnostic in a contract, config, or generated skeleton still blocks.",
+      "The one design-phase call: contract-purity → scaffold → project typecheck → design-review → freeze. In a ticket-numbered TN project, set BOUNDED_TICKET; review and freeze cover that TN and its listed contracts. Project typecheck remains project-wide. On a RE-freeze the review is checked first and worker-owned type drift may proceed; design-owned diagnostics still block.",
     flags: [PATTERN_FLAG],
     promptGuidelines: [
       "It will not freeze a design nobody has challenged: commission the `reviewer` subagent once first. A review covers the SET of contract files it saw, so editing one you revised in answer to it does not un-review the design — only adding or removing a contract file does, and then the step names the file.",
@@ -189,7 +189,7 @@ export const gates: readonly GateCommand[] = [
     tool: "change_diff",
     promptSnippet: "Review the current design against its adopted or last-delivered baseline.",
     description:
-      "Show a unified diff of spec.md, component contracts, CONTEXT.md and ADRs against the project's adopted or last-delivered baseline. The reviewer should call this before recording a review on a change run; it does not edit files or create gate evidence.",
+      "Show a unified diff of the active ticket's design note, owned contracts, CONTEXT.md and ADRs against its adopted or last-delivered baseline. The reviewer should call this before recording a review on a change run.",
     flags: [],
     async run(cwd) {
       const { designDiff } = await import("./scripts/change-diff.ts");
@@ -208,7 +208,7 @@ export const gates: readonly GateCommand[] = [
     tool: "check_drift",
     promptSnippet: "Check whether any contract has moved since it was frozen.",
     description:
-      "Verify the contracts are byte-for-byte unchanged since design_gate froze them. A contract that moves mid-loop drifts the tests and the implementation apart underneath you. Run any time you suspect the contract has moved.",
+      "Verify the active ticket's design note and owned contracts are unchanged since design_gate froze them. Legacy projects verify their project-wide contract set.",
     // Verify only. Recording the manifest is the freeze, and the freeze is a
     // step of design_gate (ADR 2026-019): a flag here would be a second way to
     // freeze, offered to every role that may run this. A person wanting a raw
@@ -387,9 +387,9 @@ export const gates: readonly GateCommand[] = [
   {
     name: "record-design-review",
     tool: "record_design_review",
-    promptSnippet: "Record the challenges you raise reading the spec and the contracts.",
+    promptSnippet: "Record the challenges you raise reading the design note and owned contracts.",
     description:
-      "Record the challenges you raise reading spec + contracts. Findings are claims for the architect to weigh, not verdicts — a blocker included — and an empty list is a valid review. You review the whole design once; the architect may revise a file in answer and it stays covered, so only a contract file added or removed later re-requires a review.",
+      "Record challenges from the active ticket's TN and owned contracts (or legacy spec and contracts). Findings are claims for the architect to weigh; an empty list is a valid review. A changed file remains covered, while a contract added or removed from ownership requires a fresh review.",
     flags: findingsFlags({
       description: "What you found. Pass [] to record that you found nothing.",
       evidence: "Where to look — a path, a symbol, an exported operation.",
