@@ -16,7 +16,8 @@
     "src/",
     "dist/",
     "tsconfig.json",
-    "installer-lock.json"
+    "installer-lock.json",
+    "build-info.json"
   ],
   "keywords": [
     "pi-package"
@@ -30,6 +31,7 @@
   "scripts": {
     "build:dist": "node scripts/build-distribution.mjs",
     "prepack": "npm run build:dist",
+    "publish:local": "node scripts/publish-local.mjs",
     "check": "tsc --noEmit && npm run test",
     "test": "vitest run"
   },

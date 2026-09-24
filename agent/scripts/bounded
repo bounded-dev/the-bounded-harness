@@ -3,6 +3,7 @@
 #
 #   bounded init                    # initialize an empty project
 #   bounded dev-bootstrap           # make this harness clone live on this machine
+#   bounded --version               # show the exact installed build
 #   bounded gates <gate> [dir]      # run one artifact gate (bounded gates --list)
 #   bounded ticket                  # start a session bound to the ARCHITECT role
 #   bounded change-run [dir]\n#   bounded adopt [--cwd dir]\n#   bounded change-diff [--cwd dir]        # open the run boundary for a change run
@@ -30,7 +31,9 @@ usage() {
 SUB="${1:-}"
 case "$SUB" in
   init)            shift; if [[ "$SCRIPTS" == *"/node_modules/"* ]]; then exec node "$SCRIPTS/../dist/src/project-init-cli.js" "$@"; else exec node "$SCRIPTS/../src/project-init-cli.ts" "$@"; fi ;;
+  --version|-V)    exec node "$SCRIPTS/print-version.mjs" ;;
   dev-bootstrap)   shift; exec "$SCRIPTS/bounded-init" "$@" ;;
+  dev-publish)     shift; exec node "$SCRIPTS/publish-local.mjs" "$@" ;;
   compose)         shift; exec node "$SCRIPTS/../packs/compose.ts" "$@" ;;
   adopt|change-diff|capture-baseline) shift; exec node "$SCRIPTS/../packs/command.ts" "$SUB" "$@" ;;
   gates)           shift; exec "$SCRIPTS/bounded-gates" "$@" ;;

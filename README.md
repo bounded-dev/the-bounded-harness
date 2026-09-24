@@ -112,9 +112,22 @@ The CLI is packaged locally but not yet published. To install this preview:
 ```bash
 git clone git@github.com:bounded-dev/the-bounded-harness.git
 cd the-bounded-harness/agent
-npm ci && npm pack
-npm install -g ./bounded-harness-0.1.0.tgz
+npm ci
+npm run publish:local
+bounded --version
 ```
+
+Contributors can run `npm run publish:local` from the `agent/` directory of
+whichever harness worktree they want to install. It builds a tarball and
+installs that snapshot into npm's global prefix, independent of the worktree.
+Run it again after changes you want other projects to use. The command checks
+that `bounded` on PATH resolves to the installed build, so an older link cannot
+silently win. `bounded --version` reports the source commit and whether the
+build contained uncommitted harness changes. A running agent session may need
+restarting to load newly installed project hooks. Check `bounded --version`
+inside the agent session too: a different shell can have a different PATH.
+Already initialized projects carry their own harness snapshot and need a
+future `bounded update` flow to receive newer harness code.
 
 Open an empty directory (or one containing
 only `.git/`). Tell your current pi or Claude Code agent to initialize Bounded

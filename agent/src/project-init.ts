@@ -72,6 +72,11 @@ function copyTree(from: string, into: string, omit: (path: string) => boolean = 
 function sourceRelease(): { version: string; provenance: string } {
   const pkg = JSON.parse(readFileSync(join(agentRoot, "package.json"), "utf8")) as { name: string; version: string };
   let provenance = `npm:${pkg.name}@${pkg.version}`;
+  const buildInfo = join(agentRoot, "build-info.json");
+  if (existsSync(buildInfo) && !existsSync(join(sourceRoot, "docs", "VISION.md"))) {
+    const info = JSON.parse(readFileSync(buildInfo, "utf8")) as { commit: string; dirty: boolean };
+    provenance = `${info.commit}${info.dirty ? "+working-tree" : ""}`;
+  }
   if (basename(agentRoot) === "agent" && existsSync(join(sourceRoot, "docs", "VISION.md"))) try {
     provenance = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
     const changes = execFileSync("git", ["status", "--porcelain", "--", "agent"], { cwd: sourceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();

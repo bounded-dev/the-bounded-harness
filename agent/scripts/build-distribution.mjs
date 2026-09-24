@@ -1,10 +1,15 @@
 // Compile each module separately for npm. Node cannot type-strip TypeScript
 // under node_modules, and module boundaries preserve isMainModule() guards.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, rmSync } from "node:fs";
+import { copyFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const repository = resolve(root, "..");
+const git = (args) => execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
+const commit = git(["rev-parse", "HEAD"]);
+const dirty = git(["status", "--porcelain", "--", "agent"]) !== "";
+writeFileSync(join(root, "build-info.json"), JSON.stringify({ commit, dirty }) + "\n");
 rmSync(join(root, "dist"), { recursive: true, force: true });
 // npm intentionally excludes package-lock.json from tarballs. This generated
 // data copy lets the installed CLI reproduce pinned project lockfiles.
