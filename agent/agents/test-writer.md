@@ -164,6 +164,11 @@ becomes a wrong-reason failure. Build fixtures inside `test()` or
   });
   ```
 
+  In each `describe("<Name> — boundaries")` block, also assert one accepted
+  literal directly with `expect(Name.parse("valid")).toBeDefined()`. The red
+  gate requires that explicit assertion in the named block; a fixture helper
+  that throws on `undefined` does not discharge this particular obligation.
+
 - **Narrow array members the same way.** `expect(rows[0]).toBeDefined()` does
   not narrow `rows[0]` for the next statement. Use `required(rows[0], "first
   row")` when the assertion needs that member. Keep optional object members

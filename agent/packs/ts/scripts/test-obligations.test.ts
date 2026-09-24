@@ -7,6 +7,7 @@ import {
   MIN_REJECTIONS,
   boundaryDescribeName,
   boundaryRemedyLines,
+  calledNames,
   checkBoundaryBlocks,
   declaredExports,
   readContracts,
@@ -120,6 +121,36 @@ describe("declaredExports", () => {
       { name: "Currency", contractFile: "src/money/money.contract.ts" },
       { name: "parseIsbn", contractFile: "src/money/money.contract.ts" },
     ]);
+  });
+});
+
+describe("calledNames", () => {
+  test("counts components rendered with self-closing and paired JSX tags", () => {
+    const called = calledNames([
+      {
+        file: "tests/ui/cards.test.tsx",
+        source: `import { ContactCard, WorkspacePage } from "../../src/ui/index.js";
+          test("cards", () => {
+            render(<ContactCard contact={contact} />);
+            render(<WorkspacePage><ContactCard contact={contact} /></WorkspacePage>);
+          });`,
+      },
+    ]);
+    expect(called.has("ContactCard")).toBe(true);
+    expect(called.has("WorkspacePage")).toBe(true);
+  });
+
+  test("does not count an imported but unused component or an intrinsic JSX tag", () => {
+    const called = calledNames([
+      {
+        file: "tests/ui/cards.test.tsx",
+        source: `import { UnusedCard } from "../../src/ui/index.js";
+          test("markup", () => { render(<section><span>hello</span></section>); });`,
+      },
+    ]);
+    expect(called.has("UnusedCard")).toBe(false);
+    expect(called.has("section")).toBe(false);
+    expect(called.has("span")).toBe(false);
   });
 });
 

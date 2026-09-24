@@ -145,8 +145,9 @@ export function reachedName(message: string | undefined): string | undefined {
  * with ZERO call sites anywhere.
  *
  * Both direct calls (`getInvoices(x)`) and member calls (`Currency.parse(x)`)
- * count, as does passing the export as a value (`expect(fn).toThrow` style
- * callbacks). Generated law suites count too: reachability asks whether the
+ * count, as does rendering a component with JSX (`<ContactCard />`) or passing
+ * the export as a value (`expect(fn).toThrow` style callbacks). Generated law
+ * suites count too: reachability asks whether the
  * export is exercised at all; the boundaries obligation separately demands
  * hand-written attention where it matters.
  */
@@ -154,9 +155,16 @@ export function calledNames(tests: readonly SourceText[]): Set<string> {
   const called = new Set<string>();
   const project = new Project({ useInMemoryFileSystem: true, skipAddingFilesFromTsConfig: true });
   for (const { file, source } of tests) {
-    const sf = project.createSourceFile(`called-${file.replace(/\W+/g, "_")}.ts`, source, { overwrite: true });
+    const extension = file.endsWith(".tsx") ? "tsx" : "ts";
+    const sf = project.createSourceFile(`called-${file.replace(/\W+/g, "_")}.${extension}`, source, {
+      overwrite: true,
+    });
     sf.forEachDescendant((node) => {
-      if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
+      if (Node.isJsxOpeningElement(node) || Node.isJsxSelfClosingElement(node)) {
+        const tag = node.getTagNameNode();
+        // Lowercase intrinsic elements are not component exports.
+        if (Node.isIdentifier(tag) && /^[A-Z]/.test(tag.getText())) called.add(tag.getText());
+      } else if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
         const callee = node.getExpression();
         if (Node.isIdentifier(callee)) {
           called.add(callee.getText());
