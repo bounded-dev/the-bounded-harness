@@ -32,6 +32,7 @@
 // logging. The hook logs.
 
 import { PIPELINE_ROLES } from "../../src/path-gate.ts";
+import { gitPolicy } from "../../src/git-policy.ts";
 import {
   ARTIFACT_GATE_TOOLS,
   decide,
@@ -211,15 +212,9 @@ const GIT_CONFIG_READS: ReadonlySet<string> = new Set([
 const SAFE_GIT_GLOBALS: ReadonlySet<string> = new Set(["--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs"]);
 
 /**
- * The known ways git runs a program of the caller's choosing, refused because
- * the shell is present here and pi's git tool — unrestricted by design, for
- * archaeology — spawns git without one: `-c alias.x='!cmd'` and `--exec-path`
- * on any call; `!` alias bodies; `bisect run`, `rebase --exec`, `submodule
- * foreach` and the tool-launching subcommands; and any `git config` WRITE,
- * because `core.hooksPath` pointed at a writable directory turns the next
- * `git commit` into a shell. The subcommand is the first word after the safe
- * globals, and any other leading option is refused by name. A denylist, so
- * incomplete by nature; the README says so.
+ * Reject known program-launching Git forms before the shared read-only policy
+ * checks the subcommand and its options. The subcommand is the first word after
+ * safe globals; any other leading option is refused by name.
  */
 function gitEscape(argv: readonly string[]): string | undefined {
   const args = argv.slice(1);
@@ -342,6 +337,8 @@ function decideGate(role: Role, argv: readonly string[]): BashDecision {
 function decideGit(role: Role, argv: readonly string[], shown: string): BashDecision {
   const why = gitEscape(argv);
   if (why !== undefined) return block(`path-gate: ${role} may not run '${shown}': ${why}`);
+  const policy = gitPolicy(argv.slice(1));
+  if (policy !== undefined) return block(`path-gate: ${role} may not run '${shown}': ${policy}`);
   return allow("git");
 }
 

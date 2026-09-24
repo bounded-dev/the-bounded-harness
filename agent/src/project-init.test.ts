@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -80,6 +80,7 @@ describe("project-local initialization", () => {
     expect(existsSync(join(target, ".bounded"))).toBe(false);
     const applied = await applyInit(target, host, ["ts-web"], plan.digest);
     expect(applied.digest).toBe(plan.digest);
+    expect(statSync(join(target, ".bounded/harness/scripts/bounded")).mode & 0o111).not.toBe(0);
     expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(false);
     expect(existsSync(join(target, ".bounded/harness/hosts", host))).toBe(true);
     expect(existsSync(join(target, ".bounded/harness/hosts", host === "pi" ? "claude-code" : "pi"))).toBe(false);

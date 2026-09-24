@@ -71,8 +71,8 @@ completing the host workflow does not establish application completeness.
     role's `ROLE_TOOLS` and is not a file tool — so the builder may run
     `run-tests` and `typecheck`, the architect every gate, the reviewer
     `record-design-review` and `typecheck`; `bounded gates --list|--help` always;
-  - `git …` for roles holding `git` (the architect), minus git's known ways of
-    running another program (see limits). The subcommand is the first word
+  - read-only `git …` for roles holding `git` (the architect), as defined by
+    the shared Git policy. The subcommand is the first word
     after the four global options the policy passes (`--no-pager`, `-P`,
     `--no-optional-locks`, `--literal-pathspecs`); any other leading option
     is refused by name, because a global that takes a value (`-C <dir>`,
@@ -136,20 +136,11 @@ completing the host workflow does not establish application completeness.
   runs a gate against another directory and writes to that project's guard
   log. No gate echoes an arbitrary file, so this is not a read channel, but
   it is a way to act outside the project the hook was installed in.
-- **git is a denylist.** git is a large program with many ways to run
-  another: the policy refuses `-c`, `--config-env`, `--exec-path`, `!`
-  alias bodies, `bisect run`, `rebase --exec`, `submodule foreach`,
-  `filter-branch`, the `*tool`/GUI subcommands, every `git config` that
-  is not a `--get`/`--list`, and every global option before the subcommand
-  except `--no-pager`, `-P`, `--no-optional-locks` and `--literal-pathspecs`
-  (so `git -C . config core.hooksPath …` cannot hide its subcommand behind
-  `-C`). A denylist is incomplete by construction. An
-  alias or `core.hooksPath` that ALREADY exists in the repository's or the
-  user's git config is honoured by `git commit`, and a `pre-commit` hook the
-  project ships runs as the project's own tooling. pi's git tool is
-  unrestricted by design; the extra rules here exist only because a shell is
-  present. Only the architect holds git, and the architect is not a blind
-  role — the concern is a gate verdict being manufactured, not a leak.
+- **Git is read-only in every host.** The architect can inspect status and
+  history through the shared Git policy. Mutating commands are refused because
+  they can rewrite protected files without using the file tools or their path
+  gate. The Claude Bash carrier additionally refuses shell syntax and Git
+  options that run external commands.
 - **The strip is for subagents.** A directly driven session (the ambient
   hook, role from `.bounded/dev-stage-role`) has every Claude Code tool; the hook
   refuses what it maps and ignores what it does not (`WebFetch`,
@@ -202,8 +193,11 @@ links `<harness>/skills/developer-stage` at
 `<project>/.claude/skills/developer-stage` (the architect's brief opens by
 loading that skill, and Claude Code reads skills from the project's
 `.claude/skills/`, not from `~/.pi/agent/skills`), and adds the ambient hook
-to `<project>/.claude/settings.json`, creating it if absent and touching
-nothing else in it. Idempotent; prints one line per file: `wrote`,
+and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` to
+`<project>/.claude/settings.json`. The latter makes each reviewer and worker
+return its result to the architect before the next phase; Claude Code runs
+these roles sequentially. Other settings are preserved, and a conflicting
+value is refused. Idempotent; prints one line per file: `wrote`,
 `unchanged`, `linked <path> -> <target>`, or — where the platform refuses a
 symlink — `copied <path> (symlink refused: …)`, in which case the copy
 carries a `.bounded-harness-generated` marker file and must be re-installed after

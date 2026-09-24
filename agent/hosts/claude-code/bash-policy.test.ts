@@ -49,12 +49,12 @@ const TABLE: readonly Row[] = [
   ["BOUNDED_HOST=claude-code bounded gates red-gate", all("deny")], // and this
   ["BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=architect bounded gates red-gate", all("deny")],
   ["/usr/local/bin/bounded gates typecheck", all("deny")], // only the bare name; a path could be anything
-  // git: the architect's alone, and never a way back to a shell.
+  // git: the architect's read-only history and status carrier.
   ["git status", only("architect")],
   ["git log --oneline -10", only("architect")],
   ["git show HEAD:tests/x.test.ts", only("architect")],
-  ["git commit -m \"fix: tidy; and more\"", only("architect")], // `;` inside quotes is text
-  ["git commit -m 'literal $(x) `y`'", only("architect")], // single quotes are literal
+  ["git commit -m \"fix: tidy; and more\"", all("deny")],
+  ["git commit -m 'literal $(x) `y`'", all("deny")],
   ["git commit -m \"$(cat notes)\"", all("deny")], // expansion inside double quotes
   ["git -c alias.t=!npm x", all("deny")],
   ["git --exec-path=/tmp/evil status", all("deny")],
@@ -68,13 +68,17 @@ const TABLE: readonly Row[] = [
   ["git --work-tree=/tmp status", all("deny")],
   ["git --no-pager log", only("architect")],
   ["git -P --no-optional-locks status", only("architect")],
-  ["git config --get core.hooksPath", only("architect")],
-  ["git config --list", only("architect")],
+  ["git config --get core.hooksPath", all("deny")],
+  ["git config --list", all("deny")],
   ["git bisect run npm test", all("deny")],
-  ["git bisect start", only("architect")],
+  ["git bisect start", all("deny")],
   ["git rebase -x 'npm test' HEAD~3", all("deny")],
   ["git rebase --exec=npm HEAD~3", all("deny")],
-  ["git rebase -i HEAD~3", only("architect")],
+  ["git rebase -i HEAD~3", all("deny")],
+  ["git add -f .bounded/harness/scripts/bounded", all("deny")],
+  ["git update-index --chmod=+x .bounded/harness/scripts/bounded", all("deny")],
+  ["git checkout-index -f -- .bounded/harness/scripts/bounded", all("deny")],
+  ["git diff --output=src/crm/model.ts", all("deny")],
   ["git filter-branch --tree-filter 'rm x' HEAD", all("deny")],
   ["git submodule foreach npm test", all("deny")],
   ["git difftool", all("deny")],

@@ -55,19 +55,16 @@
  *     off rather than after the run is over. It inspects the tree, so it is
  *     a registry entry like the gates.
  *
- * `git` is deliberately unrestricted. Archaeology — reflog, bisect, blame — is
- * exactly when a closed verb list becomes a cage, and it is exactly when you
- * need the tool most. The safety story is not "restrict the verb": it is that
- * the two blind roles hold no git at all (`git show HEAD:tests/x.test.ts`
- * would hand the builder the test source in one call), that args are passed as
- * an array and spawned directly so this tool is not itself an injection point,
- * and that every invocation is logged.
+ * Git is read-only here. A mutating command can rewrite a protected file
+ * without passing through the file-tool path gate. The shared policy applies
+ * to this named tool and to Claude Code's Bash carrier alike.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import { gates } from "../../../packs/ts/gates.ts";
+import { gitPolicy } from "../../../src/git-policy.ts";
 import { logGuardEvent } from "../../../src/guard-log.ts";
 import { GATE_TOOLS } from "../../../src/path-policy.ts";
 import { targetCwd } from "../../../src/target-cwd.ts";
@@ -120,8 +117,8 @@ export default function (pi: ExtensionAPI): void {
     name: "git",
     label: "Git",
     description:
-      "Run any git command. Args are passed as an array, exactly as git would receive them: [\"log\", \"--oneline\", \"-10\"]. Unrestricted on purpose — reflog, bisect, blame and stash archaeology are when you need git most, and a closed verb list would cage you exactly then.",
-    promptSnippet: "Run a git command (args as an array).",
+      "Inspect Git history and status with read-only commands. Args are passed as an array, exactly as git would receive them: [\"log\", \"--oneline\", \"-10\"]. Mutating commands are refused because they bypass file path guards.",
+    promptSnippet: "Inspect Git with a read-only command (args as an array).",
     promptGuidelines: [
       "Pass args as an array, not a shell string: [\"commit\", \"-m\", \"message\"] — there is no shell, so quoting and pipes do not apply.",
     ],
@@ -134,6 +131,11 @@ export default function (pi: ExtensionAPI): void {
     }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       const cwd = targetCwd(ctx.cwd, params.cwd);
+      const refused = gitPolicy(params.args);
+      if (refused !== undefined) {
+        logGuardEvent(cwd, { guard: "git", verdict: "block", summary: refused, detail: { args: params.args } });
+        return { content: [{ type: "text" as const, text: `git: ${refused}` }], details: { code: 1, ok: false } };
+      }
       const { code, stdout, stderr } = await runGit(params.args, cwd, signal);
       logGuardEvent(cwd, {
         guard: "git",

@@ -55,9 +55,10 @@ describe("install — fresh project", () => {
       expect(file).toContain(`--role ${role}`);
     }
     expect(settingsOf(dir)).toEqual({
+      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
       hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: hookCommandFor(HARNESS_ROOT) }] }] },
     });
-    expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toMatch(/^\{\n {2}"hooks"/); // 2-space JSON
+    expect(readFileSync(join(dir, ".claude/settings.json"), "utf8")).toMatch(/^\{\n {2}"env"/); // 2-space JSON
   });
 
   test("a second run changes nothing and says so", () => {
@@ -83,6 +84,7 @@ describe("install — an existing settings.json", () => {
     expect(install(dir).status).toBe(0);
     expect(settingsOf(dir)).toEqual({
       permissions: { allow: ["Bash(ls:*)"] },
+      env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
       hooks: {
         PreToolUse: [
           { matcher: "Write", hooks: [{ type: "command", command: "echo hi" }] },
@@ -103,7 +105,13 @@ describe("install — an existing settings.json", () => {
       { hooks: { PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "node /elsewhere/path-gate-hook.ts" }] }] } },
       "node /here/path-gate-hook.ts",
     );
-    expect(merged).toMatchObject({ ok: true, changed: false });
+    expect(merged).toMatchObject({ ok: true, changed: true });
+    if (merged.ok) expect(merged.value).toMatchObject({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" } });
+  });
+
+  test("an explicit conflicting background setting is refused", () => {
+    expect(mergeAmbientHook({ env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" } }, "x"))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("conflicts") });
   });
 
   test("mergeAmbientHook refuses a PreToolUse that is not a list, and a hooks that is not an object", () => {

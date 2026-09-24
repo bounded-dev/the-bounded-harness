@@ -148,11 +148,11 @@ export function renderPreamble(role: Role): string {
   if (has("remove")) lines.push("- `remove` → `rm <path>` through Bash: one literal path, no flags, no patterns.");
   if (has("subagent")) {
     lines.push(
-      "- `subagent` → the Agent tool, with `subagent_type` set to the role (`reviewer`, `test-writer`, `builder`) and the commission in `prompt`. One role per call; the phase gate refuses a commission whose preconditions are unmet.",
+      "- `subagent` → the Agent tool, with `subagent_type` set to the role (`reviewer`, `test-writer`, `builder`) and the commission in `prompt`. One role per call; the phase gate refuses a commission whose preconditions are unmet. The project disables background tasks, so this call waits for its result; do not launch background sleeps or poll task files.",
     );
   }
-  if (has("git")) lines.push("- `git` → `git …` through Bash, one plain command per call.");
-  if (has("sleep")) lines.push("- `sleep` → `sleep <seconds>` through Bash, 1-120.");
+  if (has("git")) lines.push("- `git` → read-only `git …` through Bash, one plain command per call; mutating Git commands are refused.");
+  if (has("sleep")) lines.push("- `sleep` → `sleep <seconds>` through Bash, 1-120, only for a genuine delay unrelated to an Agent call.");
   for (const gate of cliGates(role)) {
     lines.push(`- \`${gate}\` → \`bounded gates ${gateCommand(gate)}\``);
   }

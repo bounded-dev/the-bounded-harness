@@ -51,6 +51,7 @@ export const SKILL_COPY_MARKER = ".bounded-harness-generated";
 
 /** What identifies our entry in settings.json, whatever path it was installed from. */
 const HOOK_SCRIPT_NAME = "path-gate-hook.ts";
+const FOREGROUND_AGENTS_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS";
 
 type Json = Readonly<Record<string, unknown>>;
 
@@ -61,11 +62,19 @@ export type Merge =
   | { readonly ok: false; readonly reason: string };
 
 /**
- * Add the ambient hook to a settings object, once. Pure. Every key that is not
- * `hooks.PreToolUse` is passed through untouched; inside it, existing entries
- * are kept in order and ours is appended if none already names the hook.
+ * Add the ambient hook and run pipeline roles in the foreground. Claude Code's
+ * interactive fork mode otherwise forces Agent calls into the background, so
+ * the architect cannot await a reviewer before freezing the design. Preserve
+ * unrelated settings and refuse an explicit conflicting env value.
  */
 export function mergeAmbientHook(settings: Json, command: string): Merge {
+  const envRaw = settings["env"];
+  if (envRaw !== undefined && !isRecord(envRaw)) return { ok: false, reason: "'env' is not an object" };
+  const env: Json = envRaw ?? {};
+  const foreground = env[FOREGROUND_AGENTS_ENV];
+  if (foreground !== undefined && foreground !== "1") {
+    return { ok: false, reason: `'env.${FOREGROUND_AGENTS_ENV}' conflicts with the developer-stage workflow` };
+  }
   const hooksRaw = settings["hooks"];
   if (hooksRaw !== undefined && !isRecord(hooksRaw)) return { ok: false, reason: "'hooks' is not an object" };
   const hooks: Json = hooksRaw ?? {};
@@ -82,12 +91,16 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
       inner.some((h) => isRecord(h) && typeof h["command"] === "string" && h["command"].includes(HOOK_SCRIPT_NAME))
     );
   });
-  if (present) return { ok: true, value: settings, changed: false };
+  if (present && foreground === "1") return { ok: true, value: settings, changed: false };
   const entry = { matcher: "", hooks: [{ type: "command", command }] };
   return {
     ok: true,
     changed: true,
-    value: { ...settings, hooks: { ...hooks, PreToolUse: [...pre, entry] } },
+    value: {
+      ...settings,
+      env: { ...env, [FOREGROUND_AGENTS_ENV]: "1" },
+      hooks: { ...hooks, PreToolUse: present ? pre : [...pre, entry] },
+    },
   };
 }
 

@@ -3,7 +3,7 @@
 // caller applies the digest of that exact plan.
 import { createHash } from "node:crypto";
 import {
-  copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
+  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   readdirSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -416,7 +416,8 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "reached directly or through the ~/.pi/agent symlink.",
     "reached through this project's local command.",
   ));
-  writeFileSync(join(harnessRoot, "scripts", "bounded"), [
+  const localCommand = join(harnessRoot, "scripts", "bounded");
+  writeFileSync(localCommand, [
     "#!/usr/bin/env bash", "# Project-local Bounded command. Uses only this repository's harness.",
     "set -euo pipefail", 'DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
     'SUB="${1:-}"', 'case "$SUB" in',
@@ -427,6 +428,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     '  *) echo "bounded: supported project commands: gates, handoff, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
     'esac', '',
   ].join("\n"));
+  chmodSync(localCommand, 0o755);
   mkdirSync(join(harnessRoot, "packs"), { recursive: true });
   copyFileSync(join(agentRoot, "packs", "command.ts"), join(harnessRoot, "packs", "command.ts"));
   copyTree(join(agentRoot, "hosts", host), join(harnessRoot, "hosts", host), (path) => omit(path) || path === "README.md");
