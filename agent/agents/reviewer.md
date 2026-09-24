@@ -71,12 +71,21 @@ recording it is the job.
    A gap here is not pedantry: the test-writer will pin one reading and the
    builder will implement the other, and the dispute lands after both have
    finished.
-4. **Leaks and missing ports.** Flag a concept from the outside world sitting in
-   the middle of the model — a transport shape, a vendor's error code, a storage
-   or wire DTO, a raw timestamp where the domain means an instant. And flag the
-   inverse: a side effect (time, IO, network, randomness, an external service)
+4. **Leaks, ownership and missing ports.** Flag a concept from the outside
+   world sitting in the middle of the model — a transport shape, a vendor's
+   error code, a storage or wire DTO, a raw timestamp where the domain means
+   an instant. And flag the inverse: a side effect (time, IO, network,
+   randomness, an external service)
    with no port declared for it, which leaves the test-writer nothing to fake
-   and forces it to reach for real infrastructure.
+   and forces it to reach for real infrastructure. Also look outward from the
+   domain: for each business fact, category and derived status, identify where
+   its authoritative value lives and which operation decides its meaning.
+   Challenge a UI, API or adapter that makes that decision again, even if its
+   imports and types are legal. A display mapping (status to words or colour)
+   belongs in the UI; deciding which status applies is a domain rule. If a
+   finite category list appears in a screen, a service and storage, ask what
+   keeps the three representations in agreement. Name the competing paths or
+   symbols in the finding; do not flag ordinary presentation choices as leaks.
 5. **Shape.** Two failure modes, opposite directions. One file carrying what
    reads as several cohesive areas — the god-interface — where the areas would
    each be nameable on their own. And a module whose interface is nearly as wide

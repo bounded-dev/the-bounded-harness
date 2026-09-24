@@ -75,6 +75,17 @@ follow that one:
 2. **Separation of concerns.** Domain logic does not know about transport,
    storage, or time. If a concept from the outside world has leaked into the
    middle of the model, that is the design defect, whatever else works.
+   For each business fact and decision, identify its owner before declaring
+   interfaces: where is the authoritative value stored, where is its meaning
+   decided, and which layers only translate or display it? Keep a rule in one
+   domain operation even when several callers need it. A screen may choose
+   wording or colour; it must not independently decide what counts as overdue,
+   eligible, or allowed. An adapter may translate a storage or transport shape;
+   it must not quietly redefine a domain category. When a finite set of
+   business values appears in more than one layer, declare it once and make
+   the other representations derive from or check against that declaration.
+   The domain owner can be shared code used by a browser and a server; it is
+   not defined by which process runs it.
 3. **Depth over surface area.** A caller should learn a little and get a lot.
    See below.
 4. **Naming, then naming again.** A type whose name needs a comment to explain
