@@ -215,7 +215,7 @@ export const gates: readonly GateCommand[] = [
     tool: "red_gate",
     promptSnippet: "Gate the tests: is this a red for the right reason?",
     description:
-      "Run the red gate after the test-writer finishes. A VALID red means the project typechecks, the suite runs, and every failure is NotImplementedError. Wrong-reason red — import/type/config errors, ordinary assertion failures, or a fully green suite — is rejected. The gate prints one `route → <role>` line naming who must fix what it found.",
+      "Run the red gate after the test-writer finishes. A VALID red means the project typechecks, the suite runs, and every test fails with NotImplementedError against regenerated skeletons. Wrong-reason failures, passing tests and skipped tests are rejected. The gate prints one `route → <role>` line naming who must fix what it found.",
     flags: [],
     async run(cwd) {
       const { runRedGate } = await import("./scripts/red-gate.ts");

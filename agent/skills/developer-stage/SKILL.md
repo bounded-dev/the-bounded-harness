@@ -178,9 +178,9 @@ removes it at the end of the run.
 3. **GATE EACH INDEPENDENTLY** — one worker finishing is one gate to run, not a
    phase transition for both.
    - **Test-writer done → `red_gate`.** Valid red = the project typechecks, the
-     suite runs, and every failure is `NotImplementedError`. Wrong-reason red
-     (import/type/config errors, ordinary assertion failures, or a fully-green
-     suite) is rejected, and so is a red on a project that does not compile.
+     suite runs, and every test fails with `NotImplementedError` against the
+     regenerated skeleton. Wrong-reason failures, passing tests and skipped
+     tests are rejected, as is a project that does not compile.
      Because it runs against the shadow project, a builder mid-flight cannot
      affect this verdict — and you can re-establish a red at any point in the
      loop without disturbing `src/` or the builder working in it.

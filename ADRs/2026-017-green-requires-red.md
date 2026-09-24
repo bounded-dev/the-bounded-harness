@@ -9,6 +9,13 @@ most recent contract freeze. A checksum verify (no drift) does not void the
 red; a re-freeze does. Companion decision: red-gate reachability is measured
 by call sites in test sources (AST), with failure names as corroboration only.
 
+**Amended:** a valid red requires *every* test to fail with
+`NotImplementedError` against the regenerated skeleton. A passing test cannot
+distinguish the intended implementation from no implementation; a skipped test
+has not made a claim at all. One failing test must not hide either. The gate
+names tests that passed or did not run and routes them to the test writer
+(dogfood Run 20).
+
 **Amended: the binding has two halves.** Since red moved into a shadow project
 so the two workers could run in parallel (`.bounded/shadow-red`, rebuilt per run),
 the workers move independently and a test can change after the red that covered

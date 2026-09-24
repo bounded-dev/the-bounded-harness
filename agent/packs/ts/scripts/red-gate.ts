@@ -4,8 +4,8 @@
 //
 // Runs the target project's vitest suite (JSON reporter, via the shared
 // run_tests suite runner) AND `tsc --noEmit`, and asserts a VALID red: the
-// project TYPECHECKS, the suite RUNS, at least
-// one test fails, and EVERY failure is a NotImplementedError. Red only proves
+// project TYPECHECKS, the suite RUNS, every test fails, and EVERY failure is
+// a NotImplementedError. Red only proves
 // something if someone checks WHY it went red (see TN-26-001 Appendix,
 // Böckeler). Wrong-reason red — import errors, config errors, type/runtime
 // errors, ordinary assertion failures — is REJECTED, naming the offending
@@ -126,7 +126,7 @@ function classifySuite(run: RunTestsResult): GateResult {
     };
   }
   // Fully passing at red is a fail: nothing is waiting to be built.
-  if (run.failed === 0) {
+  if (run.failed === 0 && run.passed === run.total) {
     return {
       code: 1,
       verdict: "block",
@@ -172,6 +172,47 @@ function classifySuite(run: RunTestsResult): GateResult {
         offenders: offenders.map((o) => ({ name: o.name, message: firstLine(o.message) })),
         ...(collectionFailures.length > 0 ? { collectionFailures: collectionFailures.length } : {}),
       },
+    };
+  }
+  // A test that passes against an entirely unimplemented project cannot
+  // distinguish the intended implementation from its absence. Run 20 carried
+  // 11 such tests through a valid-red verdict: one right-reason failure was
+  // enough to mask assertions that proved nothing about the delivered code.
+  if (run.passed > 0) {
+    const passing = run.results.filter((r) => r.status === "passed").map((r) => r.name);
+    const inconclusive = run.results.filter((r) => r.status !== "failed" && r.status !== "passed");
+    return {
+      code: 1,
+      verdict: "block",
+      summary: `${run.passed} test${run.passed === 1 ? "" : "s"} passed against unimplemented skeleton`,
+      lines: [
+        `red-gate: FAIL — ${run.passed} test${run.passed === 1 ? "" : "s"} passed against the unimplemented skeleton; every test must fail for NotImplementedError`,
+        ...passing.map((name) => `  passed against skeleton: ${name}`),
+        ...inconclusive.map((result) => `  did not fail: ${result.name} (${result.status})`),
+      ],
+      detail: { reason: "spurious-pass", passing, ...(inconclusive.length > 0 ? { inconclusive: inconclusive.map((r) => ({ name: r.name, status: r.status })) } : {}) },
+    };
+  }
+  const inconclusive = run.results.filter((r) => r.status !== "failed");
+  if (inconclusive.length > 0) {
+    return {
+      code: 1,
+      verdict: "block",
+      summary: `${inconclusive.length} test${inconclusive.length === 1 ? "" : "s"} did not fail against unimplemented skeleton`,
+      lines: [
+        "red-gate: FAIL — every collected test must run and fail for NotImplementedError; some were skipped, pending or unrecognized",
+        ...inconclusive.map((result) => `  did not fail: ${result.name} (${result.status})`),
+      ],
+      detail: { reason: "non-red-tests", inconclusive: inconclusive.map((r) => ({ name: r.name, status: r.status })) },
+    };
+  }
+  if (run.failed !== run.total) {
+    return {
+      code: 1,
+      verdict: "block",
+      summary: "inconsistent test report",
+      lines: ["red-gate: FAIL — the test report does not account for every collected test"],
+      detail: { reason: "inconsistent-report", total: run.total, failed: run.failed },
     };
   }
   return {

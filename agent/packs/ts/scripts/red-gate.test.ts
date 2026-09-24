@@ -108,7 +108,7 @@ describe("classifyRed", () => {
     expect(r.lines[0]).toMatch(/red-gate: OK — 2 NotImplemented failures/);
   });
 
-  test("valid red tolerates some passing tests alongside NotImplemented failures", () => {
+  test("a NotImplemented failure cannot hide a test that passes on the skeleton", () => {
     const r = classifyRed(
       run({
         total: 2,
@@ -121,7 +121,47 @@ describe("classifyRed", () => {
       }),
       TYPE_CLEAN,
     );
-    expect(r.code).toBe(0);
+    expect(r.code).toBe(1);
+    expect(r.verdict).toBe("block");
+    expect(r.lines).toContain("  passed against skeleton: a");
+    expect(r.lines).toContain("red-gate: route → test-writer");
+    expect(r.detail).toMatchObject({ reason: "spurious-pass", passing: ["a"] });
+  });
+
+  test("a NotImplemented failure cannot hide a skipped test", () => {
+    const r = classifyRed(
+      run({
+        total: 2,
+        failed: 1,
+        skipped: 1,
+        results: [
+          { name: "calls create", status: "failed", message: "NotImplementedError: NotImplemented: create" },
+          { name: "untested boundary", status: "skipped" },
+        ],
+      }),
+      TYPE_CLEAN,
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("  did not fail: untested boundary (skipped)");
+    expect(r.lines).toContain("red-gate: route → test-writer");
+    expect(r.detail).toMatchObject({ reason: "non-red-tests", inconclusive: [{ name: "untested boundary", status: "skipped" }] });
+  });
+
+  test("an unknown reporter status cannot hide beside a NotImplemented failure", () => {
+    const r = classifyRed(
+      run({
+        total: 2,
+        failed: 1,
+        results: [
+          { name: "calls create", status: "failed", message: "NotImplementedError: NotImplemented: create" },
+          { name: "unclassified case", status: "unknown" },
+        ],
+      }),
+      TYPE_CLEAN,
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("  did not fail: unclassified case (unknown)");
+    expect(r.detail).toMatchObject({ reason: "non-red-tests" });
   });
 
   test("wrong-reason red: an ordinary assertion failure → exit 1, named", () => {
@@ -304,6 +344,20 @@ describe("red-gate CLI (fixture repos)", () => {
     const r = runGate(dir);
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/suite fully passes/);
+  });
+
+  test("a mixed suite blocks red and records the passing test", () => {
+    const dir = fixtureRepo("red-spurious-", vitestJson([
+      { name: "works without an implementation", status: "passed" },
+      { name: "calls create", status: "failed", message: NI },
+    ]));
+    const r = runGate(dir);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("passed against skeleton: works without an implementation");
+    expect(readGuardLog(dir).find((e) => e.guard === "red-gate")).toMatchObject({
+      verdict: "block",
+      detail: { reason: "spurious-pass", passing: ["works without an implementation"], route: "test-writer" },
+    });
   });
 
   test("unparseable suite output (BLOCKED) → exit 1", () => {
