@@ -72,7 +72,9 @@ describe("a pack that ships skills is actually loaded", () => {
     });
 
     test(`${pack.name} is in settings.json's package list`, () => {
-      expect(packages).toContain(`./packs/${pack.name}`);
+      // pi install normalizes new local package paths without the leading
+      // `./`; older registrations retain it. Both resolve to this pack.
+      expect(packages.map((entry) => entry.replace(/^\.\//, ""))).toContain(`packs/${pack.name}`);
     });
   }
 });

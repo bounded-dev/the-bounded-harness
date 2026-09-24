@@ -379,6 +379,16 @@ void NotImplementedError;
     expect(ignoreLines).toHaveLength(1);
   });
 
+  test("preserves a project-local harness ignore rule and its committed exceptions", () => {
+    const dir = proj({
+      ".gitignore": ".bounded/*\n!.bounded/harness/\n!.bounded/composed-packs.json\n!.bounded/installation.json\n",
+    });
+    const original = readFileSync(join(dir, ".gitignore"), "utf8");
+    const r = runDeliver(dir, { surfaceCheckSource: surfaceStub(), run: fakeNpm().run });
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(original);
+  });
+
   test("misuse: missing surface checker source is exit 2, before any mutation", () => {
     const dir = proj();
     const r = runDeliver(dir, { surfaceCheckSource: join(dir, "does-not-exist.ts") });

@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Developer-stage reviewer subagent (TN-26-001). A fresh mind that reads the spec and every `*.contract.ts` once and CHALLENGES the design — surfacing what the architect is too close to see — and records its challenges with `record_design_review`. Fully advisory: it holds no authority over the design; the architect weighs what it raises and decides. Read-only: no write, no bash, no git, no subagent. Use in the DESIGN phase, after the contract is written and BEFORE design_gate freezes it.
+description: "Developer-stage reviewer subagent (TN-26-001). A fresh mind that reads the spec and every `*.contract.ts` once and CHALLENGES the design — surfacing what the architect is too close to see — and records its challenges with `record_design_review`. Fully advisory: it holds no authority over the design; the architect weighs what it raises and decides. Read-only: no write, no bash, no git, no subagent. Use in the DESIGN phase, after the contract is written and BEFORE design_gate freezes it."
 systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: false

@@ -57,6 +57,7 @@
 // holds no run-start yet. Same marker, same consumer (phase-durations.ts).
 
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { logGuardEvent, readGuardLog, RUN_START_GUARD } from "../../src/guard-log.ts";
 import { isMainModule } from "../../src/is-main-module.ts";
 import {
@@ -71,7 +72,7 @@ import { CONSTRAINTS, declareHost, HOST_ENV, recordHostDeclaration } from "../..
 import type { Role } from "../../src/path-policy.ts";
 import { readDevStageModels } from "../../src/dev-stage-models.ts";
 import { MODEL_TIER_GUARD, planModelTier, tierSummary } from "../../src/model-tier.ts";
-import { decideBash } from "./bash-policy.ts";
+import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 
@@ -86,11 +87,13 @@ const DENY_PREFIX = "path-gate-hook";
 interface Flags {
   readonly role?: string;
   readonly harnessRoot?: string;
+  readonly projectLocal: boolean;
 }
 
 function parseFlags(argv: readonly string[]): Flags {
   let role: string | undefined;
   let harnessRoot: string | undefined;
+  let projectLocal = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = i + 1 < argv.length ? argv[i + 1] : undefined;
@@ -102,8 +105,10 @@ function parseFlags(argv: readonly string[]): Flags {
       i++;
     } else if (arg.startsWith("--role=")) role = arg.slice("--role=".length);
     else if (arg.startsWith("--harness-root=")) harnessRoot = arg.slice("--harness-root=".length);
+    else if (arg === "--project-local") projectLocal = true;
   }
   return {
+    projectLocal,
     ...(role !== undefined ? { role } : {}),
     ...(harnessRoot !== undefined ? { harnessRoot } : {}),
   };
@@ -234,7 +239,7 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
       return { stdout: "", stderr: "" };
     }
 
-    return { stdout: evaluate(role.role, role.kind === "bound", payload, cwd, harnessRoot), stderr: "" };
+    return { stdout: evaluate(role.role, role.kind === "bound", payload, cwd, harnessRoot, flags.projectLocal), stderr: "" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const closed = toolName !== undefined && MUTATING_TOOLS.has(toolName);
@@ -274,7 +279,21 @@ function resolveRole(flags: Flags, cwd: string): RoleSource {
 }
 
 /** The decision proper: stdout to print ("" ⇒ allow). */
-function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string): string {
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Rebuild the already-validated gate argv with the copied project's CLI.
+ * Quoting every word also handles a model spelling `"bounded" gates ...`. */
+function localGateCommand(command: string, harnessRoot: string): string {
+  const words = shellWords(command);
+  if (!words.ok || words.argv[0] !== "bounded" || words.argv[1] !== "gates") {
+    throw new Error("a validated gate command could not be reconstructed");
+  }
+  return [join(harnessRoot, "scripts", "bounded"), ...words.argv.slice(1)].map(shellQuote).join(" ");
+}
+
+function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, harnessRoot: string, projectLocal: boolean): string {
   // Say which host this is and what it holds (ADR 2026-034). The strip is the
   // agent definition's `tools:` allowlist, so only a BOUND role has it; an
   // ambient session keeps every Claude Code tool and the hook judges what it
@@ -311,7 +330,12 @@ function evaluate(role: Role, bound: boolean, payload: Payload, cwd: string, har
       // prefix mean anything but an env assignment. git, sleep and rm pass
       // through untouched — nothing in them reads a role.
       if (decision.carrier === "bounded gates") {
-        allowed = allowWith({ ...payload.toolInput, command: `${gateEnvPrefix(role)} ${command}` });
+        allowed = allowWith({
+          ...payload.toolInput,
+          command: projectLocal
+            ? `${gateEnvPrefix(role)} ${localGateCommand(command, harnessRoot)}`
+            : `${gateEnvPrefix(role)} ${command}`,
+        });
       }
       continue;
     }

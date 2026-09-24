@@ -57,9 +57,10 @@ domain glossary (`CONTEXT.md`), and technical notes (`docs/tn/`).
   constraints* — tool strip, path gate, phase gate, scoped worker views —
   need host cooperation and live per host under `agent/hosts/<host>/`:
   `hosts/pi/` (extensions) and `hosts/claude-code/` (a `PreToolUse` hook
-  plus generated agent definitions), each with its own install script that
-  `bounded init` runs. Harness state in a project lives under `.bounded/`
-  (the guard log, the role binding, the frozen manifest) — no host owns it.
+  plus generated agent definitions). `bounded init` assembles only the chosen
+  host's project-local adapter. The project commits its selected harness and
+  composition under `.bounded/`; run evidence there stays ignored. No host
+  owns the shared gate logic.
   The bar for a supported host is
   **deterministic enforcement** — tools removed rather than refused, writes
   blocked rather than discouraged — and a run's guard log says which host it
@@ -104,6 +105,34 @@ Design: [TN-26-001](docs/tn/TN-26-001-developer-stage-pipeline.md),
 [docs/dogfooding.md](docs/dogfooding.md), current plan in
 [issue #13](https://github.com/bounded-dev/the-bounded-harness/issues/13).
 
+## Start a new project
+
+The CLI is packaged locally but not yet published. To install this preview:
+
+```bash
+git clone git@github.com:bounded-dev/the-bounded-harness.git
+cd the-bounded-harness/agent
+npm ci && npm pack
+npm install -g ./bounded-harness-0.1.0.tgz
+```
+
+Open an empty directory (or one containing
+only `.git/`). Tell your current pi or Claude Code agent to initialize Bounded
+there. The agent runs `bounded init`, discusses the proposed capabilities
+with you, then runs the command with an explicit host, selected capabilities
+and reviewed plan digest. Bare `bounded init` only prints the available
+choices; it does not wait for terminal input or write files. Use `bounded
+init --interactive` to answer the questions directly in a terminal.
+
+Initialization copies the selected harness and host adapter into the source
+project. The project commits its Bounded manifest and selected capabilities;
+run evidence is ignored. After cloning elsewhere, run `npm run bounded:setup`
+to install both sets of pinned dependencies, then trust/restart the chosen
+agent host so it loads the project adapter. Run the local gates with
+`bash .bounded/harness/scripts/bounded gates --list`. See
+[the initialization design](docs/tn/TN-26-010-project-local-init.md) for
+scope and checks. An existing project is refused before any files are written.
+
 ## Bootstrap a new machine (developer mode)
 
 This is the stopgap install — symlinks into the frameworks' config homes,
@@ -111,10 +140,10 @@ until the harness ships as packaged per-framework extensions.
 
 ```bash
 git clone git@github.com:bounded-dev/the-bounded-harness.git
-cd the-bounded-harness && agent/scripts/bounded init
+cd the-bounded-harness && agent/scripts/bounded dev-bootstrap
 ```
 
-`bounded init` does the rest, and is idempotent — re-run it after a pull.
+`bounded dev-bootstrap` does the rest, and is idempotent — re-run it after a pull.
 It symlinks `~/.pi/agent` to `agent/` (the live pi config home) and
 `~/.claude/CLAUDE.md` to `agent/AGENTS.md`, puts the one command `bounded`
 on PATH (everything else is a subcommand: `bounded gates`, `bounded

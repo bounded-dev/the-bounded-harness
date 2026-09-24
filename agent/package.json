@@ -4,6 +4,20 @@
   "description": "The Bounded Harness \u2014 a coding-agent harness: extensions, skills, packs, and gates",
   "private": true,
   "type": "module",
+  "bin": {
+    "bounded": "scripts/bounded"
+  },
+  "files": [
+    "agents/",
+    "hosts/",
+    "packs/",
+    "scripts/",
+    "skills/",
+    "src/",
+    "dist/",
+    "tsconfig.json",
+    "installer-lock.json"
+  ],
   "keywords": [
     "pi-package"
   ],
@@ -14,6 +28,8 @@
     ]
   },
   "scripts": {
+    "build:dist": "node scripts/build-distribution.mjs",
+    "prepack": "npm run build:dist",
     "check": "tsc --noEmit && npm run test",
     "test": "vitest run"
   },

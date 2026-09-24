@@ -220,7 +220,8 @@ removes it at the end of the run.
    module, the `__conformance` blobs); remove `.bounded/shadow-red`; write the
    `src/index.ts` barrel; ship `scripts/surface-check.ts` with a `check:surface`
    npm script, folded into `check`, **pinned to ts-morph and installed**;
-   gitignore `.bounded/`; add a README section explaining the contract convention;
+   ignore `.bounded/` runtime state while preserving any committed local harness;
+   add a README section explaining the contract convention;
    print the timing block; and finally **run the target's own
    `npm run check`**. Idempotent — a second run applies 0 steps, since the last
    two only read. The output of this stage is a repo you would hand a

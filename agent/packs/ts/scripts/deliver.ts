@@ -591,7 +591,12 @@ export function runDeliver(cwd: string, options: DeliverOptions = {}): DeliverRe
   {
     const ignoreAbs = join(cwd, ".gitignore");
     const current = existsSync(ignoreAbs) ? readFileSync(ignoreAbs, "utf8") : "";
-    const ignored = current.split("\n").some((l) => l.trim() === ".bounded/" || l.trim() === ".bounded");
+    // A project-local installation commits selected files beneath .bounded/.
+    // Its `.bounded/*` rule ignores runtime state while later negations keep
+    // the installed harness and composition visible to Git. Appending a broad
+    // `.bounded/` rule would hide those files before the first commit.
+    const ignored = current.split("\n").some((l) =>
+      l.trim() === ".bounded/" || l.trim() === ".bounded" || l.trim() === ".bounded/*");
     if (ignored) {
       pass("gitignore", false, ".bounded/ already ignored");
     } else {

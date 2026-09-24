@@ -9,8 +9,9 @@ A ticket that says "expose this to the frontend" — in any words, naming any
 technology or none — lands here. **The stack is harness policy, not ticket
 content** (ADR 2026-029): tRPC (`@trpc/server`) is the RPC stack, zod the
 schema engine, both pinned by the `ts-service` package. The driver must select
-`ts-service` with `bounded compose --cwd <project> ts ts-service` before gates
-run (include `ts-web` too for a frontend). A ticket that names a different
+`ts-service` in its `bounded init` plan (include `ts-web` too for a frontend).
+If an initialized project lacks `ts-service`, raise the setup mismatch before
+gates run. A ticket that names a different
 stack is the intake rule's constraint case (ADR 2026-032): strip it, record
 it in `spec.md`'s `## Intake` section, and if it is a genuine constraint —
 an existing gateway, a contractual format — raise it to the user; never

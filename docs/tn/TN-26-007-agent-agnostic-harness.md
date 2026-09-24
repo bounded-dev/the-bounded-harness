@@ -65,9 +65,10 @@ Today:
   verified by fixture, but it is not the reference environment.
 
 Each adapter is one directory — `hosts/pi/`, `hosts/claude-code/` — and
-carries its own `install` script for its framework's wiring; `bounded init`
-walks them all, and the state every host shares lives in the project's
-`.bounded/` directory, owned by no host (ADR 2026-035).
+carries its own adapter for its framework's wiring. In developer mode,
+`bounded dev-bootstrap` runs the machine-level install scripts. Project-local
+`bounded init` selects one host and copies only its adapter. Shared run state
+lives in the project's `.bounded/` directory, owned by no host (ADR 2026-035).
 
 Next: adapters for other hook-capable frameworks (Codex among the
 candidates), each added the same way — a thin directory over the existing
@@ -76,14 +77,11 @@ re-implementing a gate.
 
 ## Distribution
 
-The current install — a repo whose `agent/` directory is symlinked into the
-frameworks' config homes (`~/.pi/agent`, `~/.claude/CLAUDE.md`) — is a
-**stopgap**: developer mode for a harness built in the open, where every
-edit is live immediately. It is not the architecture, and no design should
-treat it as load-bearing. The destination is the one the adapters imply: a
-user installs the **`bounded` CLI** and types `bounded init`, which guides
-them through setup — wiring the harness into each agent framework it finds,
-as a packaged extension per framework rather than a symlink. The CLI
+The old install — a repo whose `agent/` directory is symlinked into the
+frameworks' config homes (`~/.pi/agent`, `~/.claude/CLAUDE.md`) — remains
+developer mode, where every edit is live immediately. `bounded init` instead
+starts an empty project, selects a host explicitly, and installs the selected
+harness into that project without a global symlink. The CLI
 (`bounded gates`, `bounded ticket`, `bounded change-run`, behind the one
 `bounded` command) is the framework-independent core every package carries.
 

@@ -1,0 +1,93 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import { applyInit, describeInit, planInit } from "./project-init.ts";
+
+const temporary: string[] = [];
+function empty(): string {
+  const path = mkdtempSync(join(tmpdir(), "bounded-init-test-"));
+  temporary.push(path);
+  return path;
+}
+afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
+
+describe("project-local initialization", () => {
+  test("bare discovery is explicit and does not mutate", () => {
+    const choice = describeInit() as { writes: boolean; hosts: string[] };
+    expect(choice.writes).toBe(false);
+    expect(choice.hosts).toEqual(["pi", "claude-code"]);
+  });
+
+  test("refuses a nonempty project before any write", async () => {
+    const target = empty();
+    writeFileSync(join(target, "README.md"), "existing work\n");
+    await expect(planInit(target, "pi", ["ts-web"])).rejects.toThrow(/requires an empty directory/);
+    expect(existsSync(join(target, ".bounded"))).toBe(false);
+    expect(readFileSync(join(target, "README.md"), "utf8")).toBe("existing work\n");
+  });
+
+  test("accepts a .git-only directory and refuses a partial prior installation", async () => {
+    const target = empty();
+    mkdirSync(join(target, ".git"));
+    const plan = await planInit(target, "pi", ["ts-web"]);
+    expect(existsSync(join(target, ".bounded"))).toBe(false);
+    await applyInit(target, "pi", ["ts-web"], plan.digest);
+    expect(existsSync(join(target, ".git"))).toBe(true);
+    rmSync(join(target, ".bounded/installation.json"));
+    await expect(planInit(target, "pi", ["ts-web"])).rejects.toThrow(/requires an empty directory/);
+  });
+
+  test("refuses capabilities without a complete initializer", async () => {
+    const target = empty();
+    await expect(planInit(target, "pi", ["ts-service"])).rejects.toThrow(/cannot yet scaffold/);
+    await expect(planInit(target, "pi", ["ts-web", "ts-service"])).rejects.toThrow(/No new-project initializer covers/);
+    expect(existsSync(join(target, ".bounded"))).toBe(false);
+  });
+
+  test.each(["pi", "claude-code"])("plans and installs only the %s host and selected packs", async (host) => {
+    const target = empty();
+    const plan = await planInit(target, host, ["ts-web"]);
+    expect(plan.packs).toEqual(["ts", "ts-web"]);
+    expect(existsSync(join(target, ".bounded"))).toBe(false);
+    await expect(applyInit(target, host, ["ts-web"], "0".repeat(64))).rejects.toThrow(/Plan changed/);
+    expect(existsSync(join(target, ".bounded"))).toBe(false);
+    const applied = await applyInit(target, host, ["ts-web"], plan.digest);
+    expect(applied.digest).toBe(plan.digest);
+    expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(false);
+    expect(existsSync(join(target, ".bounded/harness/hosts", host))).toBe(true);
+    expect(existsSync(join(target, ".bounded/harness/hosts", host === "pi" ? "claude-code" : "pi"))).toBe(false);
+    expect(readFileSync(join(target, ".bounded/composed-packs.json"), "utf8")).toContain("ts-web");
+    expect(readFileSync(join(target, ".gitignore"), "utf8")).toContain("!.bounded/harness/");
+    expect(existsSync(join(target, ".bounded/guard-log.jsonl"))).toBe(false);
+    expect(readFileSync(join(target, "AGENTS.md"), "utf8")).toContain(".bounded/harness/");
+    const stageSkill = readFileSync(join(target, ".bounded/harness/skills/developer-stage/SKILL.md"), "utf8");
+    expect(stageSkill).not.toContain("bounded compose");
+    const architectSource = readFileSync(join(target, ".bounded/harness/agents/architect.md"), "utf8");
+    expect(architectSource).not.toContain("~/.pi/agent");
+    expect(architectSource).toContain("bash .bounded/harness/scripts/bounded change-run");
+    if (host === "claude-code") {
+      const architect = readFileSync(join(target, ".claude/agents/architect.md"), "utf8");
+      expect(readFileSync(join(target, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(target, "AGENTS.md"), "utf8"));
+      expect(plan.files["CLAUDE.md"]).toBeDefined();
+      expect(stageSkill).toContain("`bounded gates"); // Claude hook recognizes this literal command.
+      expect(architect).toContain("`bounded gates");
+    } else {
+      expect(stageSkill).toContain("bash .bounded/harness/scripts/bounded gates");
+      expect(readFileSync(join(target, ".gitignore"), "utf8")).toContain(".pi/npm/");
+    }
+    const rerun = await planInit(target, host, ["ts-web"]);
+    expect(rerun.digest).toBe(plan.digest);
+  });
+
+  test("normal product edits survive rerun; installer-owned edits block", async () => {
+    const target = empty();
+    const plan = await planInit(target, "claude-code", ["ts-web"]);
+    await applyInit(target, "claude-code", ["ts-web"], plan.digest);
+    writeFileSync(join(target, "src/ui/theme.css"), "/* my theme */\n");
+    writeFileSync(join(target, "README.md"), "my product\n");
+    expect((await applyInit(target, "claude-code", ["ts-web"], plan.digest)).digest).toBe(plan.digest);
+    writeFileSync(join(target, ".bounded/composed-packs.json"), "[]\n");
+    await expect(applyInit(target, "claude-code", ["ts-web"], plan.digest)).rejects.toThrow(/Installed file changed/);
+  });
+});

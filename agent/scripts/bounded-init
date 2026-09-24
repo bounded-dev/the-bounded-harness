@@ -2,7 +2,7 @@
 # bounded-init — make a freshly cloned Bounded Harness live on this machine.
 #
 #   git clone git@github.com:bounded-dev/the-bounded-harness.git
-#   cd the-bounded-harness && agent/scripts/bounded init
+#   cd the-bounded-harness && agent/scripts/bounded dev-bootstrap
 #
 # Does everything the README used to ask you to do by hand:
 #
@@ -32,7 +32,7 @@ COMMANDS=(bounded)
 
 . "$AGENT/scripts/lib/install-helpers.sh"
 
-echo "bounded init: $REPO"
+echo "bounded dev-bootstrap: $REPO"
 echo
 echo "Host adapters"
 # Each adapter wires its own framework; the core only walks the roster.
@@ -92,5 +92,5 @@ Ready. One command, subcommands for everything:
   bounded change-run       open the run boundary for a change run
   bounded dogfood-reset    rebuild the two dogfood arms, ready to run
 
-Re-run \`bounded init\` after a pull.
+Re-run \`bounded dev-bootstrap\` after a pull.
 EOF

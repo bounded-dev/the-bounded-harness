@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bounded — the Bounded Harness CLI. One command, subcommands for everything:
 #
-#   bounded init                    # make a fresh clone live on this machine
+#   bounded init                    # initialize an empty project
+#   bounded dev-bootstrap           # make this harness clone live on this machine
 #   bounded gates <gate> [dir]      # run one artifact gate (bounded gates --list)
 #   bounded ticket                  # start a session bound to the ARCHITECT role
 #   bounded change-run [dir]\n#   bounded adopt [--cwd dir]\n#   bounded change-diff [--cwd dir]        # open the run boundary for a change run
@@ -28,7 +29,8 @@ usage() {
 
 SUB="${1:-}"
 case "$SUB" in
-  init)            shift; exec "$SCRIPTS/bounded-init" "$@" ;;
+  init)            shift; if [[ "$SCRIPTS" == *"/node_modules/"* ]]; then exec node "$SCRIPTS/../dist/src/project-init-cli.js" "$@"; else exec node "$SCRIPTS/../src/project-init-cli.ts" "$@"; fi ;;
+  dev-bootstrap)   shift; exec "$SCRIPTS/bounded-init" "$@" ;;
   compose)         shift; exec node "$SCRIPTS/../packs/compose.ts" "$@" ;;
   adopt|change-diff|capture-baseline) shift; exec node "$SCRIPTS/../packs/command.ts" "$SUB" "$@" ;;
   gates)           shift; exec "$SCRIPTS/bounded-gates" "$@" ;;
