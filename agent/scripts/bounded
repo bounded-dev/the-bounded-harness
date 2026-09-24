@@ -34,7 +34,7 @@ if [[ "$SCRIPTS" == *"/node_modules/"* ]]; then
     --version|-V) exec node "$SCRIPTS/print-version.mjs" ;;
     -h|--help|help|"")
       printf '%s\n' 'bounded — initialize a project with its own harness' \
-        '  bounded init                 show supported hosts and capabilities' \
+        '  bounded init                 guide an agent through product discovery' \
         '  bounded init --interactive   plan and apply in a terminal' \
         '  bounded --version            show the installed build'
       exit 0 ;;

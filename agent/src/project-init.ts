@@ -132,19 +132,18 @@ function scaffolderFor(packs: readonly string[]): readonly { pack: string; scrip
     }
     scripts.push(...raw.projectInitScripts.map((script: string) => ({ pack, script })));
   }
-  if (scripts.length !== 1) throw new Error("This selection cannot yet scaffold a complete new project; choose a capability with one project initializer");
-  const owner = scripts[0].pack;
-  const dependencies = new Set<string>([owner]);
+  if (scripts.length === 0) throw new Error("This selection cannot yet scaffold a complete new project; choose a capability with a project initializer");
+  const covered = new Set<string>(scripts.map(({ pack }) => pack));
   const byName = availablePacks();
   const visit = (name: string): void => {
     for (const dep of byName.get(name)?.dependsOnPacks ?? []) {
-      if (dependencies.has(dep)) continue;
-      dependencies.add(dep);
+      if (covered.has(dep)) continue;
+      covered.add(dep);
       visit(dep);
     }
   };
-  visit(owner);
-  const unsupported = packs.filter((pack) => !dependencies.has(pack));
+  for (const { pack } of scripts) visit(pack);
+  const unsupported = packs.filter((pack) => !covered.has(pack));
   if (unsupported.length) throw new Error(`No new-project initializer covers: ${unsupported.join(", ")}`);
   return scripts;
 }
@@ -227,6 +226,16 @@ type PackageContrib = {
   pins?: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
 };
 
+export function mergeProjectFields(target: Record<string, string>, added: Record<string, string>, kind: string, pack: string): void {
+  for (const [name, value] of Object.entries(added)) {
+    const previous = Object.hasOwn(target, name) ? target[name] : undefined;
+    if (previous !== undefined && previous !== value) {
+      throw new Error(`${kind} '${name}' conflicts with capability '${pack}'`);
+    }
+    Object.defineProperty(target, name, { value, enumerable: true, writable: true, configurable: true });
+  }
+}
+
 function packageFor(packs: readonly string[]): ProjectPackage {
   const templates: { pack: string; path: string }[] = [];
   const contributions: PackageContrib[] = [];
@@ -258,7 +267,7 @@ function packageFor(packs: readonly string[]): ProjectPackage {
         Object.values(manifest.projectScripts).some((command) => typeof command !== "string" || !command.trim())) {
         throw new Error(`Capability '${packs[i]}' has invalid projectScripts`);
       }
-      Object.assign(result.scripts!, manifest.projectScripts);
+      mergeProjectFields(result.scripts!, manifest.projectScripts as Record<string, string>, "Project script", packs[i]);
     }
     if (manifest.pins !== undefined) {
       for (const kind of ["dependencies", "devDependencies"] as const) {
@@ -267,7 +276,7 @@ function packageFor(packs: readonly string[]): ProjectPackage {
         if (typeof pins !== "object" || Array.isArray(pins) || Object.values(pins).some((version) => typeof version !== "string" || !version)) {
           throw new Error(`Capability '${packs[i]}' has invalid ${kind} pins`);
         }
-        Object.assign(result[kind]!, pins);
+        mergeProjectFields(result[kind]!, pins, "Dependency", packs[i]);
       }
     }
   }
@@ -517,10 +526,21 @@ function existingPlan(target: string, host: InitHost, requested: readonly string
 export function describeInit(): object {
   return {
     command: "bounded init", writes: false,
+    agentConversation: {
+      openingQuestion: "What kind of application are you trying to build?",
+      guidance: [
+        "Ask about the product in plain language before discussing implementation choices.",
+        "Learn its users, main workflows, and whether it needs a user interface, server, or persistent data. Ask focused follow-ups only where the answer changes the plan.",
+        "Use the implementation options below privately to infer a capability selection. Do not ask the user to choose pack names or present this list as a menu.",
+        "Use the agent host already running this conversation; do not ask the user to select another agent.",
+        "Plan the complete inferred selection before proposing installation. A capability with its own initializer may still be incompatible with another selected capability.",
+        "If the complete application cannot be scaffolded, explain the gap in product terms and stop. Do not silently omit a required part of the application.",
+        "When a complete plan succeeds, explain what Bounded will create in plain language and review the plan before applying its digest.",
+      ],
+    },
     hosts: ["pi", "claude-code"],
-    capabilities: [...availablePacks()].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, scaffoldable: scaffolderAvailable(name) })),
-    questions: ["Which agent host is running this session?", "Which capabilities should the new product use?"],
-    next: "bounded init --host <host> --pack <capability> [--pack <capability>...] to review a plan",
+    implementationOptions: [...availablePacks()].map(([name, pack]) => ({ name, requires: pack.dependsOnPacks, hasProjectInitializer: scaffolderAvailable(name) })),
+    next: "Ask the opening product question first. After inferring the complete selection, run bounded init --host <current-host> --pack <capability> [--pack <capability>...] to validate and review a plan.",
   };
 }
 

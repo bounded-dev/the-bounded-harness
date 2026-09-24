@@ -14,6 +14,10 @@ async function main(args: string[]): Promise<void> {
   let fullJson = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === "--help" || arg === "-h") {
+      console.log(JSON.stringify({ ...describeInit(), target }, null, 2));
+      return;
+    }
     if (arg === "--interactive") { interactive = true; continue; }
     if (arg === "--json") { fullJson = true; continue; }
     if (["--cwd", "--host", "--pack", "--apply"].includes(arg)) {

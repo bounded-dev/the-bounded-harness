@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { applyInit, describeInit, planInit } from "./project-init.ts";
+import { applyInit, describeInit, mergeProjectFields, planInit } from "./project-init.ts";
 
 const temporary: string[] = [];
 function empty(): string {
@@ -17,6 +17,16 @@ describe("project-local initialization", () => {
     const choice = describeInit() as { writes: boolean; hosts: string[] };
     expect(choice.writes).toBe(false);
     expect(choice.hosts).toEqual(["pi", "claude-code"]);
+  });
+
+  test("capability scripts and pins cannot silently replace earlier values", () => {
+    const fields = { check: "tsc --noEmit" };
+    mergeProjectFields(fields, { check: "tsc --noEmit" }, "Project script", "same");
+    expect(fields.check).toBe("tsc --noEmit");
+    expect(() => mergeProjectFields(fields, { check: "echo skipped" }, "Project script", "other")).toThrow(/conflicts/);
+    expect(fields.check).toBe("tsc --noEmit");
+    const pins = { package: "1.0.0" };
+    expect(() => mergeProjectFields(pins, { package: "2.0.0" }, "Dependency", "other")).toThrow(/conflicts/);
   });
 
   test("refuses a nonempty project before any write", async () => {
@@ -38,11 +48,27 @@ describe("project-local initialization", () => {
     await expect(planInit(target, "pi", ["ts-web"])).rejects.toThrow(/requires an empty directory/);
   });
 
-  test("refuses capabilities without a complete initializer", async () => {
+  test.each(["pi", "claude-code"])("combines web and service initializers for %s", async (host) => {
     const target = empty();
-    await expect(planInit(target, "pi", ["ts-service"])).rejects.toThrow(/cannot yet scaffold/);
-    await expect(planInit(target, "pi", ["ts-web", "ts-service"])).rejects.toThrow(/No new-project initializer covers/);
+    await expect(planInit(target, "pi", ["ts"])).rejects.toThrow(/cannot yet scaffold/);
     expect(existsSync(join(target, ".bounded"))).toBe(false);
+    const plan = await planInit(target, host, ["ts-web", "ts-service"]);
+    expect(plan.packs).toEqual(["ts", "ts-web", "ts-service"]);
+    expect(plan.createdFiles["src/api/.gitkeep"]).toBeDefined();
+    expect(plan.createdFiles["src/ui/main.tsx"]).toBeDefined();
+    await applyInit(target, host, ["ts-web", "ts-service"], plan.digest);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };
+    expect(pkg.dependencies["@trpc/server"]).toBe("11.18.0");
+    expect(pkg.scripts["build:api"]).toBeDefined();
+    expect(existsSync(join(target, "tsconfig.api.json"))).toBe(true);
+    expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(true);
+  });
+
+  test("plans a service-only project", async () => {
+    const plan = await planInit(empty(), "claude-code", ["ts-service"]);
+    expect(plan.packs).toEqual(["ts", "ts-service"]);
+    expect(plan.createdFiles["src/api/.gitkeep"]).toBeDefined();
+    expect(plan.createdFiles["src/ui/main.tsx"]).toBeUndefined();
   });
 
   test.each(["pi", "claude-code"])("plans and installs only the %s host and selected packs", async (host) => {

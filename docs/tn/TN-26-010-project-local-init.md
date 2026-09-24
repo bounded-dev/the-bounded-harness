@@ -27,10 +27,15 @@ command and explicit user intent.
 
 ## Conversation and deterministic boundary
 
-Bare `bounded init` prints short, structured, machine-readable supported
-capabilities, host adapters, dependencies and questions, then exits without
-writing or waiting for input. The current agent can read that output and ask
-the user in ordinary language. A person at a shell opts into prompts with
+Bare `bounded init` prints short, structured, machine-readable guidance that
+starts with the product question: “What kind of application are you trying to
+build?” It lists host adapters and capability data for the agent to interpret
+privately, then exits without writing or waiting for input. The current agent
+asks focused follow-ups in ordinary language, infers the complete selection,
+and validates it with a plan before proposing installation. It must not expose
+pack names as a user menu, silently omit a required capability, or claim a
+combination is supported merely because one pack has an initializer. A person
+at a shell opts into explicit technical prompts with
 `bounded init --interactive`. The apply invocation supplies explicit host,
 packs and the digest of the reviewed plan, so an agent shell never hangs on
 an interactive prompt. Product intent can inform the agent's proposal,
@@ -103,8 +108,8 @@ that `bounded` is on PATH cannot remain.
    dependency pins and lockfile. Assembly and application scaffolding are
    separate steps: a selection can initialize a new product only if its
    chosen packs declare enough scaffold commands to produce the required
-   project layout and canonical check. The service pack currently has no
-   initializer, so the CLI must refuse a selection it cannot fully scaffold
+   project layout and canonical check. Web and service scaffold contributions
+   may run together; the CLI must refuse a selection it cannot fully scaffold
    rather than claim to have produced a working project.
 5. Wire pi and Claude Code separately through their adapters. Any host API
    limitation that prevents project-local enforcement blocks claiming that

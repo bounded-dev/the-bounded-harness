@@ -11,9 +11,10 @@ agent you are already running. It does not start or bundle another agent.
 ## What happens in a Bounded project
 
 1. **Initialize with your agent.** In an empty directory, ask your pi or
-   Claude Code agent to “initialize Bounded here.” It runs `bounded init`,
-   discusses the capabilities your product needs, and shows the files it will
-   create before applying the plan.
+   Claude Code agent to “initialize Bounded here.” It runs `bounded init`, asks
+   what kind of application you want to build, and follows up on the product
+   needs that affect the setup. It chooses the technical capabilities and
+   shows the files it will create before applying the plan.
 2. **Work through defined roles.** Bounded supplies skills for recurring work
    and subagents for jobs that benefit from separation. In the developer
    workflow, an architect owns the specification and commissions a reviewer,
@@ -68,12 +69,13 @@ npm run bounded:setup
 bash .bounded/harness/scripts/bounded gates --list
 ```
 
-For a terminal-led setup, `bounded init --interactive` asks the same choices.
+For a terminal-led setup, `bounded init --interactive` asks for the technical
+selection directly.
 The initializer refuses an existing project before writing files. Today it
-can scaffold a TypeScript web application; the backend service capability is
-available to the harness but does not yet have a complete new-project
-scaffold. Public CLI distribution and updates to an already initialized
-project are future work.
+can initialize a TypeScript web application, a backend service, or both. It
+sets up the structure and toolchain; the agent designs and builds the actual
+product afterward. Public CLI distribution and updates to an already
+initialized project are future work.
 
 ## Explore the project
 

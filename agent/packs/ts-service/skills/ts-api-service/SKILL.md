@@ -140,6 +140,13 @@ is `INTERNAL_SERVER_ERROR` carrying nothing.
 - The suite exercises the service through `createServiceCaller` — no HTTP
   listener, no port, no socket. `serveStandalone` (in the runtime) is the
   production HTTP entry; nothing in the pipeline starts it.
+- `bounded init` prepares `src/api/`, pins the runtime dependency, and adds
+  `tsconfig.api.json`, `npm run build:api`, and `npm run start:api`. The builder
+  writes `src/api/server.ts` only after the service contract and router are
+  designed: it supplies the project's real context to `serveStandalone`.
+  The start command expects that entry point and is intentionally unavailable
+  until then. The design gate ships `service-runtime.ts` when the contract
+  imports it; do not copy or hand-write that file during initialization.
 - The gates that will hold you to all of this: `no-erased-router` and
   `no-schema-on-surface` at contract-purity; `blessed-stacks-only`,
   `zod-backed-parse` and `raw-framework-entry` at lint-src; the generated

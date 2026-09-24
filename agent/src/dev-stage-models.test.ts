@@ -210,7 +210,7 @@ describe("malformed is ignored and warned, never fatal", () => {
 // would produce a config the reader silently warns about at 1am.
 describe("dogfood-reset writes the schema this module reads", () => {
   const script = readFileSync(
-    join(import.meta.dirname, "..", "scripts", "dogfood-reset"),
+    join(import.meta.dirname, "..", "..", "scripts", "dogfood", "reset"),
     "utf8",
   );
 
