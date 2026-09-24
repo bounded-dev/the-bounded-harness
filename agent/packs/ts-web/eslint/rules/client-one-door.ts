@@ -2,7 +2,7 @@ import { ESLintUtils, TSESTree } from "@typescript-eslint/utils";
 
 // TN-26-006 zone rule, src/**: the frontend has ONE door to the network.
 //
-// Runtime imports of `@trpc/*` and `@tanstack/*` are legal only under
+// Runtime imports of `@trpc/client` and `@tanstack/*` are legal only under
 // `src/ui/shared/api/`. Type-only imports are legal anywhere.
 //
 // This is `raw-framework-entry` again, one tier out. That rule gives the
@@ -39,7 +39,7 @@ function isBehindTheDoor(filename: string): boolean {
 function isTransportModule(source: string): boolean {
   return (
     source === "@trpc/client" ||
-    source.startsWith("@trpc/") ||
+    source.startsWith("@trpc/client/") ||
     source === "@tanstack/react-query" ||
     source.startsWith("@tanstack/")
   );

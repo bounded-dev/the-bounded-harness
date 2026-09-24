@@ -39,7 +39,9 @@
 //     an implementation `private constructor(code: string)`.
 //   · Implementation EXTRAS: private/protected members are free. A PUBLIC
 //     export, or a public member, the contract does not declare is a
-//     violation ("undeclared public surface") — the Money.signed case.
+//     violation ("undeclared public surface") — the Money.signed case. An
+//     exported const is declared when an exported contract type alias names
+//     it through a type-only import from this implementation and `typeof`.
 //   · TYPE-ONLY contract exports — interfaces, type aliases (including
 //     string-literal unions) and the contract's own `export type { X } from`
 //     re-exports — are satisfied by the scaffolded `export type * from
@@ -372,6 +374,31 @@ function moduleSurface(sf: SourceFile): ModuleSurface {
   return { exports, typeStarSpecifiers };
 }
 
+/** A contract can declare an inferred implementation value through an exported
+ * `typeof` alias. Count only direct, type-only named imports from this exact
+ * implementation sibling; other imports and unexported aliases do not widen
+ * the public surface. */
+function typeQueriedImplementationValues(contract: SourceFile, implFileName: string): ReadonlySet<string> {
+  const specifier = `./${basename(implFileName).replace(/\.tsx?$/, ".js")}`;
+  const imported = new Map<string, string>();
+  for (const declaration of contract.getImportDeclarations()) {
+    if (declaration.getModuleSpecifierValue() !== specifier) continue;
+    for (const named of declaration.getNamedImports()) {
+      if (!declaration.isTypeOnly() && !named.isTypeOnly()) continue;
+      imported.set(named.getAliasNode()?.getText() ?? named.getName(), named.getName());
+    }
+  }
+  const values = new Set<string>();
+  for (const alias of contract.getTypeAliases()) {
+    if (!alias.isExported()) continue;
+    const type = alias.getTypeNode();
+    if (!type || !Node.isTypeQuery(type)) continue;
+    const name = imported.get(type.getExprName().getText());
+    if (name !== undefined) values.add(name);
+  }
+  return values;
+}
+
 // --- comparison (pure core) -----------------------------------------------------
 
 const EXACT = "write it exactly as the contract declares it (comparison is canonicalized text: Array<Foo> vs Foo[] is a mismatch)";
@@ -529,7 +556,9 @@ export function compareSurfaces(
   implFileName: string,
 ): SurfaceViolation[] {
   const project = new Project({ useInMemoryFileSystem: true });
-  const contract = moduleSurface(project.createSourceFile("/__contract__.ts", contractSource));
+  const contractFile = project.createSourceFile("/__contract__.ts", contractSource);
+  const contract = moduleSurface(contractFile);
+  const typeQueriedValues = typeQueriedImplementationValues(contractFile, implFileName);
   // The scratch name carries the implementation's REAL extension: ts-morph
   // decides whether `<Badge />` is JSX or a type assertion from the filename,
   // and a component parsed as `.ts` is a pile of syntax errors whose surface is
@@ -618,6 +647,7 @@ export function compareSurfaces(
   // subscription-billing.ts re-exported nine value classes this way).
   for (const ie of impl.exports.values()) {
     if (contract.exports.has(ie.name)) continue;
+    if (ie.kind === "const" && typeQueriedValues.has(ie.name)) continue;
     const what =
       ie.kind === "re-export" || ie.kind === "type-re-export"
         ? `re-exports '${ie.name}' from another module`

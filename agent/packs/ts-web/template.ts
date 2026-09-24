@@ -232,7 +232,7 @@ ${tree}  </StrictMode>,
 /**
  * The ONE door to the network (TN-26-006).
  *
- * `client-one-door` (B2) refuses a runtime `@trpc/*` or `@tanstack/*` import
+ * `client-one-door` (B2) refuses a runtime `@trpc/client` or `@tanstack/*` import
  * anywhere but under `src/ui/shared/api/`, for the same reason
  * `raw-framework-entry` gives the service runtime one door: a second transport
  * is a second place the URL, the batching, the headers and the error handling
