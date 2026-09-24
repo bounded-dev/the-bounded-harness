@@ -66,7 +66,7 @@ Today:
 
 Each adapter is one directory — `hosts/pi/`, `hosts/claude-code/` — and
 carries its own adapter for its framework's wiring. In developer mode,
-`bounded dev-bootstrap` runs the machine-level install scripts. Project-local
+`agent/scripts/bounded-init` runs the machine-level install scripts. Project-local
 `bounded init` selects one host and copies only its adapter. Shared run state
 lives in the project's `.bounded/` directory, owned by no host (ADR 2026-035).
 

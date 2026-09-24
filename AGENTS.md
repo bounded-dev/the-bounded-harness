@@ -44,6 +44,16 @@ rules, not just today's dozens.
   (ADR 2026-006).
 - **Canonical project commands.** Projects declare `check` / `test` /
   `build` / `lint`; look for these first in any project (ADR 2026-007).
+- **Local CLI publish.** When asked to "publish local", run
+  `npm run publish:local` from this worktree's `agent/` directory. This builds
+  and installs a snapshot through npm, then checks that `bounded` on PATH is
+  that build. Report the `bounded --version` commit and dirty marker. For an
+  agent session in another project, check `bounded --version` in that session
+  too because its PATH may differ. This does not publish to a registry or
+  update projects that already contain a local harness (ADR 2026-041).
+- **Repo experiments stay in repo scripts.** Dogfood reset, archive and model
+  probes live under `scripts/dogfood/` and are not `bounded` CLI commands or
+  part of its npm package (ADR 2026-042).
 - **Subagent roster** is minimal: `scout` (read-only), `delegate`
   (write-capable worker), `product-expert` — "the PM" (read-only + web,
   product judgment). Don't add roles ad hoc (ADR 2026-003).

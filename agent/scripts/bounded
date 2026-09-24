@@ -2,13 +2,12 @@
 # bounded — the Bounded Harness CLI. One command, subcommands for everything:
 #
 #   bounded init                    # initialize an empty project
-#   bounded dev-bootstrap           # make this harness clone live on this machine
 #   bounded --version               # show the exact installed build
 #   bounded gates <gate> [dir]      # run one artifact gate (bounded gates --list)
 #   bounded ticket                  # start a session bound to the ARCHITECT role
-#   bounded change-run [dir]\n#   bounded adopt [--cwd dir]\n#   bounded change-diff [--cwd dir]        # open the run boundary for a change run
-#   bounded dogfood-reset           # rebuild both dogfood arms
-#   bounded dogfood-archive <name>  # archive a dogfood arm's run
+#   bounded change-run [dir]        # open the boundary for a change run
+#   bounded adopt [--cwd dir]       # adopt an existing project
+#   bounded change-diff [--cwd dir] # compare a project change
 #
 # Each subcommand is its own script beside this one; this file only routes.
 # The vision (TN-26-007): install the bounded CLI, type `bounded init`, and
@@ -29,18 +28,27 @@ usage() {
 }
 
 SUB="${1:-}"
+if [[ "$SCRIPTS" == *"/node_modules/"* ]]; then
+  case "$SUB" in
+    init) shift; exec node "$SCRIPTS/../dist/src/project-init-cli.js" "$@" ;;
+    --version|-V) exec node "$SCRIPTS/print-version.mjs" ;;
+    -h|--help|help|"")
+      printf '%s\n' 'bounded — initialize a project with its own harness' \
+        '  bounded init                 show supported hosts and capabilities' \
+        '  bounded init --interactive   plan and apply in a terminal' \
+        '  bounded --version            show the installed build'
+      exit 0 ;;
+    *) echo "bounded: the installed CLI initializes projects; run project commands through .bounded/harness/scripts/bounded" >&2; exit 64 ;;
+  esac
+fi
 case "$SUB" in
-  init)            shift; if [[ "$SCRIPTS" == *"/node_modules/"* ]]; then exec node "$SCRIPTS/../dist/src/project-init-cli.js" "$@"; else exec node "$SCRIPTS/../src/project-init-cli.ts" "$@"; fi ;;
+  init)            shift; exec node "$SCRIPTS/../src/project-init-cli.ts" "$@" ;;
   --version|-V)    exec node "$SCRIPTS/print-version.mjs" ;;
-  dev-bootstrap)   shift; exec "$SCRIPTS/bounded-init" "$@" ;;
-  dev-publish)     shift; exec node "$SCRIPTS/publish-local.mjs" "$@" ;;
   compose)         shift; exec node "$SCRIPTS/../packs/compose.ts" "$@" ;;
   adopt|change-diff|capture-baseline) shift; exec node "$SCRIPTS/../packs/command.ts" "$SUB" "$@" ;;
   gates)           shift; exec "$SCRIPTS/bounded-gates" "$@" ;;
   ticket)          shift; exec "$SCRIPTS/bounded-ticket" "$@" ;;
   change-run)      shift; exec "$SCRIPTS/bounded-change-run" "$@" ;;
-  dogfood-reset)   shift; exec "$SCRIPTS/dogfood-reset" "$@" ;;
-  dogfood-archive) shift; exec "$SCRIPTS/dogfood-archive" "$@" ;;
   -h|--help|help|"") usage; [ -n "$SUB" ]; exit $? ;;
   *) echo "bounded: unknown subcommand '$SUB'" >&2; echo >&2; usage >&2; exit 64 ;;
 esac

@@ -2,14 +2,13 @@
 # bounded-init — make a freshly cloned Bounded Harness live on this machine.
 #
 #   git clone git@github.com:bounded-dev/the-bounded-harness.git
-#   cd the-bounded-harness && agent/scripts/bounded dev-bootstrap
+#   cd the-bounded-harness && agent/scripts/bounded-init
 #
 # Does everything the README used to ask you to do by hand:
 #
 #   1. every host adapter's machine-level install (`hosts/<host>/install`) —
 #      the core stays agnostic; each adapter wires its own framework
-#   2. the `bounded` command onto PATH
-#   3. npm ci, then the harness's own test suite
+#   2. npm ci, then the harness's own test suite
 #
 # Idempotent: safe to re-run after a pull, and re-running is how you pick up a
 # newly added command or adapter. It never overwrites a real file — only its
@@ -26,13 +25,9 @@ done
 AGENT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 REPO="$(cd -P "$AGENT/.." && pwd)"
 
-# The commands this harness puts on PATH. Adding one here is all it takes —
-# a contributor should not also have to remember to tell people to symlink it.
-COMMANDS=(bounded)
-
 . "$AGENT/scripts/lib/install-helpers.sh"
 
-echo "bounded dev-bootstrap: $REPO"
+echo "bounded machine bootstrap: $REPO"
 echo
 echo "Host adapters"
 # Each adapter wires its own framework; the core only walks the roster.
@@ -41,29 +36,6 @@ for inst in "$AGENT"/hosts/*/install; do
   chmod +x "$inst"
   echo "  $(basename "$(dirname "$inst")"):"
   "$inst" | sed 's/^/  /'
-done
-
-echo
-echo "Commands"
-# Pick the first writable PATH entry rather than assuming Homebrew: this has to
-# work on a machine that is not this one.
-BINDIR=""
-for d in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/bin"; do
-  case ":$PATH:" in *":$d:"*) [ -w "$d" ] && { BINDIR="$d"; break; } ;; esac
-done
-if [ -z "$BINDIR" ]; then
-  BINDIR="$HOME/.local/bin"
-  mkdir -p "$BINDIR"
-  warn "no writable PATH dir found — installed to $BINDIR; add it to your PATH"
-fi
-# Through ~/.pi/agent when the pi adapter created it (the command then tracks
-# whatever the config home points at); the clone path otherwise.
-CMDBASE="$AGENT"
-[ -L "$HOME/.pi/agent" ] && CMDBASE="$HOME/.pi/agent"
-for cmd in "${COMMANDS[@]}"; do
-  [ -f "$AGENT/scripts/$cmd" ] || { warn "$cmd missing from agent/scripts — skipped"; continue; }
-  chmod +x "$AGENT/scripts/$cmd"
-  link "$CMDBASE/scripts/$cmd" "$BINDIR/$cmd" "$cmd"
 done
 
 echo
@@ -85,12 +57,15 @@ fi
 
 cat <<EOF
 
-Ready. One command, subcommands for everything:
+Ready. Publish the CLI from this checkout with:
 
-  bounded ticket           start a pi session gated as the architect (one ticket)
-  bounded gates <gate>     run one artifact gate from any shell (bounded gates --list)
-  bounded change-run       open the run boundary for a change run
-  bounded dogfood-reset    rebuild the two dogfood arms, ready to run
+  cd agent && npm run publish:local
 
-Re-run \`bounded dev-bootstrap\` after a pull.
+For repository development, use:
+
+  agent/scripts/bounded ticket        start a pi session as the architect
+  agent/scripts/bounded gates --list  list available artifact gates
+  scripts/dogfood/reset              rebuild the dogfood arms
+
+Re-run \`agent/scripts/bounded-init\` after a pull.
 EOF

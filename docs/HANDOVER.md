@@ -132,7 +132,7 @@ the friction/iteration numbers under the new split, with friction expected at or
 near 0; mutation scores as a standing measurement rather than two hand-graded
 points; and whether the reviewer's two new crossing items catch the class of
 defect that shipped green in r15. Set the arms with
-`dogfood-reset --design-model … --worker-model …`.
+`scripts/dogfood/reset --design-model … --worker-model …`.
 
 ---
 
@@ -172,7 +172,7 @@ wrong.
 **What the next runs measure:** parallel workers (does max(TEST, BUILD) show up
 as wall clock?) and the model tiers — opus-5/sonnet-5 in the judgment seats
 against kimi-k3/k2.7 in the production seats, set per arm with
-`dogfood-reset --design-model … --worker-model …`.
+`scripts/dogfood/reset --design-model … --worker-model …`.
 
 # Earlier handover — after dogfood Run 12
 
@@ -275,7 +275,7 @@ against a live repro before their commits landed.
 ## Running a dogfood arm
 
 ```bash
-dogfood-reset                 # both arms; --bare / --harnessed for one
+scripts/dogfood/reset         # both arms; --bare / --harnessed for one
 cd ~/dev/bounded-harness-dogfood-2        # Claude Code, paste PROMPT.md
 cd ~/dev/bounded-harness-dogfood-1   # pi --model sonnet, paste PROMPT.md
 ```
@@ -284,12 +284,12 @@ Three directories, forever. `~/dev/bounded-harness-dogfood-archive` holds every 
 run as a branch, pushed to a private remote. **Pin the model explicitly** — the
 default is `kimi-k2p7-code` and it has silently claimed several runs.
 
-Archiving is automatic: `dogfood-reset` auto-saves any arm holding output to
+Archiving is automatic: `scripts/dogfood/reset` auto-saves any arm holding output to
 `auto/<arm>-<timestamp>` before wiping it, so a reset can no longer destroy a
 run. To name a run yourself:
 
 ```bash
-dogfood-archive r13-opus-harness --arm harnessed -m "one-line finding"
+scripts/dogfood/archive r13-opus-harness --arm harnessed -m "one-line finding"
 ```
 
 Either way the branch carries the produced tree plus `.run/` — the prompt used,

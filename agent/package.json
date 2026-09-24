@@ -11,13 +11,20 @@
     "agents/",
     "hosts/",
     "packs/",
-    "scripts/",
+    "scripts/bounded",
+    "scripts/bounded-change-run",
+    "scripts/bounded-gates",
+    "scripts/bounded-ticket",
+    "scripts/print-version.mjs",
     "skills/",
     "src/",
     "dist/",
     "tsconfig.json",
     "installer-lock.json",
-    "build-info.json"
+    "build-info.json",
+    "!**/*.test.ts",
+    "!**/*.test.tsx",
+    "!**/testdata/**"
   ],
   "keywords": [
     "pi-package"

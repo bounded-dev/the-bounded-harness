@@ -50,7 +50,7 @@ test('failed smoke stops reset before altering either arm', (t) => {
   const arm2 = join(dir, 'arm2');
   writeFileSync(arm1, 'preserve arm one');
   writeFileSync(arm2, 'preserve arm two');
-  const result = spawnSync('bash', [fileURLToPath(new URL('../dogfood-reset', import.meta.url)), '--smoke-models', '--design-model', 'vendor/undeployed'], {
+  const result = spawnSync('bash', [fileURLToPath(new URL('./reset', import.meta.url)), '--smoke-models', '--design-model', 'vendor/undeployed'], {
     env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DOGFOOD_1: arm1, DOGFOOD_2: arm2 }, encoding: 'utf8',
   });
   assert.equal(result.status, 1);

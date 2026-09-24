@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dogfood-archive — save one dogfood arm's run into the archive repo, forever.
 #
-#   dogfood-archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]
+#   scripts/dogfood/archive <branch-name> [--arm harnessed|bare] [--prompt PATH] [-m MSG]
 #
 # A run is only reproducible if three things are kept together, so this keeps
 # them together: the produced TREE (what the agents wrote), the PROMPT they
@@ -15,7 +15,8 @@
 set -euo pipefail
 
 ARCHIVE="${DOGFOOD_ARCHIVE:-$HOME/dev/bounded-harness-dogfood-archive}"
-HARNESS="${BOUNDED_HARNESS:-$HOME/dev/pi-harness}"
+REPO="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+HARNESS="${BOUNDED_HARNESS:-$REPO}"
 ARM_DIR=""; ARM="harnessed"; PROMPT=""; MSG=""
 NAME="${1:-}"; shift || true
 while [ $# -gt 0 ]; do

@@ -52,8 +52,8 @@ impressions:**
 ## Running one
 
 ```bash
-bounded dogfood-reset          # rebuilds both arms from the default prompt
-bounded dogfood-reset --design-model <pattern> --worker-model <pattern>
+scripts/dogfood/reset          # rebuilds both arms from the default prompt
+scripts/dogfood/reset --design-model <pattern> --worker-model <pattern>
 ```
 
 The two model flags set the harnessed arm's tiers — the judgment seats
@@ -75,7 +75,7 @@ seat was actually spawned — wasting two resets. The fix, and the rule:
   pattern is in the registry list, **not** that it serves — so a
   listed-but-undeployed model passes every gate and fails only at the
   runtime spawn. For a new tier selection use
-  `bounded dogfood-reset --smoke-models --design-model <pattern> --worker-model <pattern>`.
+  `scripts/dogfood/reset --smoke-models --design-model <pattern> --worker-model <pattern>`.
   This explicitly opts in to one short paid request per distinct configured
   tier, with a 60-second timeout, before either arm is archived or reset.
   A failed, empty or timed-out response stops the reset. Tools, extensions,
@@ -102,11 +102,11 @@ which terminal was which. Each arm's `.bounded/intended-host` records the host
 it expects; check the guard log's first `host …` line matches before a run.
 
 Two directories, one `main` branch each, no worktrees. **Runs are disposable**
-— `bounded dogfood-reset` wipes both and starts over, so copy anything worth keeping
+— `scripts/dogfood/reset` wipes both and starts over, so copy anything worth keeping
 before re-running. Past runs (1–5) live as branches in
 `~/dev/bounded-harness-dogfood-archive`.
 
-`bounded dogfood-reset` writes the operational `AGENTS.md` block from a single string
+`scripts/dogfood/reset` writes the operational `AGENTS.md` block from a single string
 and then *verifies* both arms got byte-identical prompts and blocks, failing
 loudly if not. That check is the experiment: exactly one line may differ
 between arms, the one naming what the environment offers.

@@ -189,8 +189,9 @@ completing the host workflow does not establish application completeness.
 
 ## Install
 
-Requires Node 22.18+ (`node` runs `.ts` directly) and `bounded gates` on PATH
-(`bounded dev-bootstrap` installs it beside `bounded ticket` in developer mode).
+Requires Node 22.18+ (`node` runs `.ts` directly) and project-local Bounded
+gate commands. The repository-only `agent/scripts/bounded-init` wires the
+developer machine; initialized projects carry their own adapter and commands.
 
 ```sh
 node <harness>/hosts/claude-code/install.ts <project>

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # dogfood-reset — rebuild the two dogfood arms from scratch, ready to run.
 #
-#   dogfood-reset                     # both arms, the default prompt
-#   dogfood-reset --harnessed         # ONLY the harnessed arm
-#   dogfood-reset --bare              # ONLY the bare arm
-#   dogfood-reset <prompt-file>       # any other prompt
+#   scripts/dogfood/reset                     # both arms, the default prompt
+#   scripts/dogfood/reset --harnessed         # ONLY the harnessed arm
+#   scripts/dogfood/reset --bare              # ONLY the bare arm
+#   scripts/dogfood/reset <prompt-file>       # any other prompt
 #
-#   dogfood-reset --design-model <pattern>   # the judgment seats' model
-#   dogfood-reset --worker-model <pattern>   # the production seats' model
-#   dogfood-reset --smoke-models             # opt in to a paid deployment probe
+#   scripts/dogfood/reset --design-model <pattern>   # the judgment seats' model
+#   scripts/dogfood/reset --worker-model <pattern>   # the production seats' model
+#   scripts/dogfood/reset --smoke-models             # opt in to a paid deployment probe
 #
 # The two model flags set the harnessed arm's per-project model tiers (issue
 # #13): `designModel` is what the architect and the reviewer run on,
@@ -69,9 +69,9 @@ while [ -L "$SOURCE" ]; do
   SOURCE="$(readlink "$SOURCE")"
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-AGENT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+REPO="$(cd -P "$(dirname "$SOURCE")/../.." && pwd)"
+AGENT="$REPO/agent"
 HARNESS="$AGENT"
-REPO="$(cd -P "$HARNESS/.." && pwd)"
 
 WHICH=both
 DESIGN_MODEL=""
@@ -115,7 +115,7 @@ fi
 if [ "$SMOKE_MODELS" = true ]; then
   [ "$WHICH" != bare ] || { echo "dogfood-reset: --smoke-models requires a harnessed arm" >&2; exit 2; }
   echo "dogfood-reset: smoke-checking explicit model tiers (paid provider requests; 60s limit per tier)"
-  node "$AGENT/scripts/lib/model-smoke.mjs" "$DESIGN_MODEL" "$WORKER_MODEL"
+  node "$REPO/scripts/dogfood/model-smoke.mjs" "$DESIGN_MODEL" "$WORKER_MODEL"
 fi
 
 PROMPT_SRC="${ARGS[0]:-$REPO/docs/dogfood/subscription-billing-prompt.md}"
@@ -177,7 +177,7 @@ autosave() {
   if [ -f "$dir/spec.md" ] || [ -n "$(find "$dir/src" "$dir/tests" -name '*.ts' 2>/dev/null | head -1)" ]; then
     local name="auto/${arm}-$(date -u +%Y%m%dT%H%M%SZ)"
     echo "dogfood-reset: $arm arm has output — archiving to '$name' before wiping"
-    "$(dirname "$0")/dogfood-archive" "$name" --arm "$arm" \
+    "$REPO/scripts/dogfood/archive" "$name" --arm "$arm" \
       -m "Auto-archived by dogfood-reset before wiping the $arm arm." \
       || echo "dogfood-reset: WARNING — archive failed; the arm was NOT wiped" >&2
   fi
@@ -437,5 +437,5 @@ $MODEL_SUMMARY
 
   Paste the prompt from: $RENDERED_PROMPT
 
-Runs are disposable — re-run dogfood-reset to start over.
+Runs are disposable — re-run scripts/dogfood/reset to start over.
 EOF
