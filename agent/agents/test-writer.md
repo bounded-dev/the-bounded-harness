@@ -50,9 +50,12 @@ Two constraints frame the work, and they are not optional:
 - **"Clean in your zone" is not "the project compiles".** The tool distinguishes
   the two and never says `OK` over a red project. Report what it actually told
   you. Only the gates speak for the project, and the architect runs them.
-- **Work from the spec + contract in the prompt.** Import types and ports from
-  the contract paths only. The contract is the typed surface; the spec is the
-  behavior.
+- **Work from the spec + contract in the prompt.** The contract is the typed
+  surface; the spec is the behavior. Read the contract, then import runtime
+  values from its sibling implementation module in tests. A declaration-only
+  contract class is a different nominal identity and cannot construct the
+  values the implementation accepts. Reading the implementation remains
+  forbidden.
 - **Enumerate; don't free-associate.** Edge cases found by inspiration are the
   ones you happened to think of. Walk the spec and, for each operation, work
   through these axes deliberately — most yield a test, some yield nothing, and
@@ -142,3 +145,39 @@ floor: write one rejection per axis the validity rule actually has.
 test file: it throws during import, before any test runs, and the whole file
 becomes a wrong-reason failure. Build fixtures inside `test()` or
 `beforeEach`.
+
+## Patterns to use before the first draft
+
+- **Make fixtures lazy and honest.** Define factory functions at module level;
+  call parsers inside a test or `beforeEach`. Narrow an optional result with a
+  throwing helper, never `!` or a cast:
+
+  ```ts
+  function required<T>(value: T | undefined, label: string): T {
+    if (value === undefined) throw new Error(`fixture: ${label} was absent`);
+    return value;
+  }
+
+  test("an accepted code keeps its value", () => {
+    const code = required(Code.parse("ABC"), "accepted code");
+    expect(code.value).toBe("ABC");
+  });
+  ```
+
+- **Narrow array members the same way.** `expect(rows[0]).toBeDefined()` does
+  not narrow `rows[0]` for the next statement. Use `required(rows[0], "first
+  row")` when the assertion needs that member. Keep optional object members
+  truly absent in fixtures when the spec distinguishes absence from a property
+  whose value is `undefined`; use a conditional spread rather than always
+  assigning the key.
+- **Test UI through a user's controls.** With Testing Library, select by role
+  and accessible name, change a field with `fireEvent.change`, and press a
+  button with `fireEvent.click`. For a `<select>`, choose by visible option
+  text; do not couple the test to an internal value attribute. Narrow an
+  `HTMLElement` with `instanceof HTMLInputElement` or
+  `HTMLSelectElement` before reading `.value`. Keep UI fixtures behind a
+  provider that fakes the contract's network port.
+- **Finish with the scoped `typecheck` tool.** Fix diagnostics in `tests/**`;
+  report foreign error counts to the architect without reading or guessing at
+  implementation. Tell the architect whenever tests changed after a red so it
+  can establish red again.

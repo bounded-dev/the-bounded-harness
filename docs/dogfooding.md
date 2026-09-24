@@ -27,6 +27,10 @@ What that still does **not** cover, said plainly:
 - **A test-quality floor.** Mutation score is measured per run; nothing gates
   on it.
 
+Run 30 is the first observed project-local init into a multi-layer CRM. It
+supersedes the single-component scope note above for new runs; its delivery
+gates remain blocked, so it does not yet establish end-to-end delivery.
+
 Read the guard log (`<project>/.bounded/guard-log.jsonl`) after each run: `block`
 verdicts are drift the guards caught; `pass` verdicts prove a guard ran.
 
@@ -153,3 +157,4 @@ gets a new file and a row here.
 | 27 | [opus/sonnet vs kimi, both harnessed — the gates hold under a weak worker](dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md) |
 | 28 | [DeepSeek V4, harnessed on pi — a third open lineage, delivered clean](dogfood/runs/run-26-028-deepseek-router-harnessed.md) |
 | 29 | [A non-technical prompt, both arms — green ≠ usable (UI+service+persistence)](dogfood/runs/run-26-029-non-technical-ui-service-persistence.md) |
+| 30 | [Project-local init to a small-team CRM — red shadow blocked](dogfood/runs/run-26-030-project-local-crm-init.md) |

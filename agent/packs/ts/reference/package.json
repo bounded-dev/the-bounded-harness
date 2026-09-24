@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit && vitest run",
-    "test": "vitest run"
+    "check": "tsc --noEmit && vitest run --exclude=\"**/.bounded/**\"",
+    "test": "vitest run --exclude=\"**/.bounded/**\""
   },
   "dependencies": {
     "zod": "4.6.4"

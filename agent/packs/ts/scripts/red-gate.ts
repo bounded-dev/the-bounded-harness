@@ -55,6 +55,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { Project } from "ts-morph";
 import {
   boundaryRemedyLines,
   calledNames,
@@ -74,6 +75,8 @@ import {
   scaffoldContract,
   skeletonPathFor,
   componentTypeNames,
+  serviceRuntimeTargets,
+  shippedServiceRuntimeSource,
 } from "./scaffold-contract.ts";
 import { computeManifest } from "./checksum-gate.ts";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.ts";
@@ -235,6 +238,19 @@ function classifySuite(run: RunTestsResult): GateResult {
 export function classifyRed(run: RunTestsResult, tsc: TypecheckResult): GateResult {
   const suite = classifySuite(run);
   const types = routeTypecheck(tsc.diagnostics);
+
+  if (!tsc.ok && types.errorCount === 0) {
+    return {
+      code: 1,
+      verdict: "block",
+      summary: "typecheck did not complete",
+      lines: [
+        "red-gate: FAIL — typecheck did not complete; a red requires a type-clean project",
+        ...tsc.diagnostics.map((line) => `  typecheck: ${line}`),
+      ],
+      detail: { reason: "typecheck-failed", diagnostics: tsc.diagnostics },
+    };
+  }
 
   if (types.errorCount === 0) {
     return suite.code === 0
@@ -499,9 +515,65 @@ export function materializeShadowProject(cwd: string, plan: RedGateProjectPlan):
       mkdirSync(dirname(errors), { recursive: true });
       writeFileSync(errors, ERRORS_MODULE_SOURCE, "utf8");
     }
+
+    // Recreate shipped, contract-triggered support code from the pack. It is
+    // neither a business implementation nor a live-tree copy: the same frozen
+    // contract and canonical source produce the same file in both projects.
+    for (const target of serviceRuntimeTargets(source, join(dir, rel))) {
+      const within = relative(dir, target);
+      if (within === ".." || within.startsWith(`..${sep}`) || resolve(target) === resolve(dir)) {
+        throw new Error(`red-gate: generated support path escapes the shadow project: ${rel}`);
+      }
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, shippedServiceRuntimeSource(), "utf8");
+    }
   }
 
   return dir;
+}
+
+/**
+ * A contract can borrow the inferred type of a value that the builder adds to
+ * its sibling implementation. The shadow skeleton intentionally lacks that
+ * extra value. Accept only the resulting missing-export diagnostic, and only
+ * after the full live project typechecks. No declaration or `any` stand-in is
+ * inserted into the shadow: tests still execute only against throwing code.
+ */
+export function isForwardTypeImportDiagnostic(cwd: string, diagnostic: string): boolean {
+  const match = /^(.+\.contract\.ts)\((\d+),\d+\): error TS2724: '\"([^\"]+)\"' has no exported member named '([^']+)'\./.exec(diagnostic);
+  if (!match) return false;
+  const [, contractRel, lineText, quotedModule, name] = match;
+  if (!contractRel || !lineText || !quotedModule || !name) return false;
+  const contract = resolve(cwd, contractRel);
+  if (!contract.startsWith(`${resolve(cwd)}${sep}`) || !existsSync(contract)) return false;
+  const sibling = `./${contractRel.split("/").at(-1)!.replace(/\.contract\.ts$/, ".js")}`;
+  if (quotedModule !== sibling) return false;
+  const implementation = resolve(dirname(contract), sibling.replace(/\.js$/, ".ts"));
+  if (!existsSync(implementation)) return false;
+
+  const project = new Project({ useInMemoryFileSystem: true });
+  const contractAst = project.createSourceFile("contract.ts", readFileSync(contract, "utf8"));
+  const line = Number(lineText);
+  const forwardImport = contractAst.getImportDeclarations().some((declaration) =>
+    declaration.isTypeOnly() && declaration.getModuleSpecifierValue() === sibling &&
+    declaration.getNamedImports().some((named) =>
+      named.getName() === name && named.getNameNode().getStartLineNumber() === line,
+    ),
+  );
+  if (!forwardImport) return false;
+
+  const implementationAst = project.createSourceFile("implementation.ts", readFileSync(implementation, "utf8"));
+  return implementationAst.getExportedDeclarations().has(name);
+}
+
+export async function typecheckShadowWithForwardImports(cwd: string, shadow: string): Promise<TypecheckResult> {
+  const shadowResult = await typecheck(shadow, gateTypecheckOptionsFromEnv());
+  if (shadowResult.errorCount === 0 || shadowResult.diagnostics.length === 0) return shadowResult;
+  if (!shadowResult.diagnostics.every((line) => isForwardTypeImportDiagnostic(cwd, line))) return shadowResult;
+  const liveResult = await typecheck(cwd, gateTypecheckOptionsFromEnv());
+  return liveResult.ok && liveResult.errorCount === 0
+    ? { ok: true, errorCount: 0, diagnostics: [] }
+    : liveResult;
 }
 
 /**
@@ -623,7 +695,7 @@ export async function runRedGate(cwd: string): Promise<GateResult> {
 
   const [run, tsc, testLint] = await Promise.all([
     runTests(dir, gateOptionsFromEnv()),
-    typecheck(dir, gateTypecheckOptionsFromEnv()),
+    typecheckShadowWithForwardImports(cwd, dir),
     // Escape hatches in TEST sources: a suite that silences the type
     // checker can assert its way past anything, and Run 10's helpers used
     // `!` freely because only src/** was watched. Checked here because this

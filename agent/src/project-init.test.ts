@@ -60,6 +60,8 @@ describe("project-local initialization", () => {
     const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf8")) as { scripts: Record<string, string>; dependencies: Record<string, string> };
     expect(pkg.dependencies["@trpc/server"]).toBe("11.18.0");
     expect(pkg.scripts["build:api"]).toBeDefined();
+    expect(pkg.scripts["check"]).toContain('--exclude="**/.bounded/**"');
+    expect(pkg.scripts["test"]).toContain('--exclude="**/.bounded/**"');
     expect(existsSync(join(target, "tsconfig.api.json"))).toBe(true);
     expect(existsSync(join(target, ".bounded/harness/packs/ts-service"))).toBe(true);
   });

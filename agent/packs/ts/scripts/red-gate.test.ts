@@ -18,15 +18,20 @@ import {
   classifyRed,
   collectRedGateSources,
   isNotImplementedFailure,
+  isForwardTypeImportDiagnostic,
   materializeShadowProject,
   redGateProjectPlan,
+  runRedGate,
   SHADOW_RELATIVE,
   shadowProjectDir,
   testsTreeHash,
+  typecheckShadowWithForwardImports,
 } from "./red-gate.ts";
 import type { RunTestsResult } from "./run-tests.ts";
 import type { TypecheckResult } from "./typecheck.ts";
 import { readGuardLog } from "../../../src/guard-log.ts";
+import { applyInit, planInit } from "../../../src/project-init.ts";
+import { runRecordDesignReview } from "./design-review.ts";
 
 // --- vitest-JSON fixture builders --------------------------------------------
 
@@ -201,6 +206,15 @@ describe("classifyRed", () => {
     const r = classifyRed(run({ total: 0 }), TYPE_CLEAN);
     expect(r.code).toBe(1);
     expect(r.lines[0]).toMatch(/no tests ran/);
+  });
+
+  test("a compiler failure without TS diagnostics cannot pass red", () => {
+    const r = classifyRed(
+      run({ total: 1, failed: 1, results: [{ name: "a", status: "failed", message: NI }] }),
+      { ok: false, errorCount: 0, diagnostics: ["compiler exited before reporting diagnostics"] },
+    );
+    expect(r).toMatchObject({ code: 1, verdict: "block", detail: { reason: "typecheck-failed" } });
+    expect(r.lines.join("\n")).toContain("compiler exited before reporting diagnostics");
   });
 
   // --- #7: catch test-file type errors at TEST, not at the false green -------
@@ -531,6 +545,126 @@ describe("materializeShadowProject", () => {
     expect(readFileSync(join(live, "src", "money", "money.ts"), "utf8")).toContain("static parse() { return undefined; }");
   });
 });
+
+describe("contract-triggered support and forward types", () => {
+  const live = mkdtempSync(join(tmpdir(), "pi-red-forward-"));
+  mkdirSync(join(live, "src", "api"), { recursive: true });
+  mkdirSync(join(live, "tests"), { recursive: true });
+  writeFileSync(join(live, "src/api/api.contract.ts"),
+    'import type { Ack } from "./service-runtime.js";\n' +
+    'import type { serviceRouter } from "./api.js";\n' +
+    'export type ServiceRouter = typeof serviceRouter;\n' +
+    'export declare function submit(): Ack;\n');
+  writeFileSync(join(live, "src/api/api.ts"), "export const serviceRouter = { submit: true };\n");
+  writeFileSync(join(live, "tests/api.test.ts"), "// pending\n");
+  afterAll(() => rmSync(live, { recursive: true, force: true }));
+
+  test("regenerates the canonical service runtime without copying the business implementation", () => {
+    const plan = redGateProjectPlan(collectRedGateSources(live));
+    expect(plan.copy).not.toContain("src/api/api.ts");
+    const shadow = materializeShadowProject(live, plan);
+    expect(readFileSync(join(shadow, "src/api/service-runtime.ts"), "utf8"))
+      .toBe(readFileSync(join(import.meta.dirname, "../api/service-runtime.ts"), "utf8")
+        .replace(/^/, "// GENERATED from packs/ts/api/service-runtime.ts by packs/ts/scripts/scaffold-contract.ts — do not edit.\n"));
+    expect(readFileSync(join(shadow, "src/api/api.ts"), "utf8"))
+      .not.toContain("serviceRouter = { submit: true }");
+  });
+
+  test("recognizes only a type-only forward import of a real sibling export", () => {
+    const matching = 'src/api/api.contract.ts(2,15): error TS2724: \'"./api.js"\' has no exported member named \'serviceRouter\'. Did you mean \'ServiceRouter\'?';
+    expect(isForwardTypeImportDiagnostic(live, matching)).toBe(true);
+    expect(isForwardTypeImportDiagnostic(live, matching.replace("(2,15)", "(4,15)"))).toBe(false);
+    expect(isForwardTypeImportDiagnostic(live, matching.replace("serviceRouter'.", "missing'."))).toBe(false);
+    expect(isForwardTypeImportDiagnostic(live, matching.replace("TS2724", "TS2307"))).toBe(false);
+  });
+
+  test("accepts the forward type only when the live project typechecks", async () => {
+    writeFileSync(join(live, "package.json"), '{"type":"module"}\n');
+    writeFileSync(join(live, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
+      include: ["src/**/*.ts", "tests/**/*.ts"],
+    }));
+    symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(live, "node_modules"), "dir");
+    const impl = join(live, "src/api/api.ts");
+    const original = readFileSync(impl, "utf8");
+    writeFileSync(impl, 'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
+    try {
+      // The real project has the same shipped support file as the shadow.
+      writeFileSync(join(live, "src/api/service-runtime.ts"),
+        readFileSync(join(import.meta.dirname, "../api/service-runtime.ts"), "utf8"));
+      const shadow = materializeShadowProject(live, redGateProjectPlan(collectRedGateSources(live)));
+      expect(await typecheckShadowWithForwardImports(live, shadow)).toMatchObject({ ok: true, errorCount: 0 });
+
+      writeFileSync(impl, original + "missingName();\n");
+      const blocked = await typecheckShadowWithForwardImports(live, shadow);
+      expect(blocked.ok).toBe(false);
+      expect(blocked.diagnostics.join("\n")).toContain("missingName");
+    } finally {
+      writeFileSync(impl, original);
+    }
+  });
+
+  test("a real red run passes with generated support and a verified forward type", async () => {
+    writeFileSync(join(live, "package.json"), '{"type":"module"}\n');
+    writeFileSync(join(live, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true },
+      include: ["src/**/*.ts", "tests/**/*.ts"],
+    }));
+    if (!existsSync(join(live, "node_modules"))) {
+      symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(live, "node_modules"), "dir");
+    }
+    writeFileSync(join(live, "src/api/service-runtime.ts"),
+      readFileSync(join(import.meta.dirname, "../api/service-runtime.ts"), "utf8"));
+    writeFileSync(join(live, "src/api/api.ts"),
+      'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
+    writeFileSync(join(live, "tests/api.test.ts"),
+      'import { test } from "vitest";\nimport { submit } from "../src/api/api.js";\ntest("submit waits for implementation", () => { submit(); });\n');
+    const result = await runRedGate(live);
+    expect(result).toMatchObject({ code: 0, verdict: "pass" });
+    expect(result.summary).toContain("NotImplemented failure");
+    expect(readFileSync(join(live, ".bounded/shadow-red/src/api/api.ts"), "utf8"))
+      .not.toContain("serviceRouter = { submit: true }");
+  });
+});
+
+test("project-local init, design freeze, inferred router re-freeze, and red use the copied harness", async () => {
+  const dir = createTempDir(join(tmpdir(), "bounded-red-init-"));
+  tmpDirs.push(dir);
+  const selected = ["ts-web", "ts-service"];
+  const plan = await planInit(dir, "claude-code", selected);
+  await applyInit(dir, "claude-code", selected, plan.digest);
+  symlinkSync(join(import.meta.dirname, "../../../node_modules"), join(dir, "node_modules"), "dir");
+  writeFileSync(join(dir, "src/ui/app.tsx"), "export function App() { return null; }\n");
+  writeFileSync(join(dir, "spec.md"), "# Service\n\nSubmit returns an acknowledgement.\n");
+  const contract = join(dir, "src/api/api.contract.ts");
+  const base = 'export declare function submit(): void;\n';
+  writeFileSync(contract, base);
+  const copied = join(dir, ".bounded/harness/scripts/bounded");
+  const gate = (name: string) => spawnSync("bash", [copied, "gates", name, dir], { cwd: dir, encoding: "utf8" });
+
+  expect(runRecordDesignReview(dir, []).code).toBe(0);
+  const firstFreeze = gate("design-gate");
+  expect(firstFreeze.status, firstFreeze.stdout + firstFreeze.stderr).toBe(0);
+  expect(existsSync(join(dir, ".bounded/contract-checksums.json"))).toBe(true);
+
+  writeFileSync(join(dir, "src/api/api.ts"),
+    'import type { Ack } from "./service-runtime.js";\nexport const serviceRouter = { submit: true };\nexport function submit(): Ack { return { outcome: "applied" }; }\n');
+  writeFileSync(contract,
+    'import type { Ack } from "./service-runtime.js";\n' +
+    'import type { serviceRouter } from "./api.js";\n' +
+    'export type ServiceRouter = typeof serviceRouter;\n' +
+    'export declare function submit(): Ack;\n');
+  mkdirSync(join(dir, "tests"));
+  writeFileSync(join(dir, "tests/api.test.ts"),
+    'import { test } from "vitest";\nimport { submit } from "../src/api/api.js";\ntest("submit waits for implementation", () => { submit(); });\n');
+  expect(runRecordDesignReview(dir, []).code).toBe(0);
+  const secondFreeze = gate("design-gate");
+  expect(secondFreeze.status, secondFreeze.stdout + secondFreeze.stderr).toBe(0);
+  const red = gate("red-gate");
+  expect(red.status, red.stdout + red.stderr).toBe(0);
+  expect(red.stdout).toContain("NotImplemented failure");
+  expect(readGuardLog(dir).at(-1)).toMatchObject({ guard: "red-gate", verdict: "pass" });
+}, 90_000);
 
 // --- TSX in the shadow (TN-26-006 A1) ---------------------------------------
 //
