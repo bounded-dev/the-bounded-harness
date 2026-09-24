@@ -129,9 +129,9 @@ describe("the registry and the path policy agree", () => {
 
   // A step of design_gate (ADR 2026-019) and the check the delivered project
   // runs on its own: reachable from a shell, never offered to a role.
-  test("the CLI-only entries are scaffold and surface-check", () => {
+  test("the CLI-only entries are handoff-publish, scaffold and surface-check", () => {
     const cliOnly = gates.filter((g) => g.tool === undefined).map((g) => g.name).sort();
-    expect(cliOnly).toEqual(["scaffold", "surface-check"]);
+    expect(cliOnly).toEqual(["handoff-publish", "scaffold", "surface-check"]);
   });
 });
 

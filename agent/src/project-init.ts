@@ -179,8 +179,10 @@ function localizeInstructions(harnessRoot: string, host: InitHost): void {
         .replace(/with `bounded compose[^`]+`/g, "during initialization")
         .replace(/using `bounded compose[^`]+` \(also select\n[^\n]+\)/g, "during initialization")
         .replace(/`bounded compose[^`]+`/g, "the committed capability selection from initialization")
-        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline)\b/g, "bash .bounded/harness/scripts/bounded $1");
-      if (host === "pi") rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
+        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff)\b/g, "bash .bounded/harness/scripts/bounded $1");
+      if (host === "pi" || path === "team-lead/SKILL.md") {
+        rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
+      }
       if (rendered !== original) writeFileSync(absolute, rendered);
     }
   }
@@ -406,7 +408,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   copyTree(join(agentRoot, "skills"), join(harnessRoot, "skills"), omit);
   copyTree(join(agentRoot, "agents"), join(harnessRoot, "agents"), omit);
   mkdirSync(join(harnessRoot, "scripts"), { recursive: true });
-  for (const script of ["bounded-gates", "bounded-change-run"]) {
+  for (const script of ["bounded-gates", "bounded-change-run", "bounded-handoff"]) {
     copyFileSync(join(agentRoot, "scripts", script), join(harnessRoot, "scripts", script));
   }
   const gatesScript = join(harnessRoot, "scripts", "bounded-gates");
@@ -419,9 +421,10 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "set -euo pipefail", 'DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
     'SUB="${1:-}"', 'case "$SUB" in',
     '  gates) shift; exec "$DIR/bounded-gates" "$@" ;;',
+    '  handoff) shift; exec "$DIR/bounded-handoff" "$@" ;;',
     '  change-run) shift; exec "$DIR/bounded-change-run" "$@" ;;',
     '  adopt|change-diff|capture-baseline) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;',
-    '  *) echo "bounded: supported project commands: gates, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
+    '  *) echo "bounded: supported project commands: gates, handoff, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
     'esac', '',
   ].join("\n"));
   mkdirSync(join(harnessRoot, "packs"), { recursive: true });

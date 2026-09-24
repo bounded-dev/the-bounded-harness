@@ -454,6 +454,7 @@ function finishDesignGate(
 ): DesignGateResult {
   const verdict = classifyDesignGate(steps);
   const failed = steps.find((s) => s.code !== 0);
+  const frozenDesign = failed === undefined ? readReviewed(cwd) : undefined;
   const detail = {
     steps: steps.map((s) => ({
       step: s.step,
@@ -464,6 +465,7 @@ function finishDesignGate(
     ms: steps.reduce((sum, s) => sum + s.ms, 0),
     ...(review !== undefined ? { review } : {}),
     ...(failed !== undefined ? { failed: failed.step, route: "architect" } : {}),
+    ...(frozenDesign?.ok ? { frozenDesign: frozenDesign.reviewed } : {}),
     ...extra,
   };
   logGuardEvent(cwd, { guard: GUARD, verdict: verdict.verdict, summary: verdict.summary, detail });

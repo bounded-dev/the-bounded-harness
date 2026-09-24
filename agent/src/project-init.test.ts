@@ -89,6 +89,10 @@ describe("project-local initialization", () => {
     expect(readFileSync(join(target, "AGENTS.md"), "utf8")).toContain(".bounded/harness/");
     const stageSkill = readFileSync(join(target, ".bounded/harness/skills/developer-stage/SKILL.md"), "utf8");
     expect(stageSkill).not.toContain("bounded compose");
+    expect(existsSync(join(target, ".bounded/harness/scripts/bounded-handoff"))).toBe(true);
+    const leadSkill = readFileSync(join(target, ".bounded/harness/skills/team-lead/SKILL.md"), "utf8");
+    expect(leadSkill).toContain("bash .bounded/harness/scripts/bounded handoff check");
+    expect(leadSkill).toContain("bash .bounded/harness/scripts/bounded gates handoff-publish");
     const architectSource = readFileSync(join(target, ".bounded/harness/agents/architect.md"), "utf8");
     expect(architectSource).not.toContain("~/.pi/agent");
     expect(architectSource).toContain("bash .bounded/harness/scripts/bounded change-run");

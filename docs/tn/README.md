@@ -27,3 +27,4 @@ note, born from a GitHub issue.
 | [TN-26-007](TN-26-007-agent-agnostic-harness.md) | The agent-agnostic harness — one deterministic CLI, any agent framework | draft |
 | [TN-26-008](TN-26-008-gate-verified-reference-components.md) | Gate-verified reference components — what "good" looks like, as code the agent copies | draft |
 | [TN-26-009](TN-26-009-composition-is-a-commitment.md) | Composition is a commitment — each pack obligates its own layer | draft |
+| [TN-26-011](TN-26-011-dependent-ticket-handoffs.md) | Dependent tickets: frozen design as a handoff | draft |

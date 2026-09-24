@@ -4,6 +4,7 @@
 #   bounded init                    # initialize an empty project
 #   bounded --version               # show the exact installed build
 #   bounded gates <gate> [dir]      # run one artifact gate (bounded gates --list)
+#   bounded handoff check <receipt.json> <producer-ref>
 #   bounded ticket                  # start a session bound to the ARCHITECT role
 #   bounded change-run [dir]        # open the boundary for a change run
 #   bounded adopt [--cwd dir]       # adopt an existing project
@@ -47,6 +48,7 @@ case "$SUB" in
   compose)         shift; exec node "$SCRIPTS/../packs/compose.ts" "$@" ;;
   adopt|change-diff|capture-baseline) shift; exec node "$SCRIPTS/../packs/command.ts" "$SUB" "$@" ;;
   gates)           shift; exec "$SCRIPTS/bounded-gates" "$@" ;;
+  handoff)         shift; exec "$SCRIPTS/bounded-handoff" "$@" ;;
   ticket)          shift; exec "$SCRIPTS/bounded-ticket" "$@" ;;
   change-run)      shift; exec "$SCRIPTS/bounded-change-run" "$@" ;;
   -h|--help|help|"") usage; [ -n "$SUB" ]; exit $? ;;

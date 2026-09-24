@@ -145,6 +145,15 @@ const patternsOf = (args: GateArgs): readonly string[] | undefined => {
 
 export const gates: readonly GateCommand[] = [
   {
+    name: "handoff-publish",
+    description: "Publish a revision-bound handoff receipt after design-gate has frozen and the architect has committed the design. The receipt lets a dependent ticket start before implementation finishes.",
+    flags: [{ name: "producer", kind: "string", required: true, description: "The producing ticket's identity." }],
+    async run(cwd, args) {
+      const { runHandoffPublish } = await import("./scripts/handoff-publish.ts");
+      return runHandoffPublish(cwd, argString(args, "producer") ?? "");
+    },
+  },
+  {
     name: "contract-purity",
     tool: "contract_purity",
     promptSnippet: "Gate the contracts: declaration-only, no naked primitives.",

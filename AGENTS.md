@@ -109,6 +109,9 @@ v2). Use the `issue-tracking` skill for anything involving issues, boards, or
 work status. Temporary agent working files live in the repo's `.agent-state/`
 (gitignored).
 
+For a requirement spanning dependent tickets, use the `team-lead` skill. It
+keeps ticket design with each architect and tracks reviewed design handoffs.
+
 > Revisit the issue-tracking skill as the development-workflow (do-work-style)
 > port lands — enforcement and worktree conventions belong there, not here.
 
