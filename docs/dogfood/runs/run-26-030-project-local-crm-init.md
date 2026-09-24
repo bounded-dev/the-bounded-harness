@@ -113,3 +113,26 @@ sign-off or delivery verdict had
 appeared in the guard log at the time of this update. The parent proposed
 finishing outside the gates; that would leave the result without gate
 attestation, so it is not recorded here as a completed run.
+
+## Harness repair and project-local retry
+
+The harness repaired the shadow construction under [issue #25](https://github.com/bounded-dev/the-bounded-harness/issues/25). It now regenerates the pack's service support in the temporary red project and handles a forward, type-only reference to an implementation export when the contract and live typecheck establish that export. It still does not copy the business implementation into the shadow. The repaired harness was copied into this project's existing installation while preserving product files and its recorded composition. At 14:21 UTC, the next red-gate run passed the earlier shadow typecheck failure and reached test obligations. This is progress through the same gate, not a red verdict.
+
+That retry exposed two further issues. Thirteen UI exports were reported as unreached even though tests render them with JSX. The TypeScript pack's reachability check parsed those tests as ordinary TypeScript and omitted JSX component references. [Issue #26](https://github.com/bounded-dev/the-bounded-harness/issues/26) corrected the check. After the updated harness was copied into the project, the 14:28 UTC red-gate run reported **zero unreached exports**. It still blocked on **20 boundary obligations**, routed to the test-writer: 19 classes lack a directly asserted accepted literal in their boundary blocks, and `ConversationId` lacks a second rejected literal recognized by the gate. Several existing tests parse through a throwing helper or use computed strings. Those tests exercise behavior, but do not provide the explicit evidence this gate requires. The test-writer brief now explains the direct assertion pattern.
+
+The remaining work must proceed through the test-writer role, then red, green, mutation, sign-off and delivery gates. The earlier sign-out failure and ordinary test discovery of `.bounded/shadow-red` also remain to be resolved and checked through the normal roles. No delivery is claimed by this update.
+
+## Green phase and rule ownership
+
+The test-writer discharged the boundary obligations. At 14:42 UTC,
+`red-gate` passed with 545 expected `NotImplemented` failures in its shadow.
+The builder fixed sign-out, and the live suite passed 545 of 545 tests with a
+clean typecheck. `green-gate` then exposed two conflicts between composed
+harness rules: the web pack's client import rule also matched generated
+server imports, and the surface checker rejected an exported router value
+that the service pack requires and the contract names through an exported
+`typeof` alias. [Issue #27](https://github.com/bounded-dev/the-bounded-harness/issues/27)
+and ADR 2026-047 record the source repairs. The repaired harness files were
+copied into this project without changing product files or gate evidence.
+At this cutoff, green has not been rerun against that revision; mutation,
+sign-off and delivery remain unverified.
