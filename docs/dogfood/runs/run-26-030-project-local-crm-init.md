@@ -136,3 +136,35 @@ and ADR 2026-047 record the source repairs. The repaired harness files were
 copied into this project without changing product files or gate evidence.
 At this cutoff, green has not been rerun against that revision; mutation,
 sign-off and delivery remain unverified.
+
+## Final delivery and post-delivery boundary
+
+The resumed gate sequence completed on 24 September. `green-gate` passed with
+545 of 545 tests and a clean typecheck. Mutation scoring killed 34 of 40
+sampled mutants (85%). Sign-off recorded 11 findings and no blockers. An
+initial delivery attempt stopped while locating a dependency version; a later
+attempt passed the project check, service and web obligations, theme check,
+and production build. Its terminal `deliver: OK` event is the evidence of
+delivery, not its earlier per-step pass events. The project check excluded the
+red shadow and passed all 545 tests.
+
+A later independent review, using the updated ownership guidance, did identify
+the follow-up status issue: the UI decides whether a contact is overdue while
+the domain queue also decides when follow-up is due. It called for one domain
+decision and a UI-only display mapping. This review came after delivery and
+did not alter the delivered verdict, but it is direct evidence that the new
+review prompt raised the concern on this design.
+
+The next user-reported issue was a page refresh after pressing an Add control.
+The top-level Claude session investigated it without opening a change-run
+boundary or binding an architect role. It used unrestricted shell commands,
+wrote and removed a temporary test, and ran direct service, web and test
+probes. None of this produced a new guard-log event. One command attempted to
+append probe data to the live project data file; Claude Code's permission
+review denied it, and the session then used a throwaway file. The agent did
+not reproduce the browser symptom or make a product fix. These observations
+motivate [issue #29](https://github.com/bounded-dev/the-bounded-harness/issues/29):
+an unbound top-level session must not silently conduct change work outside
+the role and run boundary. [Issue #30](https://github.com/bounded-dev/the-bounded-harness/issues/30)
+addresses the separate change-run check that currently treats an intermediate
+delivery step as proof of completion.

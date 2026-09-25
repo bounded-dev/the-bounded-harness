@@ -29,10 +29,10 @@
 # to redraw its own boundary. Nothing inside the session can call this.
 #
 # It refuses to draw a boundary through a LIVE run: if the current log holds
-# no `deliver` pass, the last run never finished, and rotating its log would
-# void a standing red and orphan its review mid-flight. Re-entering a live run
-# after an interruption is a RESUME (`pi -c`), not a boundary — that path
-# needs the log intact. `--force` overrides, for a run being deliberately
+# no final successful `deliver` summary, the last run never finished. Rotating
+# its log would void a standing red and orphan its review mid-flight.
+# Re-entering a live run after an interruption is a RESUME (`pi -c`), not a
+# boundary — that path needs the log intact. `--force` overrides when a run is
 # abandoned.
 set -euo pipefail
 
@@ -70,19 +70,28 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 if [ -f "$LOG" ]; then
-  if grep -q '"guard":"deliver"' "$LOG" && grep '"guard":"deliver"' "$LOG" | grep -q '"verdict":"pass"'; then
+  if ! DELIVERY_STATE="$(node "$(dirname "$0")/../src/change-run-status.ts" "$LOG")"; then
+    exit 1
+  fi
+  if [ "$DELIVERY_STATE" = "malformed" ]; then
+    echo "bounded change-run: malformed guard log; refusing to rotate it" >&2
+    exit 1
+  fi
+  if [ "$DELIVERY_STATE" = "delivered" ]; then
     # Snapshot the last delivered design before the run record rotates.
     bash "$(dirname "$0")/bounded" capture-baseline --cwd "$TARGET"
-  fi
-  if ! grep -q '"guard":"deliver"' "$LOG" || ! grep '"guard":"deliver"' "$LOG" | grep -q '"verdict":"pass"'; then
+  elif [ "$DELIVERY_STATE" = "undelivered" ]; then
     if [ "$FORCE" -ne 1 ]; then
-      echo "bounded change-run: the current guard log holds no deliver pass — the last run never" >&2
+      echo "bounded change-run: the current guard log holds no final successful delivery — the last run never" >&2
       echo "  finished. Rotating its log now would void its standing red and orphan its" >&2
       echo "  review mid-flight. To CONTINUE that run, resume the session (pi -c) instead;" >&2
       echo "  to ABANDON it and start a change run anyway, re-run with --force." >&2
       exit 1
     fi
     echo "bounded change-run: --force — abandoning an undelivered run"
+  else
+    echo "bounded change-run: unrecognized delivery state; refusing to rotate the guard log" >&2
+    exit 1
   fi
   ARCHIVE_DIR="$TARGET/.bounded/guard-log-archive"
   mkdir -p "$ARCHIVE_DIR"
