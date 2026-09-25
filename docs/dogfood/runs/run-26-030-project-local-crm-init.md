@@ -4,9 +4,9 @@ This is the first observed run from an empty directory through `bounded init`
 into a multi-layer product request. The user described a small-team CRM in
 plain language; Claude Code selected the TypeScript, service and web
 capabilities, installed the project-local harness, and entered the developer
-stage. The run is **in progress, not delivered**. This record captures the
-transcripts and guard log through 12:38 UTC; later results belong in an
-append-only update here.
+stage. At the first cutoff, the run was **in progress, not delivered**. This
+record first captures the transcripts and guard log through 12:38 UTC, then
+adds later observations through final delivery and the next bug investigation.
 
 At the cutoff: 26 frozen contracts, two recorded design reviews, 31 hand-written
 test files plus two support modules, and a builder handback reporting 508
