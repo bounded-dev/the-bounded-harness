@@ -7,6 +7,7 @@
 #   bounded handoff check <receipt.json> <producer-ref>
 #   bounded ticket                  # start a session bound to the ARCHITECT role
 #   bounded change-run [dir]        # open the boundary for a change run
+#   bounded lead prepare [ticket|--new] # select a project-local ticket run
 #   bounded adopt [--cwd dir]       # adopt an existing project
 #   bounded change-diff [--cwd dir] # compare a project change
 #
@@ -51,6 +52,7 @@ case "$SUB" in
   handoff)         shift; exec "$SCRIPTS/bounded-handoff" "$@" ;;
   ticket)          shift; exec "$SCRIPTS/bounded-ticket" "$@" ;;
   change-run)      shift; exec "$SCRIPTS/bounded-change-run" "$@" ;;
+  lead)            shift; exec node "$SCRIPTS/../src/lead-cli.ts" "$@" ;;
   -h|--help|help|"") usage; [ -n "$SUB" ]; exit $? ;;
   *) echo "bounded: unknown subcommand '$SUB'" >&2; echo >&2; usage >&2; exit 64 ;;
 esac

@@ -15,23 +15,28 @@ tool, so the gates are reached through Bash — the difference is one derived
 list (`bash-policy.ts`) and one mapping (`PI_TO_CLAUDE_TOOLS` in
 `render-agents.ts`), both pinned to `ROLE_TOOLS` by drift tests.
 
-**Status: fixture-tested and exercised end to end.** Fixture tests spawn the
-hook and installer against Claude Code hook payloads. Live developer-stage
+**Status: the developer stage has been exercised; the new lead entry has not
+yet had a live run.** Fixture tests spawn the existing pipeline hook and
+installer against Claude Code hook payloads. Live developer-stage
 runs delivered in [Run 25](../../../docs/dogfood/runs/run-26-025-the-first-claude-code-harness-run.md),
 [Run 27](../../../docs/dogfood/runs/run-26-027-opus-vs-kimi-both-harnessed.md), and
 [Run 29](../../../docs/dogfood/runs/run-26-029-non-technical-ui-service-persistence.md).
 Run 29 also exposed missing shared-service delivery despite green gates;
 completing the host workflow does not establish application completeness.
+The lead-to-nested-architect path is implemented from documented Claude Code
+capabilities and still needs a live run before its behavior can be claimed.
 
 ## Files
 
 | file | what |
 |---|---|
-| `path-gate-hook.ts` | The `PreToolUse` hook. Reads the call as JSON on stdin; prints a deny decision, an allow that rewrites an allowed `bounded gates …` to `BOUNDED_HOST=claude-code BOUNDED_DEV_STAGE_ROLE=<role> bounded gates …`, or nothing. `--role <role>` binds; without it the role comes from `.bounded/dev-stage-role`. |
+| `bootstrap-hook.ts` | Dependency-free project entry. Until setup completion and both dependency trees are present it admits exact setup at the project root and confines local reads to that project; afterward it invokes the full hook. |
+| `path-gate-hook.ts` | The `PreToolUse` hook. Reads the call as JSON on stdin; prints a deny decision, a rewritten local command, or nothing. `--role <role>` binds a subagent. A project-local main session defaults to the read-only lead; the global installer retains the legacy `.bounded/dev-stage-role` fallback. |
 | `tool-map.ts` | Claude Code tool call → pi tool call(s): `Read {file_path}` → `read {path}`, `Agent {subagent_type}` → `subagent {agent}`, and so on. |
 | `bash-policy.ts` | What a role may put through Bash: `bounded gates <gate>` for the gates in its `ROLE_TOOLS`, plus `git`, `sleep`, `rm <path>` where the role holds the pi tool. Everything else refused. |
 | `render-agents.ts` | Generates `.claude/agents/<role>.md` from `agents/<role>.md`: `tools:` from `ROLE_TOOLS`, `hooks:` binding the role, the pi brief verbatim under a host preamble. |
-| `install.ts` | Writes the four agents, links the `developer-stage` skill into `.claude/skills/`, and merges the ambient hook into `.claude/settings.json`. |
+| `project-install.ts` | Adds the read-only scout, team-lead skill, and main-session lead instructions to an initialized project. |
+| `install.ts` | Writes the four developer-stage agents, links the `developer-stage` skill into `.claude/skills/`, and merges the ambient hook into `.claude/settings.json`. |
 
 ## What it enforces
 
@@ -141,28 +146,18 @@ completing the host workflow does not establish application completeness.
   they can rewrite protected files without using the file tools or their path
   gate. The Claude Bash carrier additionally refuses shell syntax and Git
   options that run external commands.
-- **The strip is for subagents.** A directly driven session (the ambient
-  hook, role from `.bounded/dev-stage-role`) has every Claude Code tool; the hook
-  refuses what it maps and ignores what it does not (`WebFetch`,
-  `WebSearch`, `TodoWrite`, …). There is no `bounded ticket` counterpart yet that
-  launches a bound architect session.
-- **The ambient hook and a role file still stack for the file tools.**
-  Frontmatter hooks and settings hooks both fire inside a subagent. If the
-  ambient hook is installed AND `.bounded/dev-stage-role` exists, every Read,
-  Edit, Write, Glob, Grep and Agent call in a subagent is judged twice — once
-  as the role its definition bound, once as the file's role — and confined to
-  the intersection (dogfood Run 6's bug, on this host). The gate CLI is no
-  longer affected: the env prefix beats the file for `sessionRole()`, so
-  `bounded gates` always runs as the bound role. **Mitigation, unverified live:**
-  if a subagent's `PreToolUse` payload carries the subagent's identity
-  (`agent_type` or `agent_id` — the SubagentStart payload does; whether
-  PreToolUse does is not documented and has not been observed), the ambient
-  hook stands down for that call: allow, nothing logged, and the
-  definition's own bound hook is the only judge. A bound hook never stands
-  down. If PreToolUse carries neither field, the stack is exactly as
-  described above, and a bound run should leave no role file in the
-  project; the installer adds the ambient hook so the direct-session case
-  works, and this is the cost.
+- **The main session has no tool strip.** In an initialized project, the
+  ambient hook judges every main-session tool as the lead and denies unknown
+  tools. In the global installer, a legacy `.bounded/dev-stage-role` still
+  selects a direct role; that ambient mode cannot strip tools it does not map.
+- **The project hook also sees subagent calls.** A generated subagent's own
+  frontmatter hook binds its role. The project settings hook stands down when
+  the `PreToolUse` payload carries `agent_id`, which identifies a child call;
+  `agent_type` alone can also describe a directly launched main session.
+  If `agent_id` is absent, the project hook applies the lead
+  policy to the subagent too and blocks its writes. This fails closed but can
+  stall the architect's loop; inspect hook payloads before claiming an end to
+  end Claude Code delivery through the new entry path.
 - **Lexical paths, as in pi.** The gate normalises paths without resolving
   symlinks. No role can create one (no `ln`, no shell), so the surface is the
   same as pi's.
@@ -188,12 +183,13 @@ developer machine; initialized projects carry their own adapter and commands.
 node <harness>/hosts/claude-code/install.ts <project>
 ```
 
-Writes `<project>/.claude/agents/{architect,test-writer,builder,reviewer}.md`,
-links `<harness>/skills/developer-stage` at
+Writes `<project>/.claude/agents/{scout,architect,test-writer,builder,reviewer}.md`,
+copies the `team-lead` skill, and links `<harness>/skills/developer-stage` at
 `<project>/.claude/skills/developer-stage` (the architect's brief opens by
 loading that skill, and Claude Code reads skills from the project's
 `.claude/skills/`, not from `~/.pi/agent/skills`), and adds the ambient hook
-and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` to
+and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` plus
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=0` to
 `<project>/.claude/settings.json`. The latter makes each reviewer and worker
 return its result to the architect before the next phase; Claude Code runs
 these roles sequentially. Other settings are preserved, and a conflicting
@@ -215,43 +211,29 @@ project's `.gitignore`, next to `.bounded/`; a clone re-runs the installer.
 
 ## Running a ticket
 
-**The developer-stage flow has delivered in Runs 25, 27 and 29** (linked
-above). The host constraints below still apply; those runs do not establish
-every hook-payload variant:
+Initialized projects open the main Claude Code session as a read-only team
+lead. The installer gives it the team-lead skill and a read-only scout
+definition. The user states the outcome or ticket without naming roles. The
+lead inspects the project, runs exact dependency setup before the first run,
+prepares the work item with `bounded lead prepare [ticket]`, and commissions an
+ordinary unnamed architect subagent. It does not edit product files.
 
-- **Claude Code subagents cannot spawn subagents.** The architect's job is
-  to commission the reviewer, the test-writer and the builder through
-  `Agent`, so the architect cannot be a subagent itself — it has to be the
-  main session: the ambient hook from `.claude/settings.json` with
-  `.bounded/dev-stage-role` saying `architect`. That session holds every Claude
-  Code tool (no strip; the hook refuses what it maps and ignores the rest).
-- **Then the stack applies to the workers.** With the ambient hook installed
-  AND that role file present, every worker the architect commissions is
-  judged by two hooks — its own definition's (`--role builder`) and the
-  ambient one (the file's `architect`) — and confined to the intersection,
-  unless the worker's PreToolUse payload carries `agent_type` or `agent_id`,
-  in which case the ambient hook stands down (see "honest limits": this is
-  the unverified mitigation).
+Current Claude Code supports nested ordinary subagents: the architect's
+generated definition gives it `Agent`, and it can commission reviewer,
+test-writer, and builder as nested subagents. Their generated definitions
+bind each role's tools and `PreToolUse` hook. Project settings keep those
+calls in the foreground. Agent teams remain disabled; this route does not
+depend on teammate hook behavior. See the [Claude Code subagent
+documentation](https://code.claude.com/docs/en/sub-agents) for nested agent
+and definition hook behavior.
 
-With that understood:
-
-1. Install as above. Write `architect` to `<project>/.bounded/dev-stage-role`.
-2. Start Claude Code in the project as the architect: load the
-   `developer-stage` skill (installed under `.claude/skills/`) and give it
-   the ticket. Every gate is `bounded gates <gate>` through Bash; the hook
-   rewrites an allowed one to run as the architect on this host.
-3. The architect commissions the reviewer, then (after `bounded gates
-   design-gate`) the test-writer and the builder, through `Agent` with
-   `subagent_type` naming the role; each child's definition binds its own
-   role. The phase gate refuses a commission whose preconditions the guard
-   log does not show, and refuses any `subagent_type` that is not a pipeline
-   role.
-4. Read `<project>/.bounded/guard-log.jsonl` afterwards. Blocks show where the
-   gate caught something; `run-start` is the architect's first call; an
-   `error` event with `host: claude-code` says a hook run failed and whether
-   the call was refused or allowed. Delete the role file when the run is
-   over.
-
-To drive a single worker role directly instead, write that role's name to
-`.bounded/dev-stage-role` and use plain Claude Code: the ambient hook picks it up,
-with the limits above.
+The lead hook admits the project-local command
+`bash .bounded/harness/scripts/bounded gates --list` for discovery,
+`npm run bounded:setup` before a prepared run, and
+`bash .bounded/harness/scripts/bounded lead prepare [ticket|--new [ticket]]`
+for run preparation. The lead uses `--new` for a fresh work item after
+delivery, adding the number when the issue is already tracked, and omits it
+for a follow-up to the current item.
+It refuses arbitrary Bash and file edits even when an old
+`.bounded/dev-stage-role` names an architect. The shared lead policy requires
+a prepared ticket before an architect commission.

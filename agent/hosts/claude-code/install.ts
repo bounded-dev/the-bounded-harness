@@ -2,7 +2,7 @@
 //
 //   node install.ts <targetDir> [--harness-root <dir>]
 //
-// Writes the four rendered subagent definitions to <target>/.claude/agents/,
+// Writes the four developer-stage subagent definitions to <target>/.claude/agents/,
 // links the developer-stage skill into <target>/.claude/skills/ (the
 // architect's brief opens by loading it, and Claude Code reads skills from
 // the project's .claude/skills, not from ~/.pi/agent/skills), and merges the
@@ -50,8 +50,9 @@ export const DEV_STAGE_SKILL = "developer-stage";
 export const SKILL_COPY_MARKER = ".bounded-harness-generated";
 
 /** What identifies our entry in settings.json, whatever path it was installed from. */
-const HOOK_SCRIPT_NAME = "path-gate-hook.ts";
+const HOOK_SCRIPT_NAMES = ["path-gate-hook.ts", "bootstrap-hook.ts"] as const;
 const FOREGROUND_AGENTS_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS";
+const AGENT_TEAMS_ENV = "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS";
 
 type Json = Readonly<Record<string, unknown>>;
 
@@ -65,7 +66,8 @@ export type Merge =
  * Add the ambient hook and run pipeline roles in the foreground. Claude Code's
  * interactive fork mode otherwise forces Agent calls into the background, so
  * the architect cannot await a reviewer before freezing the design. Preserve
- * unrelated settings and refuse an explicit conflicting env value.
+ * unrelated settings and refuse conflicting env values. Keep agent teams off
+ * so a named nested Agent call stays an ordinary subagent.
  */
 export function mergeAmbientHook(settings: Json, command: string): Merge {
   const envRaw = settings["env"];
@@ -74,6 +76,10 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
   const foreground = env[FOREGROUND_AGENTS_ENV];
   if (foreground !== undefined && foreground !== "1") {
     return { ok: false, reason: `'env.${FOREGROUND_AGENTS_ENV}' conflicts with the developer-stage workflow` };
+  }
+  const teams = env[AGENT_TEAMS_ENV];
+  if (teams !== undefined && teams !== "0") {
+    return { ok: false, reason: `'env.${AGENT_TEAMS_ENV}' conflicts with ordinary nested agent delegation` };
   }
   const hooksRaw = settings["hooks"];
   if (hooksRaw !== undefined && !isRecord(hooksRaw)) return { ok: false, reason: "'hooks' is not an object" };
@@ -88,17 +94,21 @@ export function mergeAmbientHook(settings: Json, command: string): Merge {
     const inner = entry["hooks"];
     return (
       Array.isArray(inner) &&
-      inner.some((h) => isRecord(h) && typeof h["command"] === "string" && h["command"].includes(HOOK_SCRIPT_NAME))
+      inner.some((h) => {
+        if (!isRecord(h)) return false;
+        const command = h["command"];
+        return typeof command === "string" && HOOK_SCRIPT_NAMES.some((name) => command.includes(name));
+      })
     );
   });
-  if (present && foreground === "1") return { ok: true, value: settings, changed: false };
+  if (present && foreground === "1" && teams === "0") return { ok: true, value: settings, changed: false };
   const entry = { matcher: "", hooks: [{ type: "command", command }] };
   return {
     ok: true,
     changed: true,
     value: {
       ...settings,
-      env: { ...env, [FOREGROUND_AGENTS_ENV]: "1" },
+      env: { ...env, [FOREGROUND_AGENTS_ENV]: "1", [AGENT_TEAMS_ENV]: "0" },
       hooks: { ...hooks, PreToolUse: present ? pre : [...pre, entry] },
     },
   };

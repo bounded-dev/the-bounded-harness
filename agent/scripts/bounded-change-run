@@ -50,11 +50,15 @@ TARGET="${TARGET:-$PWD}"
 
 MANIFEST_REL=".bounded/contract-checksums.json"
 if [ -f "$TARGET/docs/tn/README.md" ]; then
-  if [[ ! "${BOUNDED_TICKET:-}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "bounded change-run: set BOUNDED_TICKET to the issue number" >&2
+  TICKET="${BOUNDED_TICKET:-}"
+  if [ -z "$TICKET" ] && [ -f "$TARGET/.bounded/installation.json" ] && [ -f "$TARGET/.bounded/active-ticket" ]; then
+    TICKET="$(cat "$TARGET/.bounded/active-ticket")"
+  fi
+  if [[ ! "$TICKET" =~ ^[1-9][0-9]*$ ]]; then
+    echo "bounded change-run: select the current issue with the team lead or set BOUNDED_TICKET" >&2
     exit 2
   fi
-  MANIFEST_REL=".bounded/tickets/$BOUNDED_TICKET/contract-checksums.json"
+  MANIFEST_REL=".bounded/tickets/$TICKET/contract-checksums.json"
 fi
 MANIFEST="$TARGET/$MANIFEST_REL"
 LOG="$TARGET/.bounded/guard-log.jsonl"

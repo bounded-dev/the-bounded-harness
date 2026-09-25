@@ -179,7 +179,7 @@ function localizeInstructions(harnessRoot: string, host: InitHost): void {
         .replace(/with `bounded compose[^`]+`/g, "during initialization")
         .replace(/using `bounded compose[^`]+` \(also select\n[^\n]+\)/g, "during initialization")
         .replace(/`bounded compose[^`]+`/g, "the committed capability selection from initialization")
-        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff|ticket)\b/g, "bash .bounded/harness/scripts/bounded $1");
+        .replace(/\bbounded (change-run|adopt|change-diff|capture-baseline|handoff|ticket|lead)\b/g, "bash .bounded/harness/scripts/bounded $1");
       if (host === "pi" || path === "team-lead/SKILL.md") {
         rendered = rendered.replace(/\bbounded gates\b/g, "bash .bounded/harness/scripts/bounded gates");
       }
@@ -286,7 +286,7 @@ function packageFor(packs: readonly string[]): ProjectPackage {
     if (name in result.devDependencies!) throw new Error(`Dependency '${name}' is both production and development`);
   }
   if (result.scripts!["bounded:setup"] !== undefined) throw new Error("Project package template reserves bounded:setup");
-  result.scripts!["bounded:setup"] = "npm ci && npm ci --prefix .bounded/harness";
+  result.scripts!["bounded:setup"] = "npm ci && npm ci --prefix .bounded/harness && node .bounded/harness/src/setup-complete.ts";
   return result;
 }
 
@@ -425,8 +425,9 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     '  handoff) shift; exec "$DIR/bounded-handoff" "$@" ;;',
     '  ticket) shift; exec "$DIR/bounded-ticket" "$@" ;;',
     '  change-run) shift; exec "$DIR/bounded-change-run" "$@" ;;',
+    '  lead) shift; exec node "$DIR/../src/lead-cli.ts" "$@" ;;',
     '  adopt|change-diff|capture-baseline) shift; exec node "$DIR/../packs/command.ts" "$SUB" "$@" ;;',
-    '  *) echo "bounded: supported project commands: gates, handoff, ticket, change-run, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
+    '  *) echo "bounded: supported project commands: gates, handoff, ticket, change-run, lead, adopt, change-diff, capture-baseline" >&2; exit 64 ;;',
     'esac', '',
   ].join("\n"));
   chmodSync(localCommand, 0o755);
@@ -451,12 +452,12 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   mkdirSync(join(stage, "docs", "tn"), { recursive: true });
   writeFileSync(join(stage, "docs", "tn", "README.md"), [
     "# Technical Notes", "",
-    "A ticket may have one Technical Note; a note always belongs to an existing issue.",
-    "Name it `TN-<issue-number>.md` and keep that name as the thinking matures.",
+    "A ticket may have one Technical Note. The lead selects its number from an existing issue tracker when available, or allocates a local number in a new project.",
+    "Name it `TN-<ticket-number>.md` and keep that name as the thinking matures.",
     "Use front matter with `issue`, `status` (`draft`, `active`, or `superseded`),",
     "and `contracts`, a list of project-relative contract files this ticket owns.",
     "A dependent ticket needs a reviewed, frozen TN before its design is published.",
-    "Set `BOUNDED_TICKET` to the issue number for ticket-specific design gates.",
+    "The team lead selects the ticket for this worktree before the architect starts; existing direct launchers may set `BOUNDED_TICKET` explicitly.",
     "Change `status: draft` to `status: active` when the reviewed design is agreed;",
     "the design gate will not freeze a draft note.",
     "A superseded TN uses a Markdown link such as `[TN-25](TN-25.md)` to each",
@@ -468,11 +469,13 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
   writeFileSync(join(stage, "AGENTS.md"), [
     "# Project agent instructions", "",
     "This project includes its own Bounded harness at `.bounded/harness/`.",
-    "Initialization uses the agent host already running. Later development follows that host's local Bounded workflow.",
-    "Run the project's `check`, `test`, `build`, and `lint` commands when present.",
-    "After a fresh clone, run `npm run bounded:setup` to install the project's and local harness's pinned dependencies.",
+    "Initialization uses the agent host already running. For later requests, the main conversation is the team lead: discuss the user's goal, inspect the project, and delegate each ticket to a bound architect. The team lead does not edit product files. A read-only scout can investigate first. The architect runs the existing design, review, test, build, and delivery loop, even for one ticket.",
+    "The user only needs to describe the product change. Select and prepare the ticket through the local lead workflow; do not ask the user to choose roles or run gate commands.",
+    host === "pi" ? "Before commissioning the architect, call `lead_prepare`. Use its `new` option for a new work item after delivery; otherwise it resumes or changes the selected ticket." : "Before commissioning the architect, run `bash .bounded/harness/scripts/bounded lead prepare`, adding `--new` for a new work item after delivery. Then delegate to the generated architect agent as an ordinary foreground subagent without a name; it runs the existing loop through nested subagents.",
+    "Run the project's `check`, `test`, `build`, and `lint` commands when present through the role that owns them.",
+    host === "pi" ? "After a fresh clone, the team lead calls `lead_setup` before the first run; the host reloads the full gates when setup completes." : "After a fresh clone, the team lead runs `npm run bounded:setup` before the first run; the next hook call loads the full gates.",
     "Use `bash .bounded/harness/scripts/bounded gates --list` to discover the local gates.",
-    "For design work, create `docs/tn/TN-<issue-number>.md` and set `BOUNDED_TICKET` to that issue number. On pi, launch with `bash .bounded/harness/scripts/bounded ticket --ticket <issue-number>`.",
+    "The architect owns `docs/tn/TN-<issue-number>.md` and its contract paths. The lead selects the current issue for this worktree before delegation.",
     `Selected capabilities: ${packs.join(", ")}.`, "",
   ].join("\n"));
   if (host === "pi") {
@@ -495,8 +498,7 @@ async function assemble(stage: string, host: InitHost, packs: readonly string[])
     "This repository contains its own Bounded harness under `.bounded/harness/`.",
     `Selected capabilities: ${packs.join(", ")}. Agent host: ${host}.`, "",
     "## After cloning", "",
-    "Run `npm run bounded:setup` to install both the project and harness dependencies from their committed lockfiles.",
-    "Then restart or trust this project in the selected agent host. The local adapter and its gates do not take effect until the host loads them.",
+    "Open this directory in its selected agent host and describe the product change. The team lead handles the ticket and setup. On a fresh clone it installs the project and harness dependencies from their committed lockfiles before starting the gated work.",
     "Run `bash .bounded/harness/scripts/bounded gates --list` to confirm the local gate command is available.",
     "The product `npm run check` becomes meaningful as the first feature is designed and built.", "",
   ].join("\n"));

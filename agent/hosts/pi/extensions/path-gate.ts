@@ -2,11 +2,12 @@
  * Path-gate extension (TN-26-001 Phase 2)
  *
  * A `tool_call` hook that enforces the developer-stage blindness matrix for a
- * pipeline role: architect / test-writer / builder. For those roles it runs
+ * pipeline role: architect / test-writer / builder / reviewer. For those roles it runs
  * the pure decision core (src/path-policy.ts via src/path-gate.ts), blocks
  * out-of-zone reads/edits/writes/searches, and records each block in the
- * target project's guard log. With no pipeline role — every normal or
- * orchestrator session — the gate is INACTIVE and every call passes through.
+ * target project's guard log. In a project-local installation, a normal root
+ * session is the read-only team lead. In the global harness a normal session
+ * remains ungated by this extension.
  *
  * It also installs a `session_start` hook that REMOVES the role's forbidden
  * tools from the model's visible toolset (pi.setActiveTools), so a directly
@@ -46,7 +47,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { dirname } from "node:path";
+import { Type } from "typebox";
+import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ambientRole,
@@ -62,6 +64,8 @@ import {
 import { CONSTRAINTS, declareHost, recordHostDeclaration } from "../../../src/host.ts";
 import type { Role } from "../../../src/path-policy.ts";
 import { knownModels } from "./model-tier.ts";
+import { decideLeadTool, isInitialSetup, isProjectLocalHarness, LEAD_PREPARE_TOOL, LEAD_SETUP_TOOL, prepareLeadRun, setupLeadProject } from "../../../src/lead-policy.ts";
+import { logGuardEvent } from "../../../src/guard-log.ts";
 
 // This file lives at <harness>/hosts/pi/extensions/path-gate.ts, so the harness
 // root (the `agent/` dir) is FOUR levels up: extensions → pi → hosts → agent.
@@ -72,6 +76,7 @@ import { knownModels } from "./model-tier.ts";
 // its own SKILL.md). A wrong depth here silently refuses every skill read; the
 // value is exported and pinned by hosts/pi/discovery.test.ts.
 export const HARNESS_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
+const PROJECT_COPY = basename(HARNESS_ROOT) === "harness" && basename(dirname(HARNESS_ROOT)) === ".bounded";
 
 /** pi holds all four: the strip, the path gate, the phase gate and the
  *  role-scoped worker views are all in-process hooks here. */
@@ -107,6 +112,53 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
 
   const fallback = boundRole ? undefined : makeFallbackResolver();
 
+  // The copied harness makes a plain project-local pi session the team lead.
+  // pi-subagents marks child processes, and pipeline children also carry a
+  // per-role loader. Neither should inherit the lead's project-wide default.
+  const leadSession = (cwd: string): boolean =>
+    PROJECT_COPY && boundRole === undefined && !isAmbientSuppressed() &&
+    process.env["PI_SUBAGENT_CHILD"] !== "1" &&
+    isProjectLocalHarness(cwd);
+  const roleFor = (cwd: string): Role | undefined =>
+    leadSession(cwd) || (boundRole === undefined && isProjectLocalHarness(cwd) &&
+      (!PROJECT_COPY || process.env["PI_SUBAGENT_CHILD"] === "1"))
+      ? undefined
+      : boundRole ?? fallback!(cwd);
+
+  if (PROJECT_COPY) pi.registerTool({
+    name: LEAD_PREPARE_TOOL,
+    label: "Prepare ticket run",
+    description: "Open or resume the active ticket's run. Pass new: true after final delivery to start another ticket; include ticket for a tracked issue or omit it for the next local number.",
+    parameters: Type.Object({
+      ticket: Type.Optional(Type.String({ description: "Positive issue number, if tracked externally" })),
+      new: Type.Optional(Type.Boolean({ description: "Start the next local work item after final delivery" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      if (!leadSession(ctx.cwd)) {
+        return { content: [{ type: "text" as const, text: "team-lead: only the project-local lead may prepare a ticket run" }], details: { ok: false } };
+      }
+      const result = prepareLeadRun(ctx.cwd, params.ticket, params.new ?? false);
+      return {
+        content: [{ type: "text" as const, text: result.ok ? result.summary : result.reason }],
+        details: result,
+      };
+    },
+  });
+
+  if (PROJECT_COPY) pi.registerTool({
+    name: LEAD_SETUP_TOOL,
+    label: "Install project dependencies",
+    description: "Before the first ticket run, install exactly the project's and local harness's lockfile-pinned dependencies.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal, _onUpdate, ctx) {
+      if (!leadSession(ctx.cwd)) {
+        return { content: [{ type: "text" as const, text: "team-lead: only the project-local lead may set up dependencies" }], details: { ok: false } };
+      }
+      const result = await setupLeadProject(ctx.cwd, signal);
+      return { content: [{ type: "text" as const, text: result.summary }], details: result };
+    },
+  });
+
   // Per-SESSION state, in the same shape as the fallback resolver above: one
   // installPathGate call is one session, so a closure is the scope this needs.
   const noteRunStart = makeRunStartRecorder();
@@ -121,8 +173,25 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
   // extension loading") — and it still fires before the first provider
   // request, so the model never sees the tool at all.
   pi.on("session_start", (_event, ctx) => {
-    const role = boundRole ?? fallback!(ctx.cwd);
-    if (!role) return; // inactive: normal session with no role
+    const role = roleFor(ctx.cwd);
+    if (!role) {
+      if (!leadSession(ctx.cwd)) {
+        // Do not advertise a project-only control in unrelated pi sessions.
+        if (PROJECT_COPY) {
+          const active = pi.getActiveTools();
+          if (active.includes(LEAD_PREPARE_TOOL) || active.includes(LEAD_SETUP_TOOL)) {
+            pi.setActiveTools(active.filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL));
+          }
+        }
+        return;
+      }
+      const active = pi.getActiveTools();
+      const kept = active.filter((name) => decideLeadTool(name, {}).allow || name === "subagent" ||
+        (name === LEAD_SETUP_TOOL && isInitialSetup(ctx.cwd)));
+      if (kept.length !== active.length) pi.setActiveTools(kept);
+      recordHostDeclaration(ctx.cwd, BOUNDED_HOST);
+      return;
+    }
     // The ambient hook stands down wherever a bound role claimed the process,
     // for exactly the reason it stands down on tool calls: otherwise a
     // subagent's toolset loses its PARENT's forbidden tools too, and a
@@ -137,18 +206,33 @@ export function installPathGate(pi: ExtensionAPI, boundRole?: Role): void {
     // Defence in depth over a gate that already refuses these calls: if the
     // host cannot strip, the session must still start and still be gated.
     try {
-      const strip = planToolStrip(role, pi.getActiveTools());
-      if (!strip) return; // already stripped (frontmatter allowlist did it)
-      pi.setActiveTools([...strip.active]);
-      recordToolStrip(ctx.cwd, role, strip);
+      const active = pi.getActiveTools();
+      const strip = planToolStrip(role, active);
+      const kept = (strip?.active ?? active).filter((name) => name !== LEAD_PREPARE_TOOL && name !== LEAD_SETUP_TOOL);
+      if (kept.length !== active.length) pi.setActiveTools([...kept]);
+      if (strip) recordToolStrip(ctx.cwd, role, strip);
     } catch {
       // The tool_call gate below is unaffected and still refuses every one.
     }
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    const role = boundRole ?? fallback!(ctx.cwd);
-    if (!role) return undefined; // inactive: normal session with no role
+    const role = roleFor(ctx.cwd);
+    if (!role) {
+      if (!leadSession(ctx.cwd)) return undefined;
+      const decision = decideLeadTool(event.toolName, event.input as Readonly<Record<string, unknown>>, ctx.cwd);
+      if (decision.allow) return undefined;
+      logGuardEvent(ctx.cwd, {
+        guard: "team-lead",
+        verdict: "block",
+        summary: decision.reason,
+        detail: { tool: event.toolName },
+      });
+      return { block: true, reason: decision.reason };
+    }
+    if (event.toolName === LEAD_PREPARE_TOOL || event.toolName === LEAD_SETUP_TOOL) {
+      return { block: true, reason: "team-lead: the architect and workers cannot redraw the run boundary" };
+    }
 
     // The first gated call is where the run demonstrably starts, so it is
     // marked before it is judged — a refused first call still started the run.

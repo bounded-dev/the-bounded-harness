@@ -23,22 +23,17 @@
 // `subagentOnlyExtensions`). The role is decided by WHICH definition loaded,
 // from outside the project, and nothing the model does can change it.
 //
-// Ambient, from `.bounded/dev-stage-role` (or BOUNDED_DEV_STAGE_ROLE), when installed
-// project-wide in `.claude/settings.json` with no `--role`. That is the same
-// weaker fallback pi has, for a session the user drives directly. Neither
-// source ⇒ the gate is inactive and every call passes.
+// Project-local, with no --role, is the read-only team lead. The role file
+// cannot silently promote that main session. Outside an initialized project,
+// `.bounded/dev-stage-role` remains the legacy ambient fallback; no role
+// there means the gate is inactive.
 //
-// Frontmatter hooks and settings hooks both fire inside a subagent, so where
-// both are installed AND a role file exists, the ambient hook applies the
-// FILE's role on top of the bound one for every tool it judges (Run 6's
-// intersection, on this host). The gate CLI itself is unaffected — it gets
-// the bound role from the env prefix above, which beats the file — but Read,
-// Edit and the rest are judged twice. Mitigation, UNVERIFIED live: if the
-// PreToolUse payload carries the subagent's identity (`agent_type` or
-// `agent_id`, as SubagentStart's does), the AMBIENT hook stands down — that
-// call is a bound subagent's, and its own definition's hook judges it. A
-// bound hook never stands down. The README says: a bound run leaves no role
-// file in the project.
+// Frontmatter and settings hooks both fire in an ordinary subagent. A
+// project-local settings hook stands down only when the payload has
+// `agent_id`, the documented child identifier. The definition's bound hook
+// then judges the call. Without `agent_id`, the lead policy applies too and
+// blocks child writes, a safe failure. `agent_type` alone is not enough: a
+// directly launched top-level `--agent` session may carry it.
 //
 // ── Failure mode: OPEN for reads, CLOSED for writes ─────────────────────────
 // A hook that crashes must not brick the session, but a gate that fails open
@@ -76,6 +71,7 @@ import { decideBash, shellWords } from "./bash-policy.ts";
 import { defaultHarnessRoot } from "./render-agents.ts";
 import { BASH_TOOL, claudeTaskModel, mapToolCall } from "./tool-map.ts";
 import { ticketWriteScope } from "../../src/ticket-design.ts";
+import { decideLeadTool } from "../../src/lead-policy.ts";
 
 /** What one hook run says back to Claude Code. Exit is always 0. */
 export interface HookOutcome {
@@ -231,6 +227,17 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     cwd = payload.cwd ?? fallbackCwd;
     const harnessRoot = flags.harnessRoot ?? defaultHarnessRoot();
 
+    // A project-local main session enters as the read-only team lead. A role
+    // file left by an older run cannot silently turn the user's next session
+    // into an architect. Explicitly bound subagent hooks still use --role.
+    if (flags.projectLocal && flags.role === undefined && payload.agentId === undefined) {
+      return { stdout: evaluateLead(payload, cwd, harnessRoot), stderr: "" };
+    }
+    if (flags.projectLocal && flags.role === undefined && payload.agentId !== undefined) {
+      // Generated child definitions carry their own tool strip and bound hook.
+      // The project hook cannot infer a teammate's role from team membership.
+      return { stdout: "", stderr: "" };
+    }
     const role = resolveRole(flags, cwd);
     if (role.kind === "none") return { stdout: "", stderr: role.note ?? "" };
     // A bound subagent's call, seen by the ambient hook: its own definition's
@@ -257,6 +264,94 @@ export function runHook(argv: readonly string[], rawStdin: string, fallbackCwd: 
     }
     return { stdout: "", stderr: `${DENY_PREFIX}: error, allowing the call: ${message}\n` };
   }
+}
+
+/** Project-local main-session policy. The architect is an ordinary bound
+ * subagent; current Claude Code supports its nested worker commissions. */
+function evaluateLead(payload: Payload, cwd: string, harnessRoot: string): string {
+  const refuse = (reason: string): string => {
+    logGuardEvent(cwd, {
+      guard: "team-lead", verdict: "block", summary: reason,
+      detail: { host: "claude-code", tool: payload.toolName },
+    });
+    return deny(reason);
+  };
+  if (payload.toolName === "Bash") {
+    const command = payload.toolInput["command"];
+    const words = typeof command === "string" ? shellWords(command) : { ok: false as const };
+    const list = words.ok && (
+      (words.argv.length === 3 && words.argv[0] === "bounded" && words.argv[1] === "gates" && words.argv[2] === "--list") ||
+      (words.argv.length === 4 && words.argv[0] === "bash" && words.argv[1] === ".bounded/harness/scripts/bounded" && words.argv[2] === "gates" && words.argv[3] === "--list")
+    );
+    if (list) {
+      return allowWith({ ...payload.toolInput,
+        command: [join(harnessRoot, "scripts", "bounded"), "gates", "--list"].map(shellQuote).join(" ") });
+    }
+    const prepare = words.ok && (
+      ((words.argv.length >= 3 && words.argv.length <= 5) && words.argv[0] === "bounded" && words.argv[1] === "lead" && words.argv[2] === "prepare") ||
+      ((words.argv.length >= 4 && words.argv.length <= 6) && words.argv[0] === "bash" && words.argv[1] === ".bounded/harness/scripts/bounded" && words.argv[2] === "lead" && words.argv[3] === "prepare")
+    );
+    if (prepare) {
+      const args = words.argv.slice(words.argv[0] === "bounded" ? 3 : 4);
+      const fresh = args[0] === "--new";
+      const ticket = fresh ? args[1] : args[0];
+      if ((!fresh && args.length > 1) || (fresh && args.length > 2) ||
+          (ticket !== undefined && !/^[1-9][0-9]*$/.test(ticket))) {
+        return refuse("team-lead: prepare accepts an optional positive ticket number or --new followed by an optional positive ticket number");
+      }
+      const decision = decideLeadTool("lead_prepare", {
+        ...(fresh ? { new: true } : {}),
+        ...(ticket === undefined ? {} : { ticket }),
+      }, cwd);
+      if (!decision.allow) return refuse(decision.reason);
+      return allowWith({ ...payload.toolInput,
+        command: [join(harnessRoot, "scripts", "bounded"), "lead", "prepare", ...args].map(shellQuote).join(" ") });
+    }
+    if (words.ok && words.argv.length === 3 && words.argv[0] === "npm" && words.argv[1] === "run" && words.argv[2] === "bounded:setup") {
+      const setup = decideLeadTool("lead_setup", {}, cwd);
+      return setup.allow ? "" : refuse(setup.reason);
+    }
+    return refuse("team-lead: Bash is limited to gate discovery in this session");
+  }
+  if (payload.toolName === "Agent" || payload.toolName === "Task") {
+    const target = payload.toolInput["subagent_type"];
+    if ((target === "scout" || target === "architect") && payload.toolInput["name"] !== undefined) {
+      return refuse(`team-lead: ${target} must run as an ordinary unnamed subagent`);
+    }
+    if ((target === "scout" || target === "architect") && (payload.toolInput["resume"] !== undefined || payload.toolInput["isolation"] !== undefined || payload.toolInput["run_in_background"] !== undefined)) {
+      return refuse(`team-lead: ${target} must start as a fresh foreground subagent`);
+    }
+  }
+  const calls = mapToolCall({ tool_name: payload.toolName, tool_input: payload.toolInput }, cwd);
+  const names = calls.length > 0 ? calls : [{ toolName: ({ WebSearch: "web_search", WebFetch: "web_fetch", Skill: "skill" } as Record<string, string>)[payload.toolName] ?? payload.toolName, input: payload.toolInput }];
+  for (const call of names) {
+    const decision = decideLeadTool(call.toolName, call.input, cwd);
+    if (!decision.allow) return refuse(decision.reason);
+  }
+  if ((payload.toolName === "Agent" || payload.toolName === "Task") && payload.toolInput["subagent_type"] === "architect") {
+    const spawn = calls.find((call) => call.toolName === "subagent");
+    if (spawn !== undefined) {
+      const plan = planModelTier(spawn.input, readDevStageModels(cwd));
+      if (plan.kind === "inject") {
+        const hostModel = claudeTaskModel(plan.model);
+        if (hostModel === undefined) {
+          const reason = `model-tier: ${plan.key} '${plan.model}' names no model this host can run — change .bounded/dev-stage-models.json or drive this ticket under pi`;
+          logGuardEvent(cwd, {
+            guard: MODEL_TIER_GUARD, verdict: "block", summary: reason,
+            detail: { role: "team-lead", kind: "unresolvable-tier", key: plan.key, model: plan.model },
+          });
+          return deny(reason);
+        }
+        logGuardEvent(cwd, {
+          guard: MODEL_TIER_GUARD, verdict: "pass",
+          summary: `${tierSummary(plan)} — as '${hostModel}' on this host`,
+          detail: { role: "team-lead", kind: "tier-injected", key: plan.key, model: plan.model, hostModel },
+        });
+        return allowWith({ ...payload.toolInput, model: hostModel });
+      }
+    }
+  }
+  return "";
 }
 
 type RoleSource = { readonly kind: "bound" | "ambient"; readonly role: Role } | { readonly kind: "none"; readonly note?: string };

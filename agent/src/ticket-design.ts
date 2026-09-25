@@ -19,6 +19,20 @@ export interface TicketWriteScope {
 const TICKET = /^[1-9][0-9]*$/;
 const CONTRACT = /^src\/(?:[a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+\.contract\.ts$/;
 
+/** The lead selects one ticket for this worktree. An explicit environment
+ * selection remains available to existing launchers and takes precedence. */
+export function activeTicketNumber(root: string): string | undefined {
+  const selected = process.env.BOUNDED_TICKET;
+  if (selected !== undefined) return TICKET.test(selected) ? selected : undefined;
+  if (!existsSync(join(root, ".bounded", "installation.json"))) return undefined;
+  try {
+    const recorded = readFileSync(join(root, ".bounded", "active-ticket"), "utf8").trim();
+    return TICKET.test(recorded) ? recorded : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function safeContract(root: string, path: string): void {
   if (!CONTRACT.test(path) || path.split("/").includes("..")) {
     throw new Error(`unsafe contract path '${path}' in ticket TN`);
@@ -77,9 +91,9 @@ function parseNote(root: string, ticket: string, checkFiles = true, requireContr
 /** Undefined only for projects created before ticket-numbered TNs. */
 export function activeTicketDesign(root: string): TicketDesign | undefined {
   if (!existsSync(join(root, "docs/tn/README.md"))) return undefined;
-  const ticket = process.env.BOUNDED_TICKET;
-  if (!ticket || !TICKET.test(ticket)) {
-    throw new Error("set BOUNDED_TICKET to the current issue number before using design gates");
+  const ticket = activeTicketNumber(root);
+  if (!ticket) {
+    throw new Error("select the current issue with the team lead or set BOUNDED_TICKET before using design gates");
   }
   const active = parseNote(root, ticket);
   for (const entry of readdirSync(join(root, "docs/tn"))) {
@@ -96,9 +110,9 @@ export function activeTicketDesign(root: string): TicketDesign | undefined {
 /** Resolve ownership for path writes, including a not-yet-created contract. */
 export function ticketWriteScope(root: string): TicketWriteScope | undefined {
   if (!existsSync(join(root, "docs/tn/README.md"))) return undefined;
-  const ticket = process.env.BOUNDED_TICKET;
-  if (!ticket || !TICKET.test(ticket)) {
-    return { contracts: [], error: "set BOUNDED_TICKET to the current issue number" };
+  const ticket = activeTicketNumber(root);
+  if (!ticket) {
+    return { contracts: [], error: "select the current issue with the team lead or set BOUNDED_TICKET" };
   }
   if (!existsSync(join(root, `docs/tn/TN-${ticket}.md`))) return { ticket, contracts: [] };
   try {
